@@ -65,6 +65,15 @@ Namespace Remote
         Private _me As MeDto
         Private _loginUtc As DateTime
         Private _ended As Integer
+        Private _moveSeq As Long
+
+        ''' <summary>
+        ''' عدّاد ترقيم أوامر الحركة **مملوك للجلسة** لا للمتحكم: البوابة تحفظ آخر رقم لكل (جلسة، كاميرا)، فلو بدأ كل متحكم جديد
+        ''' (إعادة اتصال/إعادة فتح النافذة) من الصفر لرُفضت كل حركاته بـ stale_seq بصمت حتى يتجاوز العدّاد القديم.
+        ''' </summary>
+        Friend Function NextMoveSeq() As Long
+            Return Threading.Interlocked.Increment(_moveSeq)
+        End Function
 
         ''' <summary>انتهت الجلسة (انتهاء/إبطال/خروج من مسؤول). يُرفع مرة واحدة؛ الوسيط هو رمز السبب.</summary>
         Public Event SessionEnded As Action(Of String)

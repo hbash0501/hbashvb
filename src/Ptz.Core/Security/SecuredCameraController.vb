@@ -18,6 +18,7 @@ Namespace Security
         Private ReadOnly _target As String
         Private ReadOnly _ownsInner As Boolean
         Private _lastMoveAudit As DateTime = DateTime.MinValue
+        Private _lastStopAudit As DateTime = DateTime.MinValue
         Private _lastMoveVector As PtzVector
 
         Public Sub New(inner As ICameraController, session As UserSession, access As AccessControl, audit As IAuditLog,
@@ -109,7 +110,11 @@ Namespace Security
         Public Function StopAsync(ct As Threading.CancellationToken) As Task Implements IPtzMover.StopAsync
             _lastMoveVector = PtzVector.Zero
             _lastMoveAudit = DateTime.MinValue
-            Return RunAsync(Permission.PtzControl, "Ptz.Stop", "", Function() _inner.StopAsync(ct))
+            ' الإيقاف يُنفَّذ دائماً؛ تدقيقه يُخنق إلى سطر في الثانية كي لا يفيض السجل بسيل إيقافات.
+            Dim now As DateTime = _clock.UtcNow
+            Dim audit As Boolean = (now - _lastStopAudit) >= TimeSpan.FromSeconds(1)
+            If audit Then _lastStopAudit = now
+            Return RunAsync(Permission.PtzControl, "Ptz.Stop", "", Function() _inner.StopAsync(ct), audit)
         End Function
 
         Public Function GetPositionAsync(ct As Threading.CancellationToken) As Task(Of PtzPosition) Implements ICameraController.GetPositionAsync

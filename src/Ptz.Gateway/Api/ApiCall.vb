@@ -18,6 +18,8 @@ Namespace Api
         AuditList
         Verify
         Connect
+        ''' <summary>فتح بثوث SSE: يمنع حلقة فتح/إغلاق من إغراق السجل (كل فتح/إغلاق يُدقَّق).</summary>
+        [Stream]
     End Enum
 
     ''' <summary>خيارات مسار: كل مسار يُسجَّل حصراً عبر <see cref="ApiRegistry.Map"/> فيكون رفض الافتراضي بنيوياً.</summary>

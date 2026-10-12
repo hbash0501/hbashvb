@@ -60,6 +60,13 @@ Namespace Cameras
             End SyncLock
         End Function
 
+        ''' <summary>هل لهذا المالك عقد حركة نشط الآن؟ (تجديد من غير المالك يجب ألا يعلّق الكشف ولا يلمس شيئاً).</summary>
+        Public Function OwnsActive(owner As Guid) As Boolean
+            SyncLock _lock
+                Return _active AndAlso owner = _owner
+            End SyncLock
+        End Function
+
         Public Sub OnStop(owner As Guid)
             SyncLock _lock
                 _lastActivityUtc = _clock.UtcNow

@@ -82,6 +82,8 @@ Public Interface IGatewayLoginView
     Event ConnectRequested As Action(Of GatewayLoginInput)
     Event FetchCertificateRequested As Action(Of String)
     Sub SetBusy(busy As Boolean)
+    ''' <summary>أُغلقت النافذة (إلغاء المستخدم) — يمنع المقدِّم من استدعاء نافذة مُتخلَّص منها أو ترك جلسة مصادَقة معلّقة.</summary>
+    ReadOnly Property IsClosed As Boolean
     Sub SetSettings(settings As GatewaySettings)
     ''' <summary>يعرض بصمة الشهادة المقروءة ليؤكدها المستخدم بمقارنتها بمخرجات أداة البوابة (cert show) ثم يملأ حقل التثبيت.</summary>
     Sub OfferCertificate(host As String, certSha256 As String)
@@ -148,6 +150,17 @@ Public NotInheritable Class GatewayLoginPresenter
             If slowDown Then Await Task.Delay(800)
         End If
         _busy = False
+        If _view.IsClosed Then
+            ' أُلغي الدخول أثناء الانتظار: ننهي الجلسة التي أُنشئت للتو على الخادم بدل تركها صالحة حتى انتهاء الخمول.
+            If context IsNot Nothing Then
+                Try
+                    Await context.Client.LogoutAsync()
+                Catch ex As Exception When TypeOf ex Is IsapiException OrElse TypeOf ex Is OperationCanceledException
+                End Try
+                context.Client.Dispose()
+            End If
+            Return
+        End If
         _view.SetBusy(False)
         If context IsNot Nothing Then
             RaiseEvent Connected(context)
@@ -171,6 +184,7 @@ Public NotInheritable Class GatewayLoginPresenter
                                   TypeOf ex Is System.Security.Authentication.AuthenticationException
             errorText = "تعذّر قراءة شهادة البوابة: " & ex.Message
         End Try
+        If _view.IsClosed Then Return
         If errorText IsNot Nothing Then _view.ShowError(errorText) Else _view.OfferCertificate(host, fp)
     End Sub
 End Class

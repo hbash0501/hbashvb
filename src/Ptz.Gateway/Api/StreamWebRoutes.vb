@@ -15,7 +15,7 @@ Namespace Api
         End Sub
 
         Public Shared Sub Register(api As ApiRegistry, svc As GatewayServices)
-            api.Map("GET", "/api/v1/cameras/{cam}/events", Permission.SmartView, Function(c) Events(c), New RouteOptions With {.TimeoutSeconds = 0})
+            api.Map("GET", "/api/v1/cameras/{cam}/events", Permission.SmartView, Function(c) Events(c), New RouteOptions With {.TimeoutSeconds = 0, .RateClass = RateClass.Stream})
         End Sub
 
         Private Shared Async Function WriteTimed(c As ApiCall, text As String) As Task(Of Boolean)

@@ -16,8 +16,8 @@ src/Ptz.Core          النواة: النماذج، ISAPI، المتحكمات�
 src/Ptz.Presentation  المقدِّمات (MVP) وعقود الواجهات — بلا أي اعتماد على WinForms ← قابلة للاختبار
 src/Ptz.App           واجهة WinForms: Designer منفصل عن الكود، لوحات UserControl وحيدة الوظيفة (net8.0-windows)
 src/Ptz.Gateway       بوابة التشغيل عن بُعد (Kestrel): REST/SSE آمنة + كونسول ويب للجوال + أداة إدارة CLI
-tests/Ptz.Tests       169 اختبار وحدة وتكامل (xUnit)
-tests/Ptz.Gateway.Tests  133 اختبار تكامل للبوابة والعميل البعيد (خادم حقيقي، TLS حقيقي)
+tests/Ptz.Tests       178 اختبار وحدة وتكامل (xUnit)
+tests/Ptz.Gateway.Tests  146 اختبار تكامل للبوابة والعميل البعيد (خادم حقيقي، TLS حقيقي)
 deploy/               أمثلة نشر: systemd، nftables، Docker، خدمة Windows، إعداد نموذجي
 build/                فحص تجميع الواجهة على Linux/CI
 docs/TECHNICAL_REPORT.md   التقرير التقني الشامل
@@ -65,5 +65,5 @@ PtzGateway cert create --host gateway.lan && PtzGateway serve
 ## ما تم التحقق منه وما لم يُتحقق منه
 
 انظر القسم 9 من [التقرير التقني](docs/TECHNICAL_REPORT.md): الشيفرة مبنية ومُختبرة آلياً على Linux
-(302 اختبار ناجح، منها تكامل مع كاميرا ISAPI وهمية وبوابة حقيقية وTLS حقيقي)، وكونسول الويب جُرّب بمتصفح Chromium حقيقي
+(324 اختباراً ناجحاً، منها تكامل مع كاميرا ISAPI وهمية وبوابة حقيقية وTLS حقيقي)، وكونسول الويب جُرّب بمتصفح Chromium حقيقي
 ضد البوابة الفعلية، وواجهة WinForms **مُجمَّعة** لكن **لم تُشغَّل بصرياً**، ولم تُجرَّب على كاميرات فعلية بعد — يلزم اختبار قبول ميداني قبل الإنتاج.

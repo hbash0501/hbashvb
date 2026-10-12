@@ -21,7 +21,13 @@ Public Class GatewayShellTests
         Public ReadOnly Property Offered As New List(Of String)()
         Public Property Closed As Boolean
         Public Property Busy As Boolean
+        Public Property UserClosed As Boolean
         Public Property Loaded As GatewaySettings
+        Public ReadOnly Property IsClosed As Boolean Implements IGatewayLoginView.IsClosed
+            Get
+                Return UserClosed
+            End Get
+        End Property
         Public Sub SetBusy(b As Boolean) Implements IGatewayLoginView.SetBusy
             Busy = b
         End Sub
@@ -207,6 +213,24 @@ Public Class GatewayShellTests
             Assert.DoesNotContain("alice", saved)
             Assert.DoesNotContain("ptzs_", saved)
             ctx.Client.Dispose()
+        End Using
+    End Sub
+
+    <Fact>
+    Public Sub LoginPresenter_WindowClosedMidLogin_LogsTheFreshSessionOutInsteadOfLeakingIt()
+        Using h As New Harness()
+            WaitOnline(h)
+            Dim view As New FakeLoginView()
+            Dim presenter As New GatewayLoginPresenter(view, New GatewaySettingsStore(TempDir()), Nothing, h.Clock, Handler(h))
+            Dim raised As Boolean = False
+            AddHandler presenter.Connected, Sub(c) raised = True
+            view.UserClosed = True                                    ' المستخدم أغلق النافذة أثناء الدخول
+            view.RaiseConnect(Input(h, "alice"))
+            WaitFor(Function() String.Join(vbLf, h.AuditLines()).Contains("Auth.Logout"), 8)
+            Assert.Contains("Auth.Logout", String.Join(vbLf, h.AuditLines()))
+            Assert.False(raised)
+            Assert.False(view.Closed)                                 ' لم تُستدعَ نافذة مغلقة
+            Assert.Empty(view.Errors)
         End Using
     End Sub
 

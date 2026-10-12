@@ -77,7 +77,7 @@ Public NotInheritable Class StartupSecurityValidator
             End If
         Next
         If String.Equals(mode, "Tunnel", StringComparison.OrdinalIgnoreCase) AndAlso (o.TrustedProxies Is Nothing OrElse o.TrustedProxies.Count = 0) Then
-            r.Warnings.Add("وضع Tunnel بلا TrustedProxies: كل العملاء سيشاركون حصة تحديد معدل واحدة.")
+            r.Violations.Add("وضع Tunnel يتطلب TrustedProxies (بدونه يتشارك كل العملاء مفتاح تحديد معدل واحداً فيستطيع مجهول واحد حجب دخول الجميع).")
         End If
 
         ' --- المصادقة ---

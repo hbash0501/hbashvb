@@ -71,6 +71,9 @@ Friend NotInheritable Class GatewayCameraBackend
 
     Private Sub OnHello(h As HelloWire)
         If h.Tiers IsNot Nothing AndAlso h.Tiers.Count > 0 Then _selector.SetAvailable(h.Tiers)
+        ' عند كل (إعادة) اتصال: ما حدث أثناء الانقطاع قد لا يُعاد بث الأحداث إن لم يكن لدينا معرّف استئناف بعد؛ نجلب آخر الإنذارات
+        ' (رخيص ومتساوي القوة: يُتجاهل المكرر بالمعرّف).
+        Task.Run(Function() LoadBacklogAsync(Threading.CancellationToken.None))
     End Sub
 
     Private Sub OnAlarm(dto As AlarmDto)

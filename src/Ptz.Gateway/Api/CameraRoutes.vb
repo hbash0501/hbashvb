@@ -28,14 +28,14 @@ Namespace Api
                     New RouteOptions With {.Mutates = True, .RateClass = RateClass.Ptz, .MaxBodyBytes = 1024})
             api.Map("POST", "/api/v1/cameras/{cam}/ptz/stop", Permission.PtzControl, Function(c) [Stop](c),
                     New RouteOptions With {.Mutates = True, .AuditExempt = True, .MaxBodyBytes = 1024})
-            api.Map("GET", "/api/v1/cameras/{cam}/ptz/position", Permission.ViewLive, Function(c) GetPosition(c))
+            api.Map("GET", "/api/v1/cameras/{cam}/ptz/position", Permission.ViewLive, Function(c) GetPosition(c), New RouteOptions With {.RateClass = RateClass.Cmd})
             api.Map("PUT", "/api/v1/cameras/{cam}/ptz/position", Permission.PtzControl, Function(c) PutPosition(c), cmd())
             api.Map("POST", "/api/v1/cameras/{cam}/ptz/zoom-area", Permission.PtzControl, Function(c) ZoomArea(c), cmd())
             api.Map("POST", "/api/v1/cameras/{cam}/ptz/home", Permission.PtzControl, Function(c) GoHome(c), cmd())
             api.Map("PUT", "/api/v1/cameras/{cam}/ptz/home", Permission.PresetManage, Function(c) SetHome(c), cmd())
 
             ' --- مواضع/دوريات/أنماط ---
-            api.Map("GET", "/api/v1/cameras/{cam}/presets", Permission.PresetUse, Function(c) GetPresets(c))
+            api.Map("GET", "/api/v1/cameras/{cam}/presets", Permission.PresetUse, Function(c) GetPresets(c), New RouteOptions With {.RateClass = RateClass.Cmd})
             api.Map("PUT", "/api/v1/cameras/{cam}/presets/{n}", Permission.PresetManage, Function(c) SavePreset(c), cmd())
             api.Map("DELETE", "/api/v1/cameras/{cam}/presets/{n}", Permission.PresetManage, Function(c) DeletePreset(c), cmd())
             api.Map("POST", "/api/v1/cameras/{cam}/presets/{n}/goto", Permission.PresetUse, Function(c) GoToPreset(c), cmd())
@@ -49,7 +49,7 @@ Namespace Api
             ' --- عدسة/صورة/ملحقات ---
             api.Map("POST", "/api/v1/cameras/{cam}/lens/focus", Permission.ImageControl, Function(c) Lens(c, True), cmd())
             api.Map("POST", "/api/v1/cameras/{cam}/lens/iris", Permission.ImageControl, Function(c) Lens(c, False), cmd())
-            api.Map("GET", "/api/v1/cameras/{cam}/image", Permission.ViewLive, Function(c) GetImage(c))
+            api.Map("GET", "/api/v1/cameras/{cam}/image", Permission.ViewLive, Function(c) GetImage(c), New RouteOptions With {.RateClass = RateClass.Heavy})
             api.Map("PUT", "/api/v1/cameras/{cam}/image", Permission.ImageControl, Function(c) PutImage(c), cmd())
             api.Map("PUT", "/api/v1/cameras/{cam}/aux/{kind}", Permission.ImageControl, Function(c) PutAux(c), cmd())
 
@@ -121,6 +121,11 @@ Namespace Api
             End If
             Dim cam As CameraHost = c.Camera
             Dim ctl As SecuredCameraController = c.Controller
+            ' تجديد دوري لعقد لم يعد قائماً (أوقف مشغّل آخر أو انتهى): لا أثر له، ولا يجوز أن يعلّق الكشف الذكي كل 400ms.
+            If req.Renew.GetValueOrDefault(False) AndAlso Not cam.Lease.OwnsActive(c.Rec.SessionId) Then
+                Await c.NoContent().ConfigureAwait(False)
+                Return
+            End If
             Dim gen As Integer = cam.StopGeneration
             cam.RegisterLeaseRevoke(c.Rec)
             cam.NotifyMotion(1.0)
@@ -160,7 +165,13 @@ Namespace Api
         End Function
 
         Private Shared Async Function GetPosition(c As ApiCall) As Task
-            Dim p As PtzPosition = Await c.Controller.GetPositionAsync(c.Ct).ConfigureAwait(False)
+            Dim p As PtzPosition
+            Await c.Camera.ReadGate.WaitAsync(c.Ct).ConfigureAwait(False)
+            Try
+                p = Await c.Controller.GetPositionAsync(c.Ct).ConfigureAwait(False)
+            Finally
+                c.Camera.ReadGate.Release()
+            End Try
             Await c.Ok(New PositionDto With {.Azimuth = p.Azimuth, .Elevation = p.Elevation, .Zoom = p.Zoom}).ConfigureAwait(False)
         End Function
 
@@ -202,7 +213,13 @@ Namespace Api
 
         ' ======================= المواضع/الدوريات/الأنماط =======================
         Private Shared Async Function GetPresets(c As ApiCall) As Task
-            Dim list As IReadOnlyList(Of PtzPreset) = Await c.Controller.GetPresetsAsync(c.Ct).ConfigureAwait(False)
+            Dim list As IReadOnlyList(Of PtzPreset)
+            Await c.Camera.ReadGate.WaitAsync(c.Ct).ConfigureAwait(False)
+            Try
+                list = Await c.Controller.GetPresetsAsync(c.Ct).ConfigureAwait(False)
+            Finally
+                c.Camera.ReadGate.Release()
+            End Try
             Dim dto As New PresetListDto()
             For Each p As PtzPreset In list
                 dto.Items.Add(New PresetDto With {.Id = p.Id, .Name = AuditSanitizer.Clean(p.Name, 32)})
@@ -258,17 +275,28 @@ Namespace Api
         Private Shared Async Function Lens(c As ApiCall, focus As Boolean) As Task
             Dim req As LensRequest = Await c.ReadJsonAsync(Of LensRequest)().ConfigureAwait(False)
             Dim dir As LensDirection = WireMap.ParseLensDirection(req.Direction)
-            If req.Speed < 1 OrElse req.Speed > 100 Then Throw ApiException.BadRequest("speed")
+            ' الإيقاف (halt) لا يحتاج سرعة؛ رفضه بسبب السرعة 0 كان يترك العدسة تجري حتى نهايتها.
+            If dir <> LensDirection.Halt AndAlso (req.Speed < 1 OrElse req.Speed > 100) Then Throw ApiException.BadRequest("speed")
+            Dim kind As String = If(focus, "focus", "iris")
+            If dir <> LensDirection.Halt Then c.Camera.ArmLensWatchdog(kind)
             If focus Then
                 Await c.Controller.MoveFocusAsync(dir, req.Speed, c.Ct).ConfigureAwait(False)
             Else
                 Await c.Controller.MoveIrisAsync(dir, req.Speed, c.Ct).ConfigureAwait(False)
             End If
+            If dir = LensDirection.Halt Then c.Camera.DisarmLensWatchdog(kind)
+            c.Camera.RegisterLensRevoke(c.Rec)
             Await c.NoContent().ConfigureAwait(False)
         End Function
 
         Private Shared Async Function GetImage(c As ApiCall) As Task
-            Dim s As ImageSettings = Await c.Controller.GetImageSettingsAsync(c.Ct).ConfigureAwait(False)
+            Dim s As ImageSettings
+            Await c.Camera.ReadGate.WaitAsync(c.Ct).ConfigureAwait(False)
+            Try
+                s = Await c.Controller.GetImageSettingsAsync(c.Ct).ConfigureAwait(False)
+            Finally
+                c.Camera.ReadGate.Release()
+            End Try
             Dim dto As New ImageDto With {.Values = WireMap.FromImageSettings(s)}
             For Each spec As ImageParamSpec In ImageParamCatalog.All
                 If (c.Camera.Features And spec.Feature) = spec.Feature Then dto.Supported.Add(WireMap.ImageKey(spec.Param))

@@ -8,6 +8,9 @@ Namespace Views
     Public Class FrmGatewayLogin
         Implements IGatewayLoginView
 
+        Private _closed As Boolean
+        Private _busy As Boolean
+
         Public Event ConnectRequested As Action(Of GatewayLoginInput) Implements IGatewayLoginView.ConnectRequested
         Public Event FetchCertificateRequested As Action(Of String) Implements IGatewayLoginView.FetchCertificateRequested
 
@@ -23,10 +26,26 @@ Namespace Views
             chkLoopback.Checked = settings.AllowInsecureLoopbackHttp
         End Sub
 
+        Public ReadOnly Property IsClosed As Boolean Implements IGatewayLoginView.IsClosed
+            Get
+                Return _closed OrElse IsDisposed
+            End Get
+        End Property
+
         Public Sub SetBusy(busy As Boolean) Implements IGatewayLoginView.SetBusy
+            _busy = busy
             btnConnect.Enabled = Not busy
             btnFetch.Enabled = Not busy
+            btnCancel.Enabled = Not busy          ' الإلغاء أثناء دخول جارٍ كان يترك جلسة مصادَقة معلّقة على الخادم
             UseWaitCursor = busy
+        End Sub
+
+        Private Sub FrmGatewayLogin_FormClosing(sender As Object, e As FormClosingEventArgs) Handles Me.FormClosing
+            If _busy AndAlso e.CloseReason = CloseReason.UserClosing Then e.Cancel = True
+        End Sub
+
+        Private Sub FrmGatewayLogin_FormClosed(sender As Object, e As FormClosedEventArgs) Handles Me.FormClosed
+            _closed = True
         End Sub
 
         Public Sub OfferCertificate(host As String, certSha256 As String) Implements IGatewayLoginView.OfferCertificate

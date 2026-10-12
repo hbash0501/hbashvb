@@ -49,7 +49,16 @@ Namespace Cameras
             End SyncLock
             If blocked Then Return New HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
 
-            Dim resp As HttpResponseMessage = Await MyBase.SendAsync(request, cancellationToken).ConfigureAwait(False)
+            Dim resp As HttpResponseMessage
+            Try
+                resp = Await MyBase.SendAsync(request, cancellationToken).ConfigureAwait(False)
+            Catch
+                ' فشل نقلي (انقطاع/مهلة/إلغاء): لا نترك علم المسبار مرفوعاً وإلا بقي القاطع مغلقاً حتى إعادة التشغيل.
+                SyncLock _lock
+                    _probing = False
+                End SyncLock
+                Throw
+            End Try
             Dim opened As Boolean = False
             SyncLock _lock
                 _probing = False

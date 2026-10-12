@@ -75,6 +75,7 @@ Public NotInheritable Class Harness
         h.OnXml("GET", "/ISAPI/Image/channels/1/focusConfiguration", "<FocusConfiguration><focusStyle>AUTO</focusStyle></FocusConfiguration>")
         h.OnXml("PUT", "/ISAPI/Image/channels/1/focusConfiguration", FakeCameraHandler.OkStatus)
         h.OnXml("PUT", "/ISAPI/System/Video/inputs/channels/1/focus", FakeCameraHandler.OkStatus)
+        h.OnXml("PUT", "/ISAPI/System/Video/inputs/channels/1/iris", FakeCameraHandler.OkStatus)
         h.OnXml("PUT", "/ISAPI/PTZCtrl/channels/1/auxcontrols/1", FakeCameraHandler.OkStatus)
         h.OnXml("PUT", "/ISAPI/System/reboot", FakeCameraHandler.OkStatus)
         h.On("GET", "/ISAPI/Streaming/channels/101/picture", Function(r) New HttpResponseMessage(HttpStatusCode.OK) With {.Content = New ByteArrayContent(jpeg)})

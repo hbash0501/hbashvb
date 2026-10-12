@@ -115,6 +115,15 @@ Namespace Controls
             Release()
         End Sub
 
+        Protected Overrides Sub OnMouseCaptureChanged(e As EventArgs)
+            MyBase.OnMouseCaptureChanged(e)
+            ' فُقد الالتقاط أثناء السحب (نافذة حوار، Alt-Tab) دون MouseUp ⇒ نحرّر وإلا بقيت الحركة مستمرة
+            If _dragging AndAlso Not Capture Then
+                _dragging = False
+                Release()
+            End If
+        End Sub
+
         Private Sub Release()
             _vx = 0
             _vy = 0
@@ -124,6 +133,11 @@ Namespace Controls
 
         Protected Overrides Sub OnLostFocus(e As EventArgs)
             MyBase.OnLostFocus(e)
+            If _dragging Then
+                _dragging = False
+                Capture = False
+                Release()
+            End If
             If _keyX <> 0 OrElse _keyY <> 0 Then
                 _keyX = 0
                 _keyY = 0

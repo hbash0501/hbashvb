@@ -89,7 +89,7 @@ Namespace Api
                 End If
             End If
             Dim r As AuditVerifyResult = Await Task.Run(Function() c.Svc.AuditFile.Verify(), c.Ct).ConfigureAwait(False)
-            Dim dto As New AuditVerifyDto With {.IsValid = r.IsValid, .EntriesChecked = r.EntriesChecked, .FirstBadSeq = r.FirstBadSeq, .LastHash = c.Svc.AuditFile.LastHash}
+            Dim dto As New AuditVerifyDto With {.IsValid = r.IsValid, .EntriesChecked = r.EntriesChecked, .FirstBadSeq = r.FirstBadSeq, .SkippedLines = r.SkippedLines, .LastHash = c.Svc.AuditFile.LastHash}
             c.Svc.Cache("audit-verify") = Tuple.Create(now, dto)
             Await c.Ok(dto).ConfigureAwait(False)
         End Function

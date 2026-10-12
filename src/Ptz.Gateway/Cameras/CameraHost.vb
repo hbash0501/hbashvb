@@ -67,6 +67,10 @@ Namespace Cameras
         Public ReadOnly Property GeometryGate As New Threading.SemaphoreSlim(1, 1)
         ''' <summary>يسلسل أوامر الحركة لكل كاميرا؛ الإيقاف يرفع <see cref="StopGeneration"/> قبل الانتظار فتُهمَل حركة سابقة عالقة.</summary>
         Public ReadOnly Property PtzGate As New Threading.SemaphoreSlim(1, 1)
+        ''' <summary>يحدّ تزامن قراءات الكاميرا الثقيلة (صورة/موضع/مواضع) فلا يستطيع عدة مشاهدين إغراق خادم الكاميرا المدمج.</summary>
+        Public ReadOnly Property ReadGate As New Threading.SemaphoreSlim(2, 2)
+        Private ReadOnly _lensTimers As New Dictionary(Of String, Threading.Timer)()
+        Private Const LensWatchdogMs As Integer = 3000
         Private _stopGeneration As Integer
         Public ReadOnly Property StopGeneration As Integer
             Get
@@ -84,6 +88,71 @@ Namespace Cameras
                 Function(k) As Object
                     Return rec.RevokedToken.Register(Sub()
                                                          If Lease.OnSessionRevoked(rec.SessionId) Then Task.Run(AddressOf SafeStopAsync)
+                                                     End Sub)
+                End Function)
+        End Sub
+
+        ''' <summary>
+        ''' مراقب العدسة: أي أمر تركيز/حدقة غير halt يُسلَّح له مؤقّت 3 ث؛ إن لم يصل halt (ضغط 429، شبكة، انهيار العميل) توقف البوابة
+        ''' العدسة بنفسها. بلا هذا تجري العدسة حتى نهايتها الميكانيكية (لا عقد/ترقيم لأوامر العدسة).
+        ''' </summary>
+        Public Sub ArmLensWatchdog(kind As String)
+            SyncLock _lock
+                Dim t As Threading.Timer = Nothing
+                If _lensTimers.TryGetValue(kind, t) Then t.Dispose()
+                If _cts Is Nothing Then Return
+                _lensTimers(kind) = New Threading.Timer(AddressOf LensWatchdogFired, kind, LensWatchdogMs, Threading.Timeout.Infinite)
+            End SyncLock
+        End Sub
+
+        Public Sub DisarmLensWatchdog(kind As String)
+            SyncLock _lock
+                Dim t As Threading.Timer = Nothing
+                If _lensTimers.TryGetValue(kind, t) Then
+                    t.Dispose()
+                    _lensTimers.Remove(kind)
+                End If
+            End SyncLock
+        End Sub
+
+        Private Sub LensWatchdogFired(state As Object)
+            Dim kind As String = CStr(state)
+            DisarmLensWatchdog(kind)
+            Task.Run(Function() HaltLensAsync(kind, "watchdog"))
+        End Sub
+
+        Private Async Function HaltLensAsync(kind As String, reason As String) As Task
+            Dim device As ICameraController = Me.Raw
+            If device Is Nothing Then Return
+            Try
+                Using cts As New Threading.CancellationTokenSource(TimeSpan.FromSeconds(3))
+                    If kind = "focus" Then
+                        Await device.MoveFocusAsync(LensDirection.Halt, 1, cts.Token).ConfigureAwait(False)
+                    Else
+                        Await device.MoveIrisAsync(LensDirection.Halt, 1, cts.Token).ConfigureAwait(False)
+                    End If
+                End Using
+                _svc.Audit.Write("svc:lease", "Lens.Halt", Id, "OK", $"{kind} {reason}")
+            Catch ex As Exception When TypeOf ex Is IsapiException OrElse TypeOf ex Is OperationCanceledException OrElse TypeOf ex Is NotSupportedException
+                _svc.Audit.Write("svc:lease", "Lens.Halt", Id, "FAIL", $"{kind} {reason}")
+            End Try
+        End Function
+
+        ''' <summary>عند إبطال جلسة أمرت العدسة بالتحرك: توقيفها فوراً (لا ننتظر المراقب).</summary>
+        Public Sub RegisterLensRevoke(rec As SessionRecord)
+            rec.Items.GetOrAdd("lensreg:" & Id,
+                Function(k) As Object
+                    Return rec.RevokedToken.Register(Sub()
+                                                         Dim active As Boolean
+                                                         SyncLock _lock
+                                                             active = _lensTimers.Count > 0
+                                                         End SyncLock
+                                                         If active Then
+                                                             Task.Run(Function() HaltLensAsync("focus", "revoke"))
+                                                             Task.Run(Function() HaltLensAsync("iris", "revoke"))
+                                                             DisarmLensWatchdog("focus")
+                                                             DisarmLensWatchdog("iris")
+                                                         End If
                                                      End Sub)
                 End Function)
         End Sub
@@ -254,6 +323,14 @@ Namespace Cameras
             _leaseTimer = Nothing
             _forceTimer?.Dispose()
             _forceTimer = Nothing
+            Dim lensKinds As String()
+            SyncLock _lock
+                lensKinds = _lensTimers.Keys.ToArray()
+            End SyncLock
+            For Each k As String In lensKinds
+                DisarmLensWatchdog(k)
+                Await HaltLensAsync(k, "shutdown").ConfigureAwait(False)
+            Next
             If Lease.IsActive Then
                 Lease.OnStop(Guid.Empty)
                 Await SafeStopAsync().ConfigureAwait(False)

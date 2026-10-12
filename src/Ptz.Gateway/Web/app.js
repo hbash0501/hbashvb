@@ -584,6 +584,7 @@ function initStage() {
 const TTL = 1200;                       // ttlMs المطلوب (الخادم يقبل 200–2000)
 const inp = { pad: [0, 0], z: 0, key: [0, 0, 0] };
 const lensOn = { focus: null, iris: null };
+const lensPend = { focus: null, iris: null };   // إيقاف أُرسل ولم يُؤكَّد بعد (يُعاد عند الفشل)
 const down = new Set();
 let padEnd = () => {};
 
@@ -626,10 +627,16 @@ function applyInput() {
   mvSet(c, clamp(inp.pad[0] + inp.key[0], -100, 100), clamp(inp.pad[1] + inp.key[1], -100, 100), clamp(inp.z + inp.key[2], -100, 100));
 }
 function lensGo(k, d) { const c = S.cur; if (c) { lensOn[k] = c; safe(api('POST', cp(c, '/lens/' + k), { body: { direction: d, speed: S.prefs.spd } })); } }
-function lensHalt(k, ka) {
-  const c = lensOn[k]; if (!c) return;
-  lensOn[k] = null;
-  api('POST', cp(c, '/lens/' + k), { body: { direction: 'halt', speed: 50 }, keepalive: !!ka, timeout: 4000 }).catch((e) => { if (!e.handled) toast(errText(e), 'err'); });
+function lensHalt(k, ka, n) {
+  n = n || 0;
+  const c = lensOn[k] || lensPend[k]; if (!c) return;
+  if (n > 0 && lensOn[k]) return;                    // ضغطة جديدة تجاوزت إعادة محاولة قديمة: لا نوقفها
+  lensOn[k] = null; lensPend[k] = c;
+  api('POST', cp(c, '/lens/' + k), { body: { direction: 'halt', speed: 50 }, keepalive: !!ka, timeout: 4000 }).then(() => { if (lensPend[k] === c) lensPend[k] = null; }).catch((e) => {
+    // العدسة بلا عقد على الخادم (له مراقب 3 ث كشبكة أمان)؛ نعيد محاولة الإيقاف عند فشل عابر كما نفعل مع PTZ
+    if ((e.status === 0 || e.status === 429 || e.status >= 500) && n < 3) setTimeout(() => lensHalt(k, false, n + 1), 250 * (n + 1));
+    else { if (lensPend[k] === c) lensPend[k] = null; if (!e.handled) toast(errText(e), 'err'); }
+  });
 }
 // إيقاف شامل (تركيز مفقود/إخفاء/خروج/تبديل كاميرا)
 function stopAll(ka) {
@@ -693,7 +700,10 @@ function initPad() {
   $('#estop').addEventListener('click', estop);
 }
 
-const KEYS = { ArrowUp: [0, 1, 0], ArrowDown: [0, -1, 0], ArrowLeft: [-1, 0, 0], ArrowRight: [1, 0, 0], '+': [0, 0, 1], '=': [0, 0, 1], '-': [0, 0, -1], _: [0, 0, -1] };
+const KEYS = { ArrowUp: [0, 1, 0], ArrowDown: [0, -1, 0], ArrowLeft: [-1, 0, 0], ArrowRight: [1, 0, 0], '+': [0, 0, 1], '-': [0, 0, -1] };
+// Shift يغيّر e.key بين الضغط والإفلات (= ↔ + و - ↔ _): نوحّد الاسم كي لا يبقى مفتاح عالقاً في down
+const nk = (k) => (k === '=' ? '+' : k === '_' ? '-' : k);
+let lastKeyAt = 0;
 function keyVec() {
   let p = 0, t = 0, z = 0;
   for (const k of down) { p += KEYS[k][0]; t += KEYS[k][1]; z += KEYS[k][2]; }
@@ -709,11 +719,15 @@ function initKeys() {
     if (e.key === 'Escape') { if (S.mode !== 'view') setMode('view'); estop(); return; }
     if (typing(e.target)) return;
     if (e.key === ' ' && !/^(BUTTON|A|SUMMARY)$/.test(e.target.tagName)) { e.preventDefault(); estop(); return; }
-    if (!KEYS[e.key] || !can('ptzControl')) return;
+    const k = nk(e.key);
+    if (!KEYS[k] || !can('ptzControl')) return;
     e.preventDefault();
-    if (!e.repeat && !down.has(e.key)) { down.add(e.key); keyVec(); }
+    lastKeyAt = Date.now();                       // التكرار التلقائي للنظام يجدّد هذا الطابع
+    if (!e.repeat && !down.has(k)) { down.add(k); keyVec(); }
   });
-  document.addEventListener('keyup', (e) => { if (down.delete(e.key)) keyVec(); });
+  document.addEventListener('keyup', (e) => { if (down.delete(nk(e.key))) keyVec(); });
+  // شبكة أمان: مفتاح محتجز بلا أي حدث لوحة مفاتيح منذ 2.5 ث يُعدّ عالقاً (ضاع keyup بسبب IME/تبديل نافذة...)
+  setInterval(() => { if (down.size && Date.now() - lastKeyAt > 2500) { down.clear(); keyVec(); } }, 1000);
   window.addEventListener('blur', () => stopAll(true));
   window.addEventListener('pagehide', () => stopAll(true));
   document.addEventListener('visibilitychange', () => {

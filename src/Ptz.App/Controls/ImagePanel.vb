@@ -114,37 +114,83 @@ Namespace Controls
             RaiseEvent RefreshRequested()
         End Sub
 
-        ' التركيز والفتحة: حركة أثناء الضغط وإيقاف عند الإفلات
-        Private Sub btnFocusNear_MouseDown(sender As Object, e As MouseEventArgs) Handles btnFocusNear.MouseDown
-            RaiseEvent FocusRequested(LensDirection.Near, 50)
+        ' التركيز والفتحة: حركة أثناء الضغط وإيقاف عند الإفلات (وعند فقدان التركيز/الالتقاط/تعطيل النافذة)
+        Private _focusHeld As Boolean
+        Private _irisHeld As Boolean
+
+        Private Sub HoldFocus(direction As LensDirection)
+            _focusHeld = True
+            RaiseEvent FocusRequested(direction, 50)
         End Sub
 
-        Private Sub btnFocusNear_MouseUp(sender As Object, e As MouseEventArgs) Handles btnFocusNear.MouseUp
+        Private Sub ReleaseFocus()
+            If Not _focusHeld Then Return
+            _focusHeld = False
             RaiseEvent FocusRequested(LensDirection.Halt, 0)
+        End Sub
+
+        Private Sub HoldIris(direction As LensDirection)
+            _irisHeld = True
+            RaiseEvent IrisRequested(direction, 50)
+        End Sub
+
+        Private Sub ReleaseIris()
+            If Not _irisHeld Then Return
+            _irisHeld = False
+            RaiseEvent IrisRequested(LensDirection.Halt, 0)
+        End Sub
+
+        Private Sub btnFocusNear_MouseDown(sender As Object, e As MouseEventArgs) Handles btnFocusNear.MouseDown
+            HoldFocus(LensDirection.Near)
         End Sub
 
         Private Sub btnFocusFar_MouseDown(sender As Object, e As MouseEventArgs) Handles btnFocusFar.MouseDown
-            RaiseEvent FocusRequested(LensDirection.Far, 50)
+            HoldFocus(LensDirection.Far)
         End Sub
 
-        Private Sub btnFocusFar_MouseUp(sender As Object, e As MouseEventArgs) Handles btnFocusFar.MouseUp
-            RaiseEvent FocusRequested(LensDirection.Halt, 0)
+        Private Sub FocusButton_Released(sender As Object, e As EventArgs) Handles btnFocusNear.MouseUp, btnFocusFar.MouseUp, btnFocusNear.LostFocus, btnFocusFar.LostFocus, btnFocusNear.MouseCaptureChanged, btnFocusFar.MouseCaptureChanged
+            ReleaseFocus()
         End Sub
 
         Private Sub btnIrisClose_MouseDown(sender As Object, e As MouseEventArgs) Handles btnIrisClose.MouseDown
-            RaiseEvent IrisRequested(LensDirection.Near, 50)
-        End Sub
-
-        Private Sub btnIrisClose_MouseUp(sender As Object, e As MouseEventArgs) Handles btnIrisClose.MouseUp
-            RaiseEvent IrisRequested(LensDirection.Halt, 0)
+            HoldIris(LensDirection.Near)
         End Sub
 
         Private Sub btnIrisOpen_MouseDown(sender As Object, e As MouseEventArgs) Handles btnIrisOpen.MouseDown
-            RaiseEvent IrisRequested(LensDirection.Far, 50)
+            HoldIris(LensDirection.Far)
         End Sub
 
-        Private Sub btnIrisOpen_MouseUp(sender As Object, e As MouseEventArgs) Handles btnIrisOpen.MouseUp
-            RaiseEvent IrisRequested(LensDirection.Halt, 0)
+        Private Sub IrisButton_Released(sender As Object, e As EventArgs) Handles btnIrisClose.MouseUp, btnIrisOpen.MouseUp, btnIrisClose.LostFocus, btnIrisOpen.LostFocus, btnIrisClose.MouseCaptureChanged, btnIrisOpen.MouseCaptureChanged
+            ReleaseIris()
+        End Sub
+
+        ''' <summary>يحرّر أدوات العدسة فوراً؛ آمن للاستدعاء المتكرر.</summary>
+        Public Sub ReleaseAll()
+            ReleaseFocus()
+            ReleaseIris()
+        End Sub
+
+        Private _hookedForm As Form
+
+        Protected Overrides Sub OnHandleCreated(e As EventArgs)
+            MyBase.OnHandleCreated(e)
+            Dim f As Form = FindForm()
+            If f IsNot Nothing AndAlso f IsNot _hookedForm Then
+                _hookedForm = f
+                AddHandler f.Deactivate, AddressOf OnFormDeactivated
+            End If
+        End Sub
+
+        Protected Overrides Sub OnHandleDestroyed(e As EventArgs)
+            If _hookedForm IsNot Nothing Then
+                RemoveHandler _hookedForm.Deactivate, AddressOf OnFormDeactivated
+                _hookedForm = Nothing
+            End If
+            MyBase.OnHandleDestroyed(e)
+        End Sub
+
+        Private Sub OnFormDeactivated(sender As Object, e As EventArgs)
+            ReleaseAll()
         End Sub
 
         Private Sub btnWiperOn_Click(sender As Object, e As EventArgs) Handles btnWiperOn.Click

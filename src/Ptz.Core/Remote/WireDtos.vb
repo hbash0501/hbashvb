@@ -280,6 +280,7 @@ Namespace Remote
         Public Property IsValid As Boolean
         Public Property EntriesChecked As Long
         Public Property FirstBadSeq As Long
+        Public Property SkippedLines As Long
         Public Property LastHash As String = ""
     End Class
 

@@ -78,7 +78,7 @@ Namespace Api
 
             If Not (passwordOk AndAlso totpOk) OrElse softLocked Then
                 If Not softLocked Then svc.Throttle.RecordFailure(ip, name, totpStage:=passwordOk)
-                svc.Denied.Record(ip, "login", AuditSanitizer.Clean(name, 32), svc.Clock.UtcNow)
+                svc.Denied.Record(ip, "login", AuditSanitizer.Clean(name, 32), svc.Clock.UtcNow, Hosting.Middleware.IpKey(c.Http))
                 If passwordOk AndAlso Not totpOk AndAlso svc.Throttle.IsRemoteLocked(name) Then
                     svc.Audit.Write("svc:gateway", "Auth.Lockout.Remote", name, "DENIED", "remote login locked after repeated TOTP failures")
                 End If

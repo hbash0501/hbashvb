@@ -57,6 +57,7 @@ Namespace Api
                 Case RateClass.AuditList : rate = 0.5 : burst = 1
                 Case RateClass.Verify : rate = 1.0 / 60.0 : burst = 1
                 Case RateClass.Connect : rate = 6.0 / 60.0 : burst = 6
+                Case RateClass.Stream : rate = 0.5 : burst = 6
                 Case Else : Return False
             End Select
             Return True
@@ -75,7 +76,7 @@ Namespace Api
                     Try
                         _svc.Access.Demand(ac.Rec.UserSession, route.Permission, touch:=False)
                     Catch ex As AccessDeniedException
-                        _svc.Denied.Record(ac.ClientIp, "forbidden:" & route.Permission.ToString(), ac.UserName, now)
+                        _svc.Denied.Record(ac.ClientIp, "forbidden:" & route.Permission.ToString(), ac.UserName, now, Middleware.IpKey(ctx))
                         Throw
                     End Try
                     If route.NeedsCamera Then
@@ -120,7 +121,7 @@ Namespace Api
             Dim ae As ApiException = ErrorMap.ToApiException(failure, timedOut)
             If ae Is Nothing Then Return                          ' العميل أغلق الاتصال أو أُبطلت الجلسة
             If ae.Status = 401 OrElse ae.Status = 403 OrElse ae.Status = 429 Then
-                If ae.Code <> "forbidden" Then _svc.Denied.Record(ac.ClientIp, ae.Code, ac.UserName, _svc.Clock.UtcNow)
+                If ae.Code <> "forbidden" Then _svc.Denied.Record(ac.ClientIp, ae.Code, ac.UserName, _svc.Clock.UtcNow, Middleware.IpKey(ctx))
             End If
             If ae.Status = 500 Then Diagnostics.Debug.WriteLine($"[{requestId}] unhandled {failure.GetType().Name}")
             Await JsonHttp.WriteErrorAsync(ctx, ae, requestId).ConfigureAwait(False)

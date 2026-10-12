@@ -134,6 +134,42 @@ Namespace Controls
             ZoomUp()
         End Sub
 
+        ''' <summary>فقدان التركيز/الالتقاط أثناء ضغط زر التكبير (Alt-Tab، نافذة حوار) لا يصل معه MouseUp: نوقف الحركة بدل أن تستمر مع تجديد العقد.</summary>
+        Private Sub ZoomButton_LostHold(sender As Object, e As EventArgs) Handles btnZoomIn.LostFocus, btnZoomOut.LostFocus, btnZoomIn.MouseCaptureChanged, btnZoomOut.MouseCaptureChanged
+            If _zoomDir <> 0 Then ZoomUp()
+        End Sub
+
+        ''' <summary>يحرّر كل أدوات الحركة (عصا + تكبير) فوراً؛ آمن للاستدعاء المتكرر.</summary>
+        Public Sub ReleaseAll()
+            _joyX = 0
+            _joyY = 0
+            _zoomDir = 0
+            Push()
+        End Sub
+
+        Private _hookedForm As Form
+
+        Protected Overrides Sub OnHandleCreated(e As EventArgs)
+            MyBase.OnHandleCreated(e)
+            Dim f As Form = FindForm()
+            If f IsNot Nothing AndAlso f IsNot _hookedForm Then
+                _hookedForm = f
+                AddHandler f.Deactivate, AddressOf OnFormDeactivated
+            End If
+        End Sub
+
+        Protected Overrides Sub OnHandleDestroyed(e As EventArgs)
+            If _hookedForm IsNot Nothing Then
+                RemoveHandler _hookedForm.Deactivate, AddressOf OnFormDeactivated
+                _hookedForm = Nothing
+            End If
+            MyBase.OnHandleDestroyed(e)
+        End Sub
+
+        Private Sub OnFormDeactivated(sender As Object, e As EventArgs)
+            ReleaseAll()
+        End Sub
+
         Private Sub trkSpeed_ValueChanged(sender As Object, e As EventArgs) Handles trkSpeed.ValueChanged
             lblSpeedValue.Text = trkSpeed.Value.ToString()
         End Sub

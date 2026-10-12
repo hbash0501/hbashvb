@@ -547,4 +547,69 @@ Public Class RemoteClientTests
             Assert.Throws(Of ArgumentException)(Function() New GatewayEventStream(c, "UPPER"))
         End Using
     End Sub
+
+    ' ======================= مراجعة الأمان: إصلاحات المتحكم =======================
+    <Fact>
+    Public Sub Controller_AStopThatOvertakesAnInFlightMove_NeverLeavesARenewTimerRunning()
+        Dim h As New Scripted()
+        h.Responder = Function(req, body)
+                          If req.RequestUri.AbsolutePath.EndsWith("/auth/login") Then Return LoginOk()
+                          If req.RequestUri.AbsolutePath.EndsWith("/ptz/move") Then Threading.Thread.Sleep(250)     ' رحلة بطيئة
+                          Return New HttpResponseMessage(HttpStatusCode.NoContent)
+                      End Function
+        Using c As GatewayClient = NewClient(h)
+            SignIn(c)
+            Using ctl As New RemoteCameraController(c, "se7c432mw", CameraProfiles.Ds2Se7c432mwAeb, renewMs:=40)
+                Dim move As Task = Task.Run(Function() ctl.MoveAsync(New PtzVector(20, 0, 0), Threading.CancellationToken.None))
+                Threading.Thread.Sleep(60)                                    ' الأمر ما زال في الرحلة
+                ctl.StopAsync(Threading.CancellationToken.None).GetAwaiter().GetResult()
+                move.Wait()
+                Dim afterStop As Integer = h.Log.Where(Function(l) l.Path.EndsWith("/ptz/move")).Count()
+                Threading.Thread.Sleep(600)
+                Assert.Equal(afterStop, h.Log.Where(Function(l) l.Path.EndsWith("/ptz/move")).Count())          ' لا تجديد بعد الإيقاف
+                Assert.Equal(1, h.Log.Where(Function(l) l.Path.EndsWith("/ptz/stop")).Count())
+            End Using
+        End Using
+    End Sub
+
+    <Fact>
+    Public Sub Controller_MoveSequenceBelongsToTheSession_SoANewControllerContinuesWhereTheOldOneStopped()
+        Dim h As New Scripted()
+        h.Responder = Function(req, body) If(req.RequestUri.AbsolutePath.EndsWith("/auth/login"), LoginOk(), New HttpResponseMessage(HttpStatusCode.NoContent))
+        Using c As GatewayClient = NewClient(h)
+            SignIn(c)
+            Dim lastOfFirst As Long
+            Using first As New RemoteCameraController(c, "se7c432mw", CameraProfiles.Ds2Se7c432mwAeb, renewMs:=5000)
+                For i As Integer = 1 To 5
+                    first.MoveAsync(New PtzVector(i * 5, 0, 0), Threading.CancellationToken.None).GetAwaiter().GetResult()
+                Next
+                first.StopAsync(Threading.CancellationToken.None).GetAwaiter().GetResult()
+            End Using
+            Dim seqs As List(Of Long) = h.Log.Where(Function(l) l.Path.EndsWith("/ptz/move") OrElse l.Path.EndsWith("/ptz/stop")).Select(Function(m) JsonDocument.Parse(m.Body).RootElement.GetProperty("seq").GetInt64()).ToList()
+            lastOfFirst = seqs.Max()
+            Using second As New RemoteCameraController(c, "se7c432mw", CameraProfiles.Ds2Se7c432mwAeb, renewMs:=5000)
+                second.MoveAsync(New PtzVector(10, 0, 0), Threading.CancellationToken.None).GetAwaiter().GetResult()
+                Dim firstOfSecond As Long = JsonDocument.Parse(h.Log.Last(Function(l) l.Path.EndsWith("/ptz/move")).Body).RootElement.GetProperty("seq").GetInt64()
+                Assert.True(firstOfSecond > lastOfFirst, $"البوابة سترفض {firstOfSecond} ≤ {lastOfFirst} بصمت (stale_seq)")
+            End Using
+        End Using
+    End Sub
+
+    <Fact>
+    Public Sub Controller_LensHalt_AlwaysCarriesAValidSpeed()
+        Dim h As New Scripted()
+        h.Responder = Function(req, body) If(req.RequestUri.AbsolutePath.EndsWith("/auth/login"), LoginOk(), New HttpResponseMessage(HttpStatusCode.NoContent))
+        Using c As GatewayClient = NewClient(h)
+            SignIn(c)
+            Using ctl As New RemoteCameraController(c, "se7c432mw", CameraProfiles.Ds2Se7c432mwAeb)
+                ctl.MoveFocusAsync(LensDirection.Halt, 0, Threading.CancellationToken.None).GetAwaiter().GetResult()
+                ctl.MoveIrisAsync(LensDirection.Halt, 0, Threading.CancellationToken.None).GetAwaiter().GetResult()
+                ctl.MoveFocusAsync(LensDirection.Far, 40, Threading.CancellationToken.None).GetAwaiter().GetResult()
+            End Using
+            Dim lens = h.Log.Where(Function(l) l.Path.Contains("/lens/")).ToList()
+            Assert.Equal(3, lens.Count)
+            Assert.All(lens.Take(2), Sub(l) Assert.Equal(1, JsonDocument.Parse(l.Body).RootElement.GetProperty("speed").GetInt32()))
+            Assert.Equal(40, JsonDocument.Parse(lens(2).Body).RootElement.GetProperty("speed").GetInt32())
+        End Using
+    End Sub
 End Class

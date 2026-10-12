@@ -116,20 +116,30 @@ Namespace Audit
             Public Count As Integer
         End Class
 
+        ''' <summary>سقف عام لأسطر Guard.Denied في الدقيقة مهما تنوّعت المفاتيح؛ الفائض يُحصى ويُلخَّص في سطر واحد.</summary>
+        Public Const MaxLinesPerMinute As Integer = 60
+        Private Const MaxKeys As Integer = 5000
+
         Private ReadOnly _audit As IAuditLog
         Private ReadOnly _lock As New Object()
         Private ReadOnly _buckets As New Dictionary(Of String, Bucket)()
-        Private Const MaxKeys As Integer = 5000
+        Private _windowStart As DateTime = DateTime.MinValue
+        Private _windowLines As Integer
+        Private _suppressed As Integer
 
         Public Sub New(audit As IAuditLog)
             _audit = audit
         End Sub
 
-        Public Sub Record(ip As String, reason As String, user As String, nowUtc As DateTime)
-            Dim key As String = ip & "|" & reason
+        ''' <param name="limiterKey">مفتاح مُقسِّم محدّد المعدل لهذا العميل (IPv6 مجمَّع على /64) كي يتطابق التجميع هنا مع التحديد هناك؛
+        ''' بلا ذلك يدور مهاجم على عناوين شبكته فيكون كل طلب «أول مرة» ويكتب سطراً. العنوان الكامل يبقى في نص السجل.</param>
+        Public Sub Record(ip As String, reason As String, user As String, nowUtc As DateTime, Optional limiterKey As String = Nothing)
+            Dim key As String = If(limiterKey, ip) & "|" & reason
             Dim flushCount As Integer = 0
             Dim first As Boolean = False
+            Dim summary As Integer = 0
             SyncLock _lock
+                summary = RollWindow(nowUtc)
                 Dim b As Bucket = Nothing
                 If Not _buckets.TryGetValue(key, b) Then
                     If _buckets.Count >= MaxKeys Then _buckets.Clear()
@@ -143,10 +153,41 @@ Namespace Audit
                     first = True
                 End If
                 b.Count += 1
+                If first Then first = TryTakeLine()
+                If flushCount > 0 AndAlso Not TryTakeLine() Then flushCount = 0
             End SyncLock
+            If summary > 0 Then _audit.Write("svc:gateway", "Guard.DeniedOverflow", "all", "DENIED", $"suppressed={summary}")
             If flushCount > 0 Then _audit.Write("svc:gateway", "Guard.DeniedSummary", reason, "DENIED", $"ip={ip} count={flushCount}")
             If first Then _audit.Write(If(user, "(anonymous)"), "Guard.Denied", reason, "DENIED", $"ip={ip}")
         End Sub
+
+        ''' <summary>تُستدعى دورياً من الصيانة كي يُكتب ملخص الفائض حتى لو توقف الهجوم (فلا يضيع حجمه من السجل).</summary>
+        Public Sub Flush(nowUtc As DateTime)
+            Dim summary As Integer
+            SyncLock _lock
+                summary = RollWindow(nowUtc)
+            End SyncLock
+            If summary > 0 Then _audit.Write("svc:gateway", "Guard.DeniedOverflow", "all", "DENIED", $"suppressed={summary}")
+        End Sub
+
+        ''' <summary>يُدار داخل القفل. يعيد عدد الأسطر المكبوتة في النافذة المنتهية (للتلخيص) ويبدأ نافذة جديدة.</summary>
+        Private Function RollWindow(nowUtc As DateTime) As Integer
+            If _windowStart <> DateTime.MinValue AndAlso nowUtc - _windowStart < TimeSpan.FromMinutes(1) Then Return 0
+            Dim s As Integer = _suppressed
+            _windowStart = nowUtc
+            _windowLines = 0
+            _suppressed = 0
+            Return s
+        End Function
+
+        Private Function TryTakeLine() As Boolean
+            If _windowLines >= MaxLinesPerMinute Then
+                _suppressed += 1
+                Return False
+            End If
+            _windowLines += 1
+            Return True
+        End Function
     End Class
 
 End Namespace

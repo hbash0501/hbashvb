@@ -79,6 +79,28 @@ Public NotInheritable Class Cli
                 _admin.Write(_actor, "Session.RevokeAll", "gateway", "OK", "")
                 _out.WriteLine("سيُبطل الخادم كل الجلسات الحالية خلال ثوانٍ.")
                 Return 0
+            Case "rotate-audit"
+                ' يُنفَّذ والخدمة متوقفة: يتحقق من سلامة السلسلة ثم يؤرشف audit.log ليبدأ سجل جديد (Seq=1) فلا ينمو بلا حدّ.
+                Dim logPath As String = IO.Path.Combine(_options.DataDir, "audit.log")
+                If Not IO.File.Exists(logPath) Then
+                    _out.WriteLine("لا يوجد audit.log.")
+                    Return 0
+                End If
+                Dim cur As New FileAuditLog(logPath, KeyDerivation.Derive(_keys.GetMasterKey(), "audit"), _clock)
+                Dim chk As AuditVerifyResult = cur.Verify()
+                If Not chk.IsValid Then
+                    _out.WriteLine($"رُفض التدوير: السلسلة معطوبة عند السجل {chk.FirstBadSeq}. أرشفها يدوياً بعد التحقيق.")
+                    Return 3
+                End If
+                Dim archive As String = IO.Path.Combine(_options.DataDir, $"audit-{_clock.UtcNow:yyyyMMdd-HHmmss}.log")
+                Dim lastHash As String = cur.LastHash
+                IO.File.Move(logPath, archive)
+                If Not String.IsNullOrWhiteSpace(_options.AuditAnchorFile) Then
+                    IO.File.AppendAllText(_options.AuditAnchorFile, $"{_clock.UtcNow:o} ROTATED {IO.Path.GetFileName(archive)} {lastHash}{Environment.NewLine}")
+                End If
+                _admin.Write(_actor, "Audit.Rotate", IO.Path.GetFileName(archive), "OK", $"entries={chk.EntriesChecked} last={lastHash}")
+                _out.WriteLine($"أُرشف السجل ({chk.EntriesChecked} سجل) إلى {archive}. سيبدأ سجل جديد عند تشغيل الخدمة؛ احتفظ بالأرشيف (يُتحقَّق منه بمفرده بالمفتاح نفسه).")
+                Return 0
             Case "verify-audit"
                 Dim svcLog As New FileAuditLog(IO.Path.Combine(_options.DataDir, "audit.log"), KeyDerivation.Derive(_keys.GetMasterKey(), "audit"), _clock)
                 Dim a As AuditVerifyResult = svcLog.Verify()
@@ -91,7 +113,7 @@ Public NotInheritable Class Cli
     End Function
 
     Private Function Usage() As Integer
-        _out.WriteLine("الاستخدام: PtzGateway [serve|check|user|totp|camera|cert|revoke-all|verify-audit] ...")
+        _out.WriteLine("الاستخدام: PtzGateway [serve|check|user|totp|camera|cert|revoke-all|verify-audit|rotate-audit] ...")
         _out.WriteLine("  user add <name> <role> | passwd <name> | role <name> <role> | disable|enable|unlock <name> | list")
         _out.WriteLine("  totp enroll <name> | reset <name>")
         _out.WriteLine("  camera list | set <key> --host H [--port P] --user U [--http-insecure] [--pin <sha256>] [--name N]")

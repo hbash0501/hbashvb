@@ -20,8 +20,8 @@ Namespace Remote
         Private ReadOnly _gate As New Threading.SemaphoreSlim(1, 1)
         Private ReadOnly _lock As New Object()
         Private _features As CameraFeatures
-        Private _seq As Long
         Private _latestSeq As Long
+        Private _stopGen As Long
         Private _renewTimer As Threading.Timer
         Private _renewVector As PtzVector
         Private _renewBusy As Integer
@@ -75,9 +75,9 @@ Namespace Remote
         ' ============ PTZ المستمر ============
         Private Function NextSeq() As Long
             SyncLock _lock
-                _seq += 1
-                _latestSeq = _seq
-                Return _seq
+                Dim n As Long = _client.NextMoveSeq()
+                _latestSeq = n
+                Return n
             End SyncLock
         End Function
 
@@ -92,9 +92,10 @@ Namespace Remote
                 Await StopAsync(ct).ConfigureAwait(False)
                 Return
             End If
+            Dim gen As Long = ReadStopGen()
             Dim seq As Long = NextSeq()
             Await SendMoveAsync(vector, seq, renew:=False, ct:=ct).ConfigureAwait(False)
-            ArmRenew(vector)
+            ArmRenew(vector, gen)
         End Function
 
         Private Async Function SendMoveAsync(vector As PtzVector, seq As Long, renew As Boolean, ct As Threading.CancellationToken) As Task
@@ -132,9 +133,20 @@ Namespace Remote
             End While
         End Function
 
-        Private Sub ArmRenew(vector As PtzVector)
+        Private Function ReadStopGen() As Long
+            SyncLock _lock
+                Return _stopGen
+            End SyncLock
+        End Function
+
+        ''' <summary>
+        ''' يسلّح التجديد الدوري. <paramref name="gen"/> = جيل الإيقاف وقت بدء هذه الحركة؛ إن جاء إيقاف أثناء إرسالها (تجاوزها)
+        ''' فلا يجوز أن تعيد تسليح المؤقّت بعده، وإلا بقي يجدّد حركة متوقفة إلى الأبد ويُعمي المحرك الذكي في البوابة.
+        ''' </summary>
+        Private Sub ArmRenew(vector As PtzVector, gen As Long)
             If Threading.Volatile.Read(_disposed) <> 0 Then Return
             SyncLock _lock
+                If _stopGen <> gen Then Return
                 _renewVector = vector
                 If _renewTimer Is Nothing Then _renewTimer = New Threading.Timer(AddressOf RenewTick, Nothing, _renewMs, _renewMs)
             End SyncLock
@@ -142,6 +154,7 @@ Namespace Remote
 
         Private Sub DisarmRenew()
             SyncLock _lock
+                _stopGen += 1
                 _renewVector = PtzVector.Zero
                 _renewTimer?.Dispose()
                 _renewTimer = Nothing
@@ -158,14 +171,17 @@ Namespace Remote
             Dim failed As Boolean = False
             Try
                 Dim v As PtzVector
+                Dim gen As Long
                 SyncLock _lock
                     v = _renewVector
+                    gen = _stopGen
                 End SyncLock
                 If v.IsZero Then Return
                 Dim seq As Long = NextSeq()
                 Using cts As New Threading.CancellationTokenSource(TimeSpan.FromSeconds(3))
                     Await SendMoveAsync(v, seq, renew:=True, ct:=cts.Token).ConfigureAwait(False)
                 End Using
+                If ReadStopGen() <> gen Then DisarmRenew()
             Catch ex As Exception When TypeOf ex Is IsapiException OrElse TypeOf ex Is Security.AccessDeniedException OrElse
                                       TypeOf ex Is ArgumentException OrElse TypeOf ex Is InvalidOperationException OrElse
                                       TypeOf ex Is OperationCanceledException OrElse TypeOf ex Is NotSupportedException
@@ -247,11 +263,16 @@ Namespace Remote
 
         ' ============ العدسة ============
         Public Async Function MoveFocusAsync(direction As LensDirection, speed As Integer, ct As Threading.CancellationToken) As Task Implements ICameraController.MoveFocusAsync
-            Await Send(HttpMethod.Post, "/lens/focus", New LensRequest With {.Direction = WireMap.LensDirectionName(direction), .Speed = speed}, ct).ConfigureAwait(False)
+            Await Send(HttpMethod.Post, "/lens/focus", New LensRequest With {.Direction = WireMap.LensDirectionName(direction), .Speed = LensSpeed(direction, speed)}, ct).ConfigureAwait(False)
+        End Function
+
+        ''' <summary>الإيقاف يحمل سرعة صالحة (1) كي لا يرفضه خادم أقدم يتحقق من النطاق دون استثناء halt.</summary>
+        Private Shared Function LensSpeed(direction As LensDirection, speed As Integer) As Integer
+            Return If(direction = LensDirection.Halt, 1, speed)
         End Function
 
         Public Async Function MoveIrisAsync(direction As LensDirection, speed As Integer, ct As Threading.CancellationToken) As Task Implements ICameraController.MoveIrisAsync
-            Await Send(HttpMethod.Post, "/lens/iris", New LensRequest With {.Direction = WireMap.LensDirectionName(direction), .Speed = speed}, ct).ConfigureAwait(False)
+            Await Send(HttpMethod.Post, "/lens/iris", New LensRequest With {.Direction = WireMap.LensDirectionName(direction), .Speed = LensSpeed(direction, speed)}, ct).ConfigureAwait(False)
         End Function
 
         ' ============ الصورة والإضاءة ============

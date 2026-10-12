@@ -124,8 +124,9 @@ Public Class ValidatorTests
         Assert.True(Has(Check(o), "TrustedProxies"))
         o.TrustedProxies = New List(Of String) From {"172.16.0.5"}
         Assert.True(Check(o).IsOk)
+        ' Tunnel بلا وكلاء موثوقين: كل العملاء يشتركون في مفتاح تحديد معدل واحد فيحجب مجهول واحد دخول الجميع ⇒ مخالفة لا تحذير
         o.TrustedProxies = New List(Of String)()
-        Assert.Contains(Check(o).Warnings, Function(w) w.Contains("Tunnel"))
+        Assert.True(Has(Check(o), "Tunnel"))
     End Sub
 
     <Fact>

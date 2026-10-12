@@ -40,6 +40,7 @@ Namespace Hosting
             ProcessRequestFiles()
             If Not _svc.AuditHealth.IsHealthy Then _svc.RemoteAudit.TryRecover()
             _svc.Sessions.PurgeExpired()
+            _svc.Denied.Flush(_svc.Clock.UtcNow)
             If (_svc.Clock.UtcNow - _lastAnchorUtc).TotalMinutes >= 15 Then WriteAnchor()
         End Sub
 
