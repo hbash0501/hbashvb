@@ -113,19 +113,40 @@ Namespace Security
             Totp.Verify(DummySecret, code, New DateTimeOffset(DateTime.SpecifyKind(now, DateTimeKind.Utc)).ToUnixTimeSeconds(), -1)
         End Sub
 
-        ''' <summary>يلتقط تغييرات أداة الإدارة (عملية مستقلة) بمقارنة بصمة الملف.</summary>
+        ''' <summary>يلتقط تغييرات أداة الإدارة (عملية مستقلة). آمن عند الفشل: ملف تالف يُبقي الحالة الحالية.</summary>
         Public Function ReloadIfChanged() As Boolean
             SyncLock _lock
-                If FileStamp(_secretsPath) = _stamp Then Return False
-                LoadSecrets()
+                Dim stamp As String = FileStamp(_secretsPath)
+                If stamp = _stamp Then Return False
+                Dim fresh As New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+                Try
+                    If IO.File.Exists(_secretsPath) Then
+                        Dim list As List(Of SecretDto) = JsonSerializer.Deserialize(Of List(Of SecretDto))(IO.File.ReadAllText(_secretsPath, Encoding.UTF8))
+                        If list IsNot Nothing Then
+                            For Each d As SecretDto In list
+                                fresh(d.UserName) = d.SecretProtected
+                            Next
+                        End If
+                    End If
+                Catch ex As Exception When TypeOf ex Is JsonException OrElse TypeOf ex Is IO.IOException
+                    Return False
+                End Try
+                _secrets.Clear()
+                For Each kv In fresh
+                    _secrets(kv.Key) = kv.Value
+                Next
+                _stamp = stamp
                 Return True
             End SyncLock
         End Function
 
         Private Shared Function FileStamp(path As String) As String
             If Not IO.File.Exists(path) Then Return ""
-            Dim fi As New IO.FileInfo(path)
-            Return fi.LastWriteTimeUtc.Ticks.ToString(Globalization.CultureInfo.InvariantCulture) & ":" & fi.Length.ToString(Globalization.CultureInfo.InvariantCulture)
+            Try
+                Return Convert.ToHexString(SHA256.HashData(IO.File.ReadAllBytes(path)))
+            Catch ex As IO.IOException
+                Return "unreadable"
+            End Try
         End Function
 
         Private Sub LoadSecrets()

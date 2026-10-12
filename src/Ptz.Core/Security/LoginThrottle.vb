@@ -30,8 +30,17 @@ Namespace Security
             _maxKeys = maxKeys
         End Sub
 
+        ''' <summary>اسم موحّد للمفتاح: الأسماء غير الصالحة (Unicode/طويلة) تُجمَّع في مفتاح واحد كي لا يلوّث المهاجم الذاكرة.</summary>
+        Private Shared Function NormalizeUser(user As String) As String
+            If String.IsNullOrEmpty(user) OrElse user.Length > 64 Then Return "~invalid"
+            For Each c As Char In user
+                If Not (Char.IsAsciiLetterOrDigit(c) OrElse c = "_"c OrElse c = "."c OrElse c = "-"c) Then Return "~invalid"
+            Next
+            Return user.ToLowerInvariant()
+        End Function
+
         Private Shared Function PairKey(ip As String, user As String) As String
-            Return user.ToLowerInvariant() & "|" & ip
+            Return NormalizeUser(user) & "|" & ip
         End Function
 
         Private Shared Sub Prune(w As Window, now As DateTime, span As TimeSpan)
@@ -54,13 +63,19 @@ Namespace Security
             End SyncLock
         End Function
 
-        Public Sub RecordFailure(ip As String, userName As String)
+        ''' <summary>
+        ''' يسجّل إخفاقاً. دائماً يغذّي تراجع (مستخدم،IP). القفل على مستوى المستخدم يتغذى <b>فقط</b> من إخفاقات مرحلة TOTP
+        ''' (كلمة المرور صحيحة والرمز خاطئ)، فلا يستطيع من يجهل كلمة المرور قفل مستخدم معروف. لا يُمدَّد قفل قائم.
+        ''' </summary>
+        Public Sub RecordFailure(ip As String, userName As String, Optional totpStage As Boolean = False)
             Dim now As DateTime = _clock.UtcNow
             SyncLock _lock
                 Dim pw As Window = GetWindow(_pairs, PairKey(ip, userName), now)
                 Prune(pw, now, PairWindow)
                 pw.Stamps.Add(now)
-                Dim uw As Window = GetWindow(_users, userName, now)
+                If Not totpStage Then Return
+                Dim uw As Window = GetWindow(_users, NormalizeUser(userName), now)
+                If uw.LockedUntilUtc > now Then Return
                 Prune(uw, now, UserWindow)
                 uw.Stamps.Add(now)
                 If uw.Stamps.Count >= UserFailureLimit Then
@@ -80,14 +95,14 @@ Namespace Security
             Dim now As DateTime = _clock.UtcNow
             SyncLock _lock
                 Dim w As Window = Nothing
-                Return _users.TryGetValue(userName, w) AndAlso w.LockedUntilUtc > now
+                Return _users.TryGetValue(NormalizeUser(userName), w) AndAlso w.LockedUntilUtc > now
             End SyncLock
         End Function
 
         ''' <summary>يفك القفل البعيد يدوياً (أمر unlock في أداة الإدارة).</summary>
         Public Sub Unlock(userName As String)
             SyncLock _lock
-                _users.Remove(userName)
+                _users.Remove(NormalizeUser(userName))
             End SyncLock
         End Sub
 

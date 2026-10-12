@@ -75,19 +75,8 @@ Friend NotInheritable Class LocalCameraBackend
         Return Task.Run(Function() AlertLoopAsync(ct))
     End Function
 
-    ''' <summary>يستورد أحداث الكاميرا الذكية الأصلية (VMD/خط/اقتحام...) إلى ناقل الإنذارات.</summary>
-    Private Async Function AlertLoopAsync(ct As Threading.CancellationToken) As Task
-        Using client As New IsapiClient(_deps.Connection, _deps.HttpHandler)
-            Dim stream As New AlertStreamClient(client)
-            Await stream.RunAsync(
-                Sub(ev)
-                    _deps.Bus.Publish(New AlarmEvent With {
-                        .Camera = _deps.CameraName,
-                        .Kind = "Device:" & ev.EventType,
-                        .Severity = AlarmSeverity.Warning,
-                        .Message = $"حدث من الكاميرا: {ev.EventType} {ev.Description}".Trim()})
-                End Sub, Nothing, ct)
-        End Using
+    Private Function AlertLoopAsync(ct As Threading.CancellationToken) As Task
+        Return DeviceAlertBridge.RunAsync(_deps.Connection, _deps.HttpHandler, _deps.CameraName, _deps.Bus, ct)
     End Function
 
     Public Sub Dispose() Implements IDisposable.Dispose

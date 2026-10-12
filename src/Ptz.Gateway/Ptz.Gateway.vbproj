@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Ptz.Gateway</RootNamespace>
+    <AssemblyName>PtzGateway</AssemblyName>
+    <MyType>Empty</MyType>
+    <StartupObject>Ptz.Gateway.Program</StartupObject>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Ptz.Core\Ptz.Core.vbproj" />
+    <ProjectReference Include="..\Ptz.Presentation\Ptz.Presentation.vbproj" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
+    <PackageReference Include="SkiaSharp" Version="2.88.9" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="2.88.9" />
+    <EmbeddedResource Include="Web\index.html" LogicalName="web/index.html" />
+    <EmbeddedResource Include="Web\app.js" LogicalName="web/app.js" />
+    <EmbeddedResource Include="Web\app.css" LogicalName="web/app.css" />
+  </ItemGroup>
+</Project>

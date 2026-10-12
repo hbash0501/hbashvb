@@ -173,6 +173,18 @@ Namespace Engine
             End Set
         End Property
 
+        ''' <summary>نسخة من عتبات السلوك الحالية (للعرض عن بُعد).</summary>
+        Public Function SnapshotBehaviorOptions() As BehaviorOptions
+            SyncLock _sync
+                Dim s As BehaviorOptions = _opt.Behavior
+                Return New BehaviorOptions With {
+                    .LoiterSeconds = s.LoiterSeconds, .LoiterRadius = s.LoiterRadius, .RunSpeed = s.RunSpeed, .RunMinSeconds = s.RunMinSeconds,
+                    .StationarySeconds = s.StationarySeconds, .StationarySpeed = s.StationarySpeed, .ErraticReversals = s.ErraticReversals,
+                    .ErraticWindowSeconds = s.ErraticWindowSeconds, .ErraticMinSegment = s.ErraticMinSegment, .GatherCount = s.GatherCount,
+                    .GatherRadius = s.GatherRadius, .EventCooldownSeconds = s.EventCooldownSeconds, .MinTrackAgeSeconds = s.MinTrackAgeSeconds}
+            End SyncLock
+        End Function
+
         ''' <summary>يطبّق عتبات السلوك الجديدة فوراً (نسخ القيم داخل القفل).</summary>
         Public Sub ApplyBehaviorOptions(src As BehaviorOptions) Implements ISmartEngine.ApplyBehaviorOptions
             If src Is Nothing Then Throw New ArgumentNullException(NameOf(src))

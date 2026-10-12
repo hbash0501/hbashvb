@@ -240,20 +240,47 @@ Namespace Security
             _audit.Write(actor, "User.Unlock", userName, "OK", "")
         End Sub
 
-        ''' <summary>يعيد تحميل الملف إن تغيّر من عملية أخرى (أداة الإدارة). يعيد True إن تغيّر المحتوى.</summary>
+        ''' <summary>
+        ''' يعيد تحميل الملف إن تغيّر من عملية أخرى (أداة الإدارة). آمن عند الفشل: ملف نصف مكتوب/تالف يُترك الوضع الحالي كما هو
+        ''' (لا يُفرَّغ القاموس) وتُعاد المحاولة في الدورة التالية. البصمة هي تجزئة المحتوى لا زمن التعديل.
+        ''' </summary>
         Public Function ReloadIfChanged() As Boolean
             SyncLock _lock
-                If FileStamp() = _stamp Then Return False
+                Dim stamp As String = FileStamp()
+                If stamp = _stamp Then Return False
+                Dim fresh As Dictionary(Of String, UserRecord)
+                Try
+                    fresh = ParseFile()
+                Catch ex As Exception When TypeOf ex Is JsonException OrElse TypeOf ex Is IO.IOException
+                    Return False
+                End Try
                 _users.Clear()
-                Load()
+                For Each kv In fresh
+                    _users(kv.Key) = kv.Value
+                Next
+                _stamp = stamp
                 Return True
             End SyncLock
         End Function
 
         Private Function FileStamp() As String
             If Not IO.File.Exists(_path) Then Return ""
-            Dim fi As New IO.FileInfo(_path)
-            Return fi.LastWriteTimeUtc.Ticks.ToString(Globalization.CultureInfo.InvariantCulture) & ":" & fi.Length.ToString(Globalization.CultureInfo.InvariantCulture)
+            Try
+                Return Convert.ToHexString(SHA256.HashData(IO.File.ReadAllBytes(_path)))
+            Catch ex As IO.IOException
+                Return "unreadable"
+            End Try
+        End Function
+
+        Private Function ParseFile() As Dictionary(Of String, UserRecord)
+            Dim d As New Dictionary(Of String, UserRecord)(StringComparer.OrdinalIgnoreCase)
+            If Not IO.File.Exists(_path) Then Return d
+            Dim list As List(Of UserRecord) = JsonSerializer.Deserialize(Of List(Of UserRecord))(IO.File.ReadAllText(_path, Encoding.UTF8))
+            If list Is Nothing Then Return d
+            For Each u As UserRecord In list
+                d(u.UserName) = u
+            Next
+            Return d
         End Function
 
         ' ---------- داخلي ----------

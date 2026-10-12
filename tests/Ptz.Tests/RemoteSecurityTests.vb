@@ -129,18 +129,47 @@ Public Class RemoteSecurityTests
         Dim clock As New TestClock()
         Dim t As New LoginThrottle(clock)
         For i As Integer = 1 To LoginThrottle.UserFailureLimit
-            t.RecordFailure("10.0.0." & i, "Admin")
+            t.RecordFailure("10.0.0." & i, "Admin", True)
         Next
         Assert.True(t.IsRemoteLocked("admin"))
         Assert.False(t.IsRemoteLocked("other"))
         clock.Advance(31 * 60)
         Assert.False(t.IsRemoteLocked("admin"))
         For i As Integer = 1 To LoginThrottle.UserFailureLimit
-            t.RecordFailure("10.0.1." & i, "admin")
+            t.RecordFailure("10.0.1." & i, "admin", True)
         Next
         Assert.True(t.IsRemoteLocked("admin"))
         t.Unlock("admin")
         Assert.False(t.IsRemoteLocked("admin"))
+    End Sub
+
+    <Fact>
+    Public Sub LoginThrottle_PasswordStageFailures_NeverSoftLockAUser_AndLockIsNotExtended()
+        Dim clock As New TestClock()
+        Dim t As New LoginThrottle(clock)
+        For i As Integer = 1 To 500
+            t.RecordFailure("10.0." & (i \ 200) & "." & (i Mod 200), "admin")        ' تخمين كلمة المرور فقط
+        Next
+        Assert.False(t.IsRemoteLocked("admin"), "من يجهل كلمة المرور لا يقفل المستخدم المعروف")
+        For i As Integer = 1 To LoginThrottle.UserFailureLimit
+            t.RecordFailure("10.9.0." & i, "admin", True)
+        Next
+        Assert.True(t.IsRemoteLocked("admin"))
+        clock.Advance(20 * 60)
+        For i As Integer = 1 To 50
+            t.RecordFailure("10.9.1." & i, "admin", True)                          ' محاولات أثناء القفل لا تمدّده
+        Next
+        clock.Advance(11 * 60)
+        Assert.False(t.IsRemoteLocked("admin"), "القفل لا يتمدد بمحاولات أثناءه")
+    End Sub
+
+    <Fact>
+    Public Sub LoginThrottle_InvalidNames_ShareOneKey()
+        Dim t As New LoginThrottle(New TestClock(), 50)
+        For i As Integer = 1 To 5000
+            t.RecordFailure("1.1.1.1", "ключ" & i & New String("x"c, 100), True)
+        Next
+        Assert.Null(t.Precheck("2.2.2.2", "alice"))
     End Sub
 
     <Fact>

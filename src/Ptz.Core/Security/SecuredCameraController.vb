@@ -93,11 +93,10 @@ Namespace Security
         End Function
 
         ' ---- PTZ ----
-        ''' <summary>تدقيق الحركة المستمرة مخفّف: لا يُسجَّل تكرار نفس الأمر خلال ثانية.</summary>
+        ''' <summary>تدقيق الحركة المستمرة مخفّف: مرة في الثانية كحد أقصى (يشمل التتبع الآلي الذي يغيّر المتجه كل إطار).</summary>
         Private Function ShouldAuditMove(v As PtzVector) As Boolean
             Dim now As DateTime = _clock.UtcNow
-            Dim same As Boolean = v.Pan = _lastMoveVector.Pan AndAlso v.Tilt = _lastMoveVector.Tilt AndAlso v.Zoom = _lastMoveVector.Zoom
-            If same AndAlso (now - _lastMoveAudit).TotalSeconds < 1.0 Then Return False
+            If (now - _lastMoveAudit).TotalSeconds < 1.0 Then Return False
             _lastMoveVector = v
             _lastMoveAudit = now
             Return True
@@ -109,6 +108,7 @@ Namespace Security
 
         Public Function StopAsync(ct As Threading.CancellationToken) As Task Implements IPtzMover.StopAsync
             _lastMoveVector = PtzVector.Zero
+            _lastMoveAudit = DateTime.MinValue
             Return RunAsync(Permission.PtzControl, "Ptz.Stop", "", Function() _inner.StopAsync(ct))
         End Function
 
@@ -222,6 +222,7 @@ Namespace Security
 
             Public Function StopAsync(ct As Threading.CancellationToken) As Task Implements IPtzMover.StopAsync
                 _owner._lastMoveVector = PtzVector.Zero
+                _owner._lastMoveAudit = DateTime.MinValue
                 Return _owner.RunAsync(Permission.AutoTrack, "AutoTrack.Stop", "", Function() _owner._inner.StopAsync(ct))
             End Function
         End Class

@@ -121,31 +121,56 @@ Namespace Security
             Return If(s.Length <= max, s, s.Substring(0, max))
         End Function
 
-        ''' <summary>يتحقق من سلامة السلسلة كاملة.</summary>
+        ''' <summary>
+        ''' يتحقق من سلامة السلسلة كاملة. يلتقط طول الملف تحت القفل ثم يفحص نسخة قراءة مشتركة حتى ذلك الطول دون حجز
+        ''' الكتّاب (فحص ملف كبير لا يوقف التدقيق).
+        ''' </summary>
         Public Function Verify() As AuditVerifyResult
+            Dim limit As Long
             SyncLock _lock
                 If Not IO.File.Exists(_path) Then Return New AuditVerifyResult(True, 0, 0)
-                Dim prev As String = ""
-                Dim expectedSeq As Long = 1
-                Dim count As Long = 0
-                For Each line As String In IO.File.ReadLines(_path, Encoding.UTF8)
-                    If String.IsNullOrWhiteSpace(line) Then Continue For
-                    Dim e As AuditEntry
-                    Try
-                        e = JsonSerializer.Deserialize(Of AuditEntry)(line)
-                    Catch ex As JsonException
-                        Return New AuditVerifyResult(False, count, expectedSeq)
-                    End Try
-                    If e Is Nothing OrElse e.Seq <> expectedSeq OrElse e.PrevHash <> prev OrElse
-                       Not CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(Compute(e)), Encoding.ASCII.GetBytes(If(e.Hash, ""))) Then
-                        Return New AuditVerifyResult(False, count, expectedSeq)
-                    End If
-                    prev = e.Hash
-                    expectedSeq += 1
-                    count += 1
-                Next
-                Return New AuditVerifyResult(True, count, 0)
+                limit = New IO.FileInfo(_path).Length
             End SyncLock
+            Dim prev As String = ""
+            Dim expectedSeq As Long = 1
+            Dim count As Long = 0
+            Using fs As New IO.FileStream(_path, IO.FileMode.Open, IO.FileAccess.Read, IO.FileShare.ReadWrite)
+                Using sr As New IO.StreamReader(New IO.MemoryStream(ReadBytes(fs, limit)), Encoding.UTF8)
+                    Dim line As String = sr.ReadLine()
+                    While line IsNot Nothing
+                        If Not String.IsNullOrWhiteSpace(line) Then
+                            Dim e As AuditEntry
+                            Try
+                                e = JsonSerializer.Deserialize(Of AuditEntry)(line)
+                            Catch ex As JsonException
+                                Return New AuditVerifyResult(False, count, expectedSeq)
+                            End Try
+                            If e Is Nothing OrElse e.Seq <> expectedSeq OrElse e.PrevHash <> prev OrElse
+                               Not CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(Compute(e)), Encoding.ASCII.GetBytes(If(e.Hash, ""))) Then
+                                Return New AuditVerifyResult(False, count, expectedSeq)
+                            End If
+                            prev = e.Hash
+                            expectedSeq += 1
+                            count += 1
+                        End If
+                        line = sr.ReadLine()
+                    End While
+                End Using
+            End Using
+            Return New AuditVerifyResult(True, count, 0)
+        End Function
+
+        Private Shared Function ReadBytes(fs As IO.FileStream, limit As Long) As Byte()
+            Dim n As Integer = CInt(Math.Min(limit, Integer.MaxValue))
+            Dim buf(n - 1) As Byte
+            Dim read As Integer = 0
+            While read < n
+                Dim k As Integer = fs.Read(buf, read, n - read)
+                If k = 0 Then Exit While
+                read += k
+            End While
+            If read < n Then ReDim Preserve buf(read - 1)
+            Return buf
         End Function
 
         ''' <summary>آخر <paramref name="count"/> سجلات (الأحدث أولاً) للعرض.</summary>
