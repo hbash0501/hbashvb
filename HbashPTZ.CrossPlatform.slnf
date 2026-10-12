@@ -4,7 +4,9 @@
     "projects": [
       "src\\Ptz.Core\\Ptz.Core.vbproj",
       "src\\Ptz.Presentation\\Ptz.Presentation.vbproj",
+      "src\\Ptz.Gateway\\Ptz.Gateway.vbproj",
       "tests\\Ptz.Tests\\Ptz.Tests.vbproj",
+      "tests\\Ptz.Gateway.Tests\\Ptz.Gateway.Tests.vbproj",
       "build\\Ptz.App.LinuxCheck.vbproj"
     ]
   }
