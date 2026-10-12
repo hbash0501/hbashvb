@@ -48,9 +48,9 @@ Namespace Security
         End Property
 
         ' ---- المحرك المركزي ----
-        Private Sub Authorize(permission As Permission, action As String)
+        Private Sub Authorize(permission As Permission, action As String, touch As Boolean)
             Try
-                _access.Demand(_session, permission)
+                _access.Demand(_session, permission, touch)
             Catch ex As AccessDeniedException
                 _audit.Write(UserName(), action, _target, "DENIED", ex.Message)
                 Throw
@@ -61,8 +61,10 @@ Namespace Security
             Return If(_session Is Nothing, "(none)", _session.UserName)
         End Function
 
+        ' ملاحظة: العمليات غير المدقَّقة (قراءات/استطلاع/تكرار حركة) لا تجدّد نشاط الجلسة،
+        ' فلا يُبقيها الاستطلاع الخلفي للفيديو حيّة بعد خمول المستخدم.
         Private Async Function RunAsync(permission As Permission, action As String, details As String, op As Func(Of Task), Optional audit As Boolean = True) As Task
-            Authorize(permission, action)
+            Authorize(permission, action, audit)
             Try
                 Await op().ConfigureAwait(False)
                 If audit Then _audit.Write(UserName(), action, _target, "OK", details)
@@ -73,7 +75,7 @@ Namespace Security
         End Function
 
         Private Async Function RunAsync(Of T)(permission As Permission, action As String, details As String, op As Func(Of Task(Of T)), Optional audit As Boolean = True) As Task(Of T)
-            Authorize(permission, action)
+            Authorize(permission, action, audit)
             Try
                 Dim r As T = Await op().ConfigureAwait(False)
                 If audit Then _audit.Write(UserName(), action, _target, "OK", details)

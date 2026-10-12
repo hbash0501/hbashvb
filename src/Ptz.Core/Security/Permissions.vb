@@ -49,10 +49,13 @@ Namespace Security
     Public Class AccessDeniedException
         Inherits Exception
         Public ReadOnly Property Required As Permission
+        ''' <summary>true إذا كان السبب انتهاء الجلسة (لا نقص الصلاحية).</summary>
+        Public ReadOnly Property IsSessionExpired As Boolean
 
-        Public Sub New(required As Permission, message As String)
+        Public Sub New(required As Permission, message As String, Optional isSessionExpired As Boolean = False)
             MyBase.New(message)
             Me.Required = required
+            Me.IsSessionExpired = isSessionExpired
         End Sub
     End Class
 
@@ -102,15 +105,18 @@ Namespace Security
             _clock = If(clock, Abstractions.SystemClock.Instance)
         End Sub
 
-        ''' <summary>يرمي AccessDeniedException إن انتهت الجلسة أو لم تتوفر الصلاحية؛ وإلا يجدّد نشاط الجلسة.</summary>
-        Public Sub Demand(session As UserSession, required As Permission)
+        ''' <summary>
+        ''' يرمي AccessDeniedException إن انتهت الجلسة أو لم تتوفر الصلاحية.
+        ''' touch = False للعمليات الخلفية (استطلاع الفيديو) كي لا تمنع انتهاء الجلسة بالخمول.
+        ''' </summary>
+        Public Sub Demand(session As UserSession, required As Permission, Optional touch As Boolean = True)
             If session Is Nothing Then Throw New AccessDeniedException(required, "لا توجد جلسة مصادقة.")
             Dim now As DateTime = _clock.UtcNow
-            If session.IsExpired(now) Then Throw New AccessDeniedException(required, "انتهت الجلسة بسبب الخمول.")
+            If session.IsExpired(now) Then Throw New AccessDeniedException(required, "انتهت الجلسة بسبب الخمول.", True)
             If Not session.Has(required) Then
                 Throw New AccessDeniedException(required, $"الصلاحية {required} غير متاحة للدور {session.Role}.")
             End If
-            session.Touch(now)
+            If touch Then session.Touch(now)
         End Sub
     End Class
 

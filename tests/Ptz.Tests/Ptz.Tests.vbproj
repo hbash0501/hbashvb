@@ -15,5 +15,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Ptz.Core\Ptz.Core.vbproj" />
+    <ProjectReference Include="..\..\src\Ptz.Presentation\Ptz.Presentation.vbproj" />
   </ItemGroup>
 </Project>

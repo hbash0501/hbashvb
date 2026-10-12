@@ -75,6 +75,7 @@ Namespace Engine
         Private ReadOnly _announced As New HashSet(Of Integer)()
         Private _autoTrackEnabled As Boolean
         Private _lockPoint As NormPoint?
+        Private _forceLearning As Boolean?
         Private _startedUtc As DateTime = DateTime.MinValue
         Private _moving As Boolean
         Private _cts As Threading.CancellationTokenSource
@@ -125,6 +126,71 @@ Namespace Engine
             End SyncLock
         End Sub
 
+        Public Property MotionEnabled As Boolean
+            Get
+                SyncLock _sync
+                    Return _opt.EnableMotion
+                End SyncLock
+            End Get
+            Set(value As Boolean)
+                SyncLock _sync
+                    _opt.EnableMotion = value
+                    If Not value Then
+                        _tracker.Reset()
+                        _announced.Clear()
+                    End If
+                End SyncLock
+            End Set
+        End Property
+
+        Public Property BehaviorEnabled As Boolean
+            Get
+                SyncLock _sync
+                    Return _opt.EnableBehavior
+                End SyncLock
+            End Get
+            Set(value As Boolean)
+                SyncLock _sync
+                    _opt.EnableBehavior = value
+                End SyncLock
+            End Set
+        End Property
+
+        ''' <summary>يفرض حالة التعلّم (True/False) أو يعيد القرار للمؤقّت التلقائي (Nothing).</summary>
+        Public Property ForceAnomalyLearning As Boolean?
+            Get
+                SyncLock _sync
+                    Return _forceLearning
+                End SyncLock
+            End Get
+            Set(value As Boolean?)
+                SyncLock _sync
+                    _forceLearning = value
+                End SyncLock
+            End Set
+        End Property
+
+        ''' <summary>يطبّق عتبات السلوك الجديدة فوراً (نسخ القيم داخل القفل).</summary>
+        Public Sub ApplyBehaviorOptions(src As BehaviorOptions)
+            If src Is Nothing Then Throw New ArgumentNullException(NameOf(src))
+            SyncLock _sync
+                Dim d As BehaviorOptions = _opt.Behavior
+                d.LoiterSeconds = src.LoiterSeconds
+                d.LoiterRadius = src.LoiterRadius
+                d.RunSpeed = src.RunSpeed
+                d.RunMinSeconds = src.RunMinSeconds
+                d.StationarySeconds = src.StationarySeconds
+                d.StationarySpeed = src.StationarySpeed
+                d.ErraticReversals = src.ErraticReversals
+                d.ErraticWindowSeconds = src.ErraticWindowSeconds
+                d.ErraticMinSegment = src.ErraticMinSegment
+                d.GatherCount = src.GatherCount
+                d.GatherRadius = src.GatherRadius
+                d.EventCooldownSeconds = src.EventCooldownSeconds
+                d.MinTrackAgeSeconds = src.MinTrackAgeSeconds
+            End SyncLock
+        End Sub
+
         Public Property AutoTrackEnabled As Boolean
             Get
                 SyncLock _sync
@@ -168,6 +234,7 @@ Namespace Engine
                 Dim now As DateTime = frame.TimestampUtc
                 If _startedUtc = DateTime.MinValue Then _startedUtc = now
                 Dim learning As Boolean = _opt.AnomalyLearningSeconds > 0 AndAlso (now - _startedUtc).TotalSeconds < _opt.AnomalyLearningSeconds
+                If _forceLearning.HasValue Then learning = _forceLearning.Value
                 _behavior.Anomaly.Learning = learning
 
                 Dim result As New SmartFrameResult With {.TimestampUtc = now, .AnomalyLearning = learning}
