@@ -27,6 +27,10 @@ Public Interface IHubView
     Sub ShowCameras(cameras As IReadOnlyList(Of CameraConfig))
     ''' <summary>يعرض بصمة الشهادة ليؤكدها المسؤول قبل حفظها.</summary>
     Sub ShowCertificateFingerprint(key As String, sha256 As String)
+    ''' <summary>وضع البوابة: إعدادات اتصال الكاميرات وإدارة المستخدمين تُدار على البوابة نفسها فتُخفى هنا.</summary>
+    Sub SetGatewayMode(endpointText As String)
+    ''' <summary>حالة كاميرا كما تعلنها البوابة (متصلة/غير متصلة).</summary>
+    Sub SetCameraStatus(key As String, text As String, online As Boolean)
 End Interface
 
 ''' <summary>تفتح نوافذ الكاميرات والإدارة (تنفيذها في طبقة الواجهة).</summary>
@@ -34,6 +38,8 @@ Public Interface IShellNavigator
     Sub OpenCamera(config As CameraConfig, deps As CameraSessionDeps)
     Sub OpenUserAdmin(session As UserSession)
     Sub OpenAuditViewer(session As UserSession)
+    ''' <summary>عارض سجل تدقيق البوابة (وضع الاتصال البعيد).</summary>
+    Sub OpenGatewayAudit(session As UserSession)
     Sub Logout()
 End Interface
 

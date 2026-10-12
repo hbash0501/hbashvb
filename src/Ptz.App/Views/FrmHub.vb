@@ -16,6 +16,7 @@ Namespace Views
             Public Https, Insecure As CheckBox
             Public Fetch, Save, Open As Button
             Public Group As GroupBox
+            Public Status As Label
         End Class
 
         Private ReadOnly _cards As New Dictionary(Of String, Card)()
@@ -33,8 +34,8 @@ Namespace Views
             Theme.Apply(Me)
             lblTitle.Font = Theme.TitleFont
             _dispatcher = New WinFormsDispatcher(Me)
-            RegisterCard(HubPresenter.KeySe7c432mw, grpSe, txtNameSe, txtHostSe, nudPortSe, chkHttpsSe, chkInsecureSe, txtUserSe, txtPassSe, txtFpSe, btnFetchSe, btnSaveSe, btnOpenSe)
-            RegisterCard(HubPresenter.KeyDe7232iw, grpDe, txtNameDe, txtHostDe, nudPortDe, chkHttpsDe, chkInsecureDe, txtUserDe, txtPassDe, txtFpDe, btnFetchDe, btnSaveDe, btnOpenDe)
+            RegisterCard(HubPresenter.KeySe7c432mw, grpSe, lblModelSe, txtNameSe, txtHostSe, nudPortSe, chkHttpsSe, chkInsecureSe, txtUserSe, txtPassSe, txtFpSe, btnFetchSe, btnSaveSe, btnOpenSe)
+            RegisterCard(HubPresenter.KeyDe7232iw, grpDe, lblModelDe, txtNameDe, txtHostDe, nudPortDe, chkHttpsDe, chkInsecureDe, txtUserDe, txtPassDe, txtFpDe, btnFetchDe, btnSaveDe, btnOpenDe)
         End Sub
 
         Public ReadOnly Property Dispatcher As IUiDispatcher
@@ -43,9 +44,9 @@ Namespace Views
             End Get
         End Property
 
-        Private Sub RegisterCard(key As String, grp As GroupBox, name As TextBox, host As TextBox, port As NumericUpDown, https As CheckBox,
+        Private Sub RegisterCard(key As String, grp As GroupBox, status As Label, name As TextBox, host As TextBox, port As NumericUpDown, https As CheckBox,
                                  insecure As CheckBox, user As TextBox, pass As TextBox, fp As TextBox, fetch As Button, save As Button, open As Button)
-            Dim c As New Card With {.Key = key, .Group = grp, .Name = name, .Host = host, .Port = port, .Https = https, .Insecure = insecure,
+            Dim c As New Card With {.Key = key, .Group = grp, .Status = status, .Name = name, .Host = host, .Port = port, .Https = https, .Insecure = insecure,
                                     .User = user, .Pass = pass, .Fingerprint = fp, .Fetch = fetch, .Save = save, .Open = open}
             _cards(key) = c
             AddHandler open.Click, Sub() RaiseEvent OpenCameraRequested(key)
@@ -110,6 +111,33 @@ Namespace Views
                                      _cards(key).Fingerprint.Text = sha256
                                      OnSave(_cards(key))
                                  End If
+                             End Sub)
+        End Sub
+
+        ''' <summary>وضع البوابة: إعدادات الاتصال بالكاميرات تُدار على البوابة (أداة PtzGateway)، فلا تُعرض هنا حقولها ولا إدارة المستخدمين.</summary>
+        Public Sub SetGatewayMode(endpointText As String) Implements IHubView.SetGatewayMode
+            lblTitle.Text = UiText.AppTitle & " — عبر البوابة " & endpointText
+            btnUsers.Visible = False
+            For Each c As Card In _cards.Values
+                For Each ctl As Control In c.Group.Controls
+                    If ctl IsNot c.Open AndAlso ctl IsNot c.Status Then ctl.Visible = False
+                Next
+                c.Open.Location = New System.Drawing.Point(14, 64)
+                c.Open.Width = c.Group.Width - 28
+                c.Status.Location = New System.Drawing.Point(14, 32)
+                c.Status.Visible = True
+                c.Group.Height = 120
+            Next
+            MinimumSize = New System.Drawing.Size(MinimumSize.Width, 330)
+            ClientSize = New System.Drawing.Size(ClientSize.Width, 330)
+        End Sub
+
+        Public Sub SetCameraStatus(key As String, text As String, online As Boolean) Implements IHubView.SetCameraStatus
+            _dispatcher.Post(Sub()
+                                 Dim c As Card = Nothing
+                                 If Not _cards.TryGetValue(key, c) Then Return
+                                 c.Status.Text = text
+                                 c.Status.ForeColor = If(online, Theme.Ok, Theme.Danger)
                              End Sub)
         End Sub
 

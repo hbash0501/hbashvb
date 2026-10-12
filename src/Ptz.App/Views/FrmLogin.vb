@@ -52,6 +52,12 @@ Namespace Views
             RaiseEvent SubmitRequested(txtUser.Text.Trim(), txtPass.Text, txtConfirm.Text)
         End Sub
 
+        ''' <summary>الدخول عبر بوابة بعيدة: تُغلق النافذة بنتيجة Retry ليتولاها جذر التركيب (Program).</summary>
+        Private Sub btnRemote_Click(sender As Object, e As EventArgs) Handles btnRemote.Click
+            DialogResult = DialogResult.Retry
+            Close()
+        End Sub
+
         Private Sub btnExit_Click(sender As Object, e As EventArgs) Handles btnExit.Click
             DialogResult = DialogResult.Cancel
             Close()

@@ -3,6 +3,7 @@ Imports Ptz.Core.Alarms
 Imports Ptz.Core.Cameras
 Imports Ptz.Core.Isapi
 Imports Ptz.Core.Models
+Imports Ptz.Core.Remote
 Imports Ptz.Core.Security
 
 Public NotInheritable Class LoginPresenter
@@ -54,9 +55,12 @@ Public NotInheritable Class LoginPresenter
 End Class
 
 Public NotInheritable Class HubPresenter
+    Implements IDisposable
+
     Private ReadOnly _view As IHubView
     Private ReadOnly _session As UserSession
     Private ReadOnly _store As CameraConfigStore
+    Private ReadOnly _gateway As GatewayHubContext
     Private ReadOnly _access As AccessControl
     Private ReadOnly _audit As IAuditLog
     Private ReadOnly _bus As AlarmBus
@@ -64,16 +68,33 @@ Public NotInheritable Class HubPresenter
     Private ReadOnly _ui As IUiDispatcher
     Private ReadOnly _nav As IShellNavigator
     Private ReadOnly _dataDir As String
+    Private _pollCts As Threading.CancellationTokenSource
+    Private _gatewayBackend As GatewayBackendFactory
 
     Public Const KeySe7c432mw As String = "se7c432mw"
     Public Const KeyDe7232iw As String = "de7232iw"
 
+    ''' <summary>الوضع المحلي: الاتصال المباشر بالكاميرات بإعدادات مخزّنة محلياً.</summary>
     Public Sub New(view As IHubView, session As UserSession, store As CameraConfigStore, access As AccessControl,
                    audit As IAuditLog, bus As AlarmBus, decoder As IFrameDecoder, ui As IUiDispatcher,
                    nav As IShellNavigator, dataDirectory As String)
+        Me.New(view, session, store, Nothing, access, audit, bus, decoder, ui, nav, dataDirectory)
+    End Sub
+
+    ''' <summary>وضع البوابة: كل شيء عبر بوابة LAN؛ لا إعدادات أو أسرار كاميرات على هذا الجهاز.</summary>
+    Public Sub New(view As IHubView, gateway As GatewayHubContext, access As AccessControl,
+                   audit As IAuditLog, bus As AlarmBus, decoder As IFrameDecoder, ui As IUiDispatcher,
+                   nav As IShellNavigator, dataDirectory As String)
+        Me.New(view, gateway.Session, Nothing, gateway, access, audit, bus, decoder, ui, nav, dataDirectory)
+    End Sub
+
+    Private Sub New(view As IHubView, session As UserSession, store As CameraConfigStore, gateway As GatewayHubContext, access As AccessControl,
+                    audit As IAuditLog, bus As AlarmBus, decoder As IFrameDecoder, ui As IUiDispatcher,
+                    nav As IShellNavigator, dataDirectory As String)
         _view = view
         _session = session
         _store = store
+        _gateway = gateway
         _access = access
         _audit = audit
         _bus = bus
@@ -81,16 +102,80 @@ Public NotInheritable Class HubPresenter
         _ui = ui
         _nav = nav
         _dataDir = dataDirectory
-        store.EnsureDefaults({(KeySe7c432mw, CameraProfiles.Ds2Se7c432mwAeb), (KeyDe7232iw, CameraProfiles.Ds2De7232iwAe)})
         view.SetUser(session.UserName, session.Role.ToString())
         view.ApplyPermissions(session.Permissions)
-        view.ShowCameras(store.All())
+        If gateway Is Nothing Then
+            store.EnsureDefaults({(KeySe7c432mw, CameraProfiles.Ds2Se7c432mwAeb), (KeyDe7232iw, CameraProfiles.Ds2De7232iwAe)})
+            view.ShowCameras(store.All())
+        Else
+            _gatewayBackend = New GatewayBackendFactory(gateway.Client)
+            view.SetGatewayMode(gateway.EndpointText)
+            view.ShowCameras(GatewayHubContext.ToConfigs(gateway.Cameras))
+            For Each c As CameraDto In gateway.Cameras
+                view.SetCameraStatus(c.Id, GatewayHubContext.StatusText(c), c.Online)
+            Next
+            AddHandler gateway.Client.SessionEnded, AddressOf OnGatewaySessionEnded
+            _pollCts = New Threading.CancellationTokenSource()
+            Dim ct As Threading.CancellationToken = _pollCts.Token
+            Task.Run(Function() PollStatusAsync(ct))
+        End If
         AddHandler view.OpenCameraRequested, AddressOf OnOpen
         AddHandler view.SaveConfigRequested, AddressOf OnSave
         AddHandler view.FetchCertificateRequested, AddressOf OnFetchCertificate
-        AddHandler view.ManageUsersRequested, Sub() Guard(Permission.ManageUsers, "Admin.OpenUsers", Sub() _nav.OpenUserAdmin(_session))
-        AddHandler view.ViewAuditRequested, Sub() Guard(Permission.ViewAudit, "Admin.OpenAudit", Sub() _nav.OpenAuditViewer(_session))
+        AddHandler view.ManageUsersRequested, Sub() Guard(Permission.ManageUsers, "Admin.OpenUsers", Sub() OpenUsers())
+        AddHandler view.ViewAuditRequested, Sub() Guard(Permission.ViewAudit, "Admin.OpenAudit", Sub() OpenAudit())
         AddHandler view.LogoutRequested, AddressOf OnLogout
+    End Sub
+
+    Private Sub OpenUsers()
+        If _gateway IsNot Nothing Then
+            _view.ShowError(UiText.GatewayUsersCli)
+        Else
+            _nav.OpenUserAdmin(_session)
+        End If
+    End Sub
+
+    Private Sub OpenAudit()
+        If _gateway IsNot Nothing Then _nav.OpenGatewayAudit(_session) Else _nav.OpenAuditViewer(_session)
+    End Sub
+
+    Private Sub OnGatewaySessionEnded(reason As String)
+        _ui.Post(Sub()
+                     _view.ShowError(UiText.SessionExpired)
+                     _nav.Logout()
+                 End Sub)
+    End Sub
+
+    ''' <summary>يحدّث حالة اتصال الكاميرات بالبوابة كل 10 ثوانٍ (طلب خفيف). يتوقف بانتهاء الجلسة أو التخلص.</summary>
+    Private Async Function PollStatusAsync(ct As Threading.CancellationToken) As Task
+        Try
+            While Not ct.IsCancellationRequested AndAlso _gateway.Client.IsSignedIn
+                Await Task.Delay(TimeSpan.FromSeconds(10), ct).ConfigureAwait(False)
+                Dim list As CameraListDto = Nothing
+                Try
+                    list = Await _gateway.Client.GetJsonAsync(Of CameraListDto)("/api/v1/cameras", ct).ConfigureAwait(False)
+                Catch ex As Exception When TypeOf ex Is IsapiException OrElse TypeOf ex Is AccessDeniedException OrElse TypeOf ex Is InvalidOperationException
+                    list = Nothing
+                End Try
+                If list IsNot Nothing Then
+                    _ui.Post(Sub()
+                                 For Each c As CameraDto In list.Items
+                                     _view.SetCameraStatus(c.Id, GatewayHubContext.StatusText(c), c.Online)
+                                 Next
+                             End Sub)
+                End If
+            End While
+        Catch ex As OperationCanceledException
+        End Try
+    End Function
+
+    Public Sub Dispose() Implements IDisposable.Dispose
+        If _pollCts IsNot Nothing Then
+            _pollCts.Cancel()
+            _pollCts.Dispose()
+            _pollCts = Nothing
+        End If
+        If _gateway IsNot Nothing Then RemoveHandler _gateway.Client.SessionEnded, AddressOf OnGatewaySessionEnded
     End Sub
 
     Private Sub Guard(p As Permission, action As String, op As Action)
@@ -105,6 +190,10 @@ Public NotInheritable Class HubPresenter
 
     Private Sub OnOpen(key As String)
         Guard(Permission.ViewLive, "Camera.Open", Sub()
+                                                      If _gateway IsNot Nothing Then
+                                                          OpenViaGateway(key)
+                                                          Return
+                                                      End If
                                                       Dim cfg As CameraConfig = _store.Get(key)
                                                       If cfg Is Nothing Then Throw New InvalidOperationException("الكاميرا غير معرّفة.")
                                                       Dim conn As CameraConnection
@@ -126,7 +215,21 @@ Public NotInheritable Class HubPresenter
                                                   End Sub)
     End Sub
 
+    Private Sub OpenViaGateway(key As String)
+        Dim cam As CameraDto = _gateway.Cameras.FirstOrDefault(Function(c) c.Id = key)
+        If cam Is Nothing Then Throw New InvalidOperationException("الكاميرا غير معرّفة في البوابة.")
+        Dim cfg As New CameraConfig With {.Key = cam.Id, .DisplayName = If(cam.DisplayName <> "", cam.DisplayName, cam.Id), .ModelName = cam.Profile.ModelName}
+        Dim deps As New CameraSessionDeps With {
+            .Session = _session, .Access = _access, .Audit = _audit, .Bus = _bus, .Decoder = _decoder, .Dispatcher = _ui,
+            .DataDirectory = _dataDir, .CameraName = cfg.DisplayName, .BackendFactory = _gatewayBackend}
+        _nav.OpenCamera(cfg, deps)
+    End Sub
+
     Private Sub OnSave(cfg As CameraConfig, newPassword As String)
+        If _gateway IsNot Nothing Then
+            _view.ShowError(UiText.ManagedOnGateway)
+            Return
+        End If
         Guard(Permission.ManageConnections, "Camera.SaveConfig", Sub()
                                                                      Try
                                                                          _store.Update(cfg, If(newPassword = "", Nothing, newPassword))
@@ -141,6 +244,10 @@ Public NotInheritable Class HubPresenter
     End Sub
 
     Private Async Sub OnFetchCertificate(key As String)
+        If _gateway IsNot Nothing Then
+            _view.ShowError(UiText.ManagedOnGateway)
+            Return
+        End If
         Try
             _access.Demand(_session, Permission.ManageConnections)
             Dim cfg As CameraConfig = _store.Get(key)
@@ -159,8 +266,14 @@ Public NotInheritable Class HubPresenter
         End Try
     End Sub
 
-    Private Sub OnLogout()
-        _audit.Write(_session.UserName, "Auth.Logout", "", "OK", "")
+    Private Async Sub OnLogout()
+        _audit.Write(_session.UserName, "Auth.Logout", "", "OK", If(_gateway Is Nothing, "", "gateway"))
+        If _gateway IsNot Nothing Then
+            Try
+                Await _gateway.Client.LogoutAsync()          ' يُبطل الرمز على الخادم؛ لا يرمي أبداً
+            Catch ex As Exception When TypeOf ex Is IsapiException OrElse TypeOf ex Is OperationCanceledException
+            End Try
+        End If
         _nav.Logout()
     End Sub
 End Class

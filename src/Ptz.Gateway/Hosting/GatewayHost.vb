@@ -79,7 +79,7 @@ Namespace Hosting
                 Dim address As IPAddress = IPAddress.Parse(l.Address)
                 k.Listen(address, l.Port,
                          Sub(lo)
-                             lo.Protocols = HttpProtocols.Http1AndHttp2
+                             lo.Protocols = If(cert IsNot Nothing, HttpProtocols.Http1AndHttp2, HttpProtocols.Http1)      ' HTTP/2 يتطلب TLS
                              If cert IsNot Nothing Then
                                  lo.UseHttps(Sub(h)
                                                  h.ServerCertificate = cert

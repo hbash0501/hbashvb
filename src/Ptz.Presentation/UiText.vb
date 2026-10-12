@@ -16,4 +16,6 @@ Public NotInheritable Class UiText
     Public Const LineDrawHint As String = "انقر نقطتين لتحديد خط العبور."
     Public Const Saved As String = "تم الحفظ."
     Public Const Done As String = "تم."
+    Public Const ManagedOnGateway As String = "هذا الإعداد يُدار على البوابة نفسها (أداة PtzGateway المحلية)، لا من هذا التطبيق."
+    Public Const GatewayUsersCli As String = "المستخدمون وبذور TOTP تُدار على مضيف البوابة فقط: PtzGateway user ... / totp ..."
 End Class

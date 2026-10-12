@@ -80,11 +80,13 @@ Public NotInheritable Class Harness
         h.On("GET", "/ISAPI/Streaming/channels/101/picture", Function(r) New HttpResponseMessage(HttpStatusCode.OK) With {.Content = New ByteArrayContent(jpeg)})
     End Sub
 
-    Public Sub New(Optional configure As Action(Of GatewayOptions) = Nothing, Optional engines As Boolean = False)
+    Public Sub New(Optional configure As Action(Of GatewayOptions) = Nothing, Optional engines As Boolean = False, Optional kestrelPort As Integer = 0)
         Dir = IO.Path.Combine(IO.Path.GetTempPath(), "ptz-gw-" & Guid.NewGuid().ToString("N"))
         IO.Directory.CreateDirectory(Dir)
         Options = New GatewayOptions With {.DataDir = Dir, .StartEngines = engines}
         Options.Frames.GatingEnabled = False
+        Dim real As Boolean = kestrelPort > 0
+        If real Then Options.Listen = New List(Of ListenEndpoint) From {New ListenEndpoint With {.Address = "127.0.0.1", .Port = kestrelPort}}
         If configure IsNot Nothing Then configure(Options)
 
         Dim keys As New FileKeyProvider(IO.Path.Combine(Dir, "master.key"))
@@ -117,21 +119,47 @@ Public NotInheritable Class Harness
         _Svc.CameraHandlerFactory = Function(conn) New Ptz.Gateway.Cameras.CameraGuardHandler(If(conn.Host = "10.0.0.1", CType(SeCamera, HttpMessageHandler), DeCamera), Clock)
 
         _App = GatewayHost.Build(Options, _Svc,
-                                 Sub(b) b.WebHost.UseTestServer(),
+                                 Sub(b)
+                                     If Not real Then b.WebHost.UseTestServer()
+                                 End Sub,
                                  Sub(a)
                                      a.Use(Function(ctx As HttpContext, nxt As RequestDelegate) As Task
-                                               Dim ip As String = ctx.Request.Headers("X-Test-Ip").ToString()
-                                               If ip <> "" Then ctx.Connection.RemoteIpAddress = IPAddress.Parse(ip)
-                                               If ctx.Request.Headers("X-Test-Https").ToString() = "1" Then ctx.Request.Scheme = "https"
+                                               Threading.Interlocked.Increment(_requests)
+                                               If Not real Then
+                                                   Dim ip As String = ctx.Request.Headers("X-Test-Ip").ToString()
+                                                   If ip <> "" Then ctx.Connection.RemoteIpAddress = IPAddress.Parse(ip)
+                                                   If ctx.Request.Headers("X-Test-Https").ToString() = "1" Then ctx.Request.Scheme = "https"
+                                               End If
                                                Return nxt(ctx)
                                            End Function)
                                  End Sub,
                                  Sub(r) _reg = r)
         _Registry = _reg
         _App.StartAsync().GetAwaiter().GetResult()
-        _Client = _App.GetTestClient()
-        _Client.DefaultRequestHeaders.Add("X-Test-Ip", "127.0.0.1")
+        If real Then
+            _Client = New HttpClient()
+        Else
+            _Client = _App.GetTestClient()
+            _Client.DefaultRequestHeaders.Add("X-Test-Ip", "127.0.0.1")
+        End If
     End Sub
+
+    Private _requests As Integer
+
+    ''' <summary>عدد الطلبات التي بلغت خط أنابيب الخادم (لإثبات أن عميلاً رُفض قبل إرسال أي شيء).</summary>
+    Public ReadOnly Property RequestsSeen As Integer
+        Get
+            Return Threading.Volatile.Read(_requests)
+        End Get
+    End Property
+
+    Public Shared Function FreePort() As Integer
+        Dim l As New Net.Sockets.TcpListener(IPAddress.Loopback, 0)
+        l.Start()
+        Dim port As Integer = CType(l.LocalEndpoint, IPEndPoint).Port
+        l.Stop()
+        Return port
+    End Function
 
     ''' <summary>رمز TOTP صالح وغير مستهلك للمستخدم (يقدّم الساعة 31 ث لتغيير الخطوة).</summary>
     Public Function NextCode(user As String) As String

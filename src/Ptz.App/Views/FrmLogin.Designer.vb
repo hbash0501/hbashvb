@@ -36,6 +36,8 @@ Partial Class FrmLogin
         Me.lblError = New System.Windows.Forms.Label()
         Me.btnSubmit = New System.Windows.Forms.Button()
         Me.btnExit = New System.Windows.Forms.Button()
+        Me.lblRemoteHint = New System.Windows.Forms.Label()
+        Me.btnRemote = New System.Windows.Forms.Button()
         Me.SuspendLayout()
         '
         'lblTitle
@@ -131,6 +133,22 @@ Partial Class FrmLogin
         Me.btnExit.Size = New System.Drawing.Size(210, 38)
         Me.btnExit.Text = "خروج"
         Me.btnExit.UseVisualStyleBackColor = True
+        '
+        'lblRemoteHint
+        '
+        Me.lblRemoteHint.Name = "lblRemoteHint"
+        Me.lblRemoteHint.Location = New System.Drawing.Point(24, 446)
+        Me.lblRemoteHint.Size = New System.Drawing.Size(430, 20)
+        Me.lblRemoteHint.Text = "أو تحكّم عن بُعد عبر بوابة آمنة داخل شبكة الكاميرات:"
+        Me.lblRemoteHint.Tag = "muted"
+        '
+        'btnRemote
+        '
+        Me.btnRemote.Name = "btnRemote"
+        Me.btnRemote.Location = New System.Drawing.Point(24, 472)
+        Me.btnRemote.Size = New System.Drawing.Size(430, 38)
+        Me.btnRemote.Text = "اتصال ببوابة بعيدة…"
+        Me.btnRemote.UseVisualStyleBackColor = True
         Me.Controls.Add(Me.lblTitle)
         Me.Controls.Add(Me.lblMode)
         Me.Controls.Add(Me.lblUserCap)
@@ -143,9 +161,11 @@ Partial Class FrmLogin
         Me.Controls.Add(Me.lblError)
         Me.Controls.Add(Me.btnSubmit)
         Me.Controls.Add(Me.btnExit)
+        Me.Controls.Add(Me.lblRemoteHint)
+        Me.Controls.Add(Me.btnRemote)
         Me.AutoScaleDimensions = New System.Drawing.SizeF(7.0!, 15.0!)
         Me.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font
-        Me.ClientSize = New System.Drawing.Size(480, 470)
+        Me.ClientSize = New System.Drawing.Size(480, 530)
         Me.Name = "FrmLogin"
         Me.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen
         Me.Text = "تسجيل الدخول"
@@ -171,6 +191,8 @@ Partial Class FrmLogin
     Friend WithEvents lblError As System.Windows.Forms.Label
     Friend WithEvents btnSubmit As System.Windows.Forms.Button
     Friend WithEvents btnExit As System.Windows.Forms.Button
+    Friend WithEvents lblRemoteHint As System.Windows.Forms.Label
+    Friend WithEvents btnRemote As System.Windows.Forms.Button
 
 End Class
 End Namespace
