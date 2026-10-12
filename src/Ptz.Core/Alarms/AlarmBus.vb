@@ -154,16 +154,35 @@ Namespace Alarms
             End SyncLock
         End Function
 
-        Public Function Acknowledge(id As Guid) As Boolean
+        ''' <summary>يُرفع عند إقرار محلي بإنذار (ليبلّغ الوضع البعيد البوابة). لا يُرفع عند <see cref="AcknowledgeRemote"/>.</summary>
+        Public Event Acknowledged As Action(Of AlarmEvent)
+
+        Private Function MarkAcknowledged(id As Guid) As AlarmEvent
             SyncLock _lock
                 For Each a As AlarmEvent In _recent
                     If a.Id = id Then
                         a.Acknowledged = True
-                        Return True
+                        Return a
                     End If
                 Next
             End SyncLock
-            Return False
+            Return Nothing
+        End Function
+
+        Public Function Acknowledge(id As Guid) As Boolean
+            Dim a As AlarmEvent = MarkAcknowledged(id)
+            If a Is Nothing Then Return False
+            Try
+                RaiseEvent Acknowledged(a)
+            Catch ex As Exception
+                Diagnostics.Debug.WriteLine("Alarm ack handler failed: " & ex.Message)
+            End Try
+            Return True
+        End Function
+
+        ''' <summary>إقرار صادر من مشغّل آخر عبر البوابة: يحدّث الحالة دون إعادة الإرسال.</summary>
+        Public Function AcknowledgeRemote(id As Guid) As Boolean
+            Return MarkAcknowledged(id) IsNot Nothing
         End Function
     End Class
 

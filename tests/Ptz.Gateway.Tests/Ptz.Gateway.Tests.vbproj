@@ -21,5 +21,6 @@
     <ProjectReference Include="..\..\src\Ptz.Presentation\Ptz.Presentation.vbproj" />
     <ProjectReference Include="..\..\src\Ptz.Core\Ptz.Core.vbproj" />
     <Compile Include="..\Ptz.Tests\TestSupport.vb" Link="TestSupport.vb" />
+    <Compile Include="..\Ptz.Tests\FakeViews.vb" Link="FakeViews.vb" />
   </ItemGroup>
 </Project>

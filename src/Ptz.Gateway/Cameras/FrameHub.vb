@@ -1,5 +1,6 @@
 Imports System.Threading
 Imports Ptz.Core.Abstractions
+Imports Ptz.Core.Remote
 Imports Ptz.Core.Vision
 
 Namespace Cameras
@@ -18,12 +19,8 @@ Namespace Cameras
             Me.MaxFps = maxFps
         End Sub
 
-        Public Shared ReadOnly Ladder As IReadOnlyList(Of FrameTier) = New List(Of FrameTier) From {
-            New FrameTier("tiny", 320, 40, 2),
-            New FrameTier("low", 480, 50, 3),
-            New FrameTier("mid", 640, 60, 4),
-            New FrameTier("high", 960, 65, 5),
-            New FrameTier("hd", 1600, 75, 5)}
+        Public Shared ReadOnly Ladder As IReadOnlyList(Of FrameTier) =
+            FrameLadder.Entries.Select(Function(e) New FrameTier(e.Id, e.MaxWidth, e.Quality, e.MaxFps)).ToList()
 
         Public Shared Function TryGet(id As String) As FrameTier
             Return Ladder.FirstOrDefault(Function(t) String.Equals(t.Id, id, StringComparison.Ordinal))

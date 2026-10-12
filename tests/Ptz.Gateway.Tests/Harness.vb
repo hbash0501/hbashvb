@@ -190,6 +190,21 @@ Public NotInheritable Class Harness
         Return IO.File.ReadAllLines(IO.Path.Combine(Dir, "audit.log"))
     End Function
 
+    ''' <summary>عميل بوابة حقيقي (الكود الإنتاجي) موصول بخادم الاختبار عبر معالج TestServer.</summary>
+    Public Function CreateGatewayClient(Optional credentials As Ptz.Core.Remote.IGatewayCredentialProvider = Nothing, Optional tap As List(Of TappedRequest) = Nothing) As Ptz.Core.Remote.GatewayClient
+        Dim ep As New Ptz.Core.Remote.GatewayEndpoint With {.BaseUrl = "http://localhost/", .AllowInsecureLoopbackHttp = True, .TimeoutSeconds = 10}
+        Dim inner As HttpMessageHandler = App.GetTestServer().CreateHandler()
+        Dim handler As HttpMessageHandler = New AddressHeaderHandler(inner)
+        If tap IsNot Nothing Then handler = New TapHandler(handler, tap)
+        Return New Ptz.Core.Remote.GatewayClient(ep, credentials, handler, Clock)
+    End Function
+
+    Public Function GatewayLogin(user As String, Optional credentials As Ptz.Core.Remote.IGatewayCredentialProvider = Nothing, Optional tap As List(Of TappedRequest) = Nothing) As Ptz.Core.Remote.GatewayClient
+        Dim c As Ptz.Core.Remote.GatewayClient = CreateGatewayClient(credentials, tap)
+        c.LoginAsync(New Ptz.Core.Remote.GatewayCredentials With {.UserName = user, .Password = Pw, .Totp = NextCode(user)}, Threading.CancellationToken.None).GetAwaiter().GetResult()
+        Return c
+    End Function
+
     ''' <summary>يفتح بث SSE (تُقرأ الترويسات فقط) ويعيد قارئاً للأحداث.</summary>
     Public Function OpenSse(path As String, token As String, Optional lastEventId As String = Nothing, Optional ip As String = Nothing) As SseTestReader
         Dim req As New HttpRequestMessage(HttpMethod.Get, path)
@@ -305,4 +320,44 @@ Public NotInheritable Class SseTestReader
         _resp.Dispose()
         _cts.Dispose()
     End Sub
+End Class
+
+''' <summary>يضيف ترويسة عنوان العميل لخادم الاختبار (المعالج المباشر لا يمر بطبقة HttpClient التي تضيفها الحزمة).</summary>
+Public NotInheritable Class AddressHeaderHandler
+    Inherits DelegatingHandler
+
+    Public Sub New(inner As HttpMessageHandler)
+        MyBase.New(inner)
+    End Sub
+
+    Protected Overrides Function SendAsync(request As HttpRequestMessage, cancellationToken As Threading.CancellationToken) As Task(Of HttpResponseMessage)
+        If Not request.Headers.Contains("X-Test-Ip") Then request.Headers.Add("X-Test-Ip", "127.0.0.1")
+        Return MyBase.SendAsync(request, cancellationToken)
+    End Function
+End Class
+
+Public NotInheritable Class TappedRequest
+    Public Property Method As String = ""
+    Public Property Path As String = ""
+    Public Property Body As String = ""
+End Class
+
+''' <summary>يسجّل كل طلب يخرج من العميل (للتحقق من سلوك العميل نفسه: تجديد الحركة، الترتيب...).</summary>
+Public NotInheritable Class TapHandler
+    Inherits DelegatingHandler
+
+    Private ReadOnly _log As List(Of TappedRequest)
+
+    Public Sub New(inner As HttpMessageHandler, log As List(Of TappedRequest))
+        MyBase.New(inner)
+        _log = log
+    End Sub
+
+    Protected Overrides Async Function SendAsync(request As HttpRequestMessage, cancellationToken As Threading.CancellationToken) As Task(Of HttpResponseMessage)
+        Dim body As String = If(request.Content Is Nothing, "", Await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(False))
+        SyncLock _log
+            _log.Add(New TappedRequest With {.Method = request.Method.Method, .Path = request.RequestUri.AbsolutePath, .Body = body})
+        End SyncLock
+        Return Await MyBase.SendAsync(request, cancellationToken).ConfigureAwait(False)
+    End Function
 End Class
