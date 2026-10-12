@@ -79,7 +79,7 @@ Public NotInheritable Class FakeSmartView
     Public Event AutoTrackToggled As Action(Of Boolean) Implements ISmartPanelView.AutoTrackToggled
     Public Event ReleaseTargetRequested As Action Implements ISmartPanelView.ReleaseTargetRequested
     Public Event ClearGeometryRequested As Action Implements ISmartPanelView.ClearGeometryRequested
-    Public Event DrawModeRequested As Action(Of DrawMode) Implements ISmartPanelView.DrawModeRequested
+    Public Event DrawModeRequested As Action(Of GeometryDrawMode) Implements ISmartPanelView.DrawModeRequested
     Public Event AnomalyLearningToggled As Action(Of Boolean) Implements ISmartPanelView.AnomalyLearningToggled
     Public Event SaveModelRequested As Action Implements ISmartPanelView.SaveModelRequested
     Public Event ApplyBehaviorOptionsRequested As Action(Of BehaviorOptions) Implements ISmartPanelView.ApplyBehaviorOptionsRequested
@@ -119,7 +119,7 @@ Public NotInheritable Class FakeVideoView
     Implements IVideoView
     Public Event AreaSelected As Action(Of NormRect) Implements IVideoView.AreaSelected
     Public Event TargetClicked As Action(Of NormPoint) Implements IVideoView.TargetClicked
-    Public Event ZoneCompleted As Action(Of IReadOnlyList(Of NormPoint), DrawMode) Implements IVideoView.ZoneCompleted
+    Public Event ZoneCompleted As Action(Of IReadOnlyList(Of NormPoint), GeometryDrawMode) Implements IVideoView.ZoneCompleted
     Public Event LineCompleted As Action(Of NormPoint, NormPoint) Implements IVideoView.LineCompleted
     Public Frames As Integer
     Public Zones As Integer
@@ -135,9 +135,9 @@ Public NotInheritable Class FakeVideoView
         Lines = l.Count
         Masks = m.Count
     End Sub
-    Public Sub SetDrawMode(mode As DrawMode) Implements IVideoView.SetDrawMode
+    Public Sub SetDrawMode(mode As GeometryDrawMode) Implements IVideoView.SetDrawMode
     End Sub
-    Public Sub RaiseZone(points As IReadOnlyList(Of NormPoint), mode As DrawMode)
+    Public Sub RaiseZone(points As IReadOnlyList(Of NormPoint), mode As GeometryDrawMode)
         RaiseEvent ZoneCompleted(points, mode)
     End Sub
     Public Sub RaiseLine(a As NormPoint, b As NormPoint)

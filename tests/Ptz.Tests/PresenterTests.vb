@@ -129,7 +129,7 @@ Public Class PresenterTests
         Dim dir As String
         Using rig As New Rig(Role.Operator)
             Await rig.Presenter.StartAsync()
-            rig.View.VideoView.RaiseZone(poly, DrawMode.Zone)
+            rig.View.VideoView.RaiseZone(poly, GeometryDrawMode.Zone)
             Assert.Contains(UiText.NoPermission, rig.View.Errors)
             Assert.Equal(0, rig.View.VideoView.Zones)
             Await rig.Presenter.StopAsync()
@@ -137,7 +137,7 @@ Public Class PresenterTests
         Using rig As New Rig(Role.Supervisor)
             dir = rig.Dir
             Await rig.Presenter.StartAsync()
-            rig.View.VideoView.RaiseZone(poly, DrawMode.Zone)
+            rig.View.VideoView.RaiseZone(poly, GeometryDrawMode.Zone)
             rig.View.VideoView.RaiseLine(New NormPoint(0.1, 0.5), New NormPoint(0.9, 0.5))
             Assert.Equal(1, rig.View.VideoView.Zones)
             Assert.Equal(1, rig.View.VideoView.Lines)

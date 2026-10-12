@@ -44,7 +44,7 @@ Public Interface IImagePanelView
     Sub ShowSettings(settings As ImageSettings)
 End Interface
 
-Public Enum DrawMode
+Public Enum GeometryDrawMode
     None
     Zone
     Line
@@ -57,7 +57,7 @@ Public Interface ISmartPanelView
     Event AutoTrackToggled As Action(Of Boolean)
     Event ReleaseTargetRequested As Action
     Event ClearGeometryRequested As Action
-    Event DrawModeRequested As Action(Of DrawMode)
+    Event DrawModeRequested As Action(Of GeometryDrawMode)
     Event AnomalyLearningToggled As Action(Of Boolean)
     Event SaveModelRequested As Action
     Event ApplyBehaviorOptionsRequested As Action(Of BehaviorOptions)
@@ -76,13 +76,13 @@ Public Interface IVideoView
     ''' <summary>نقر المستخدم: نقرة عادية (مركز) أو مستطيل (تكبير).</summary>
     Event AreaSelected As Action(Of NormRect)
     Event TargetClicked As Action(Of NormPoint)
-    Event ZoneCompleted As Action(Of IReadOnlyList(Of NormPoint), DrawMode)
+    Event ZoneCompleted As Action(Of IReadOnlyList(Of NormPoint), GeometryDrawMode)
     Event LineCompleted As Action(Of NormPoint, NormPoint)
 
     Sub ShowFrame(jpeg As Byte())
     Sub ShowOverlay(result As SmartFrameResult)
     Sub ShowGeometry(zones As IReadOnlyList(Of RestrictedZone), lines As IReadOnlyList(Of TripLine), masks As IReadOnlyList(Of IReadOnlyList(Of NormPoint)))
-    Sub SetDrawMode(mode As DrawMode)
+    Sub SetDrawMode(mode As GeometryDrawMode)
 End Interface
 
 ''' <summary>الفورم الجامع لإحدى الكاميرتين: يعرض اللوحات ويرتبط بالمقدِّم.</summary>

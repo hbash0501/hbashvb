@@ -1,0 +1,11 @@
+{
+  "solution": {
+    "path": "HbashPTZ.sln",
+    "projects": [
+      "src\\Ptz.Core\\Ptz.Core.vbproj",
+      "src\\Ptz.Presentation\\Ptz.Presentation.vbproj",
+      "tests\\Ptz.Tests\\Ptz.Tests.vbproj",
+      "build\\Ptz.App.LinuxCheck.vbproj"
+    ]
+  }
+}

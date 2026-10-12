@@ -73,20 +73,20 @@ Public NotInheritable Class SmartPresenter
                   End Sub)
     End Sub
 
-    Private Sub OnDrawMode(mode As DrawMode)
+    Private Sub OnDrawMode(mode As GeometryDrawMode)
         _video.SetDrawMode(mode)
         Select Case mode
-            Case DrawMode.Zone, DrawMode.MaskZone : _view.ShowHint(UiText.ZoneDrawHint)
-            Case DrawMode.Line : _view.ShowHint(UiText.LineDrawHint)
+            Case GeometryDrawMode.Zone, GeometryDrawMode.MaskZone : _view.ShowHint(UiText.ZoneDrawHint)
+            Case GeometryDrawMode.Line : _view.ShowHint(UiText.LineDrawHint)
             Case Else : _view.ShowHint("")
         End Select
     End Sub
 
-    Private Sub OnZoneCompleted(points As IReadOnlyList(Of NormPoint), mode As DrawMode)
+    Private Sub OnZoneCompleted(points As IReadOnlyList(Of NormPoint), mode As GeometryDrawMode)
         GuardSync(Sub()
                       Context.Authorize(Permission.SmartConfigure, "Smart.AddZone", mode.ToString())
                       If points.Count < 3 Then Throw New ArgumentException("المنطقة تحتاج 3 نقاط على الأقل.")
-                      If mode = DrawMode.MaskZone Then
+                      If mode = GeometryDrawMode.MaskZone Then
                           _masks.Add(points)
                       Else
                           _zones.Add(New RestrictedZone($"Zone {_zones.Count + 1}", points))
@@ -124,7 +124,7 @@ Public NotInheritable Class SmartPresenter
             Messages.ShowError("تعذّر حفظ المناطق: " & ex.Message)
         End Try
         PushGeometry()
-        _video.SetDrawMode(DrawMode.None)
+        _video.SetDrawMode(GeometryDrawMode.None)
         _view.ShowHint("")
     End Sub
 

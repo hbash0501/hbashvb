@@ -1,0 +1,29 @@
+<!--
+  فحص تجميع واجهة WinForms على Linux/CI دون Windows: يترجم نفس مصادر Ptz.App مقابل حزمة المراجع
+  Microsoft.WindowsDesktop.App.Ref. لا ينتج تطبيقاً قابلاً للتشغيل — للتحقق من سلامة التجميع فقط.
+  الاستخدام:  dotnet build build/Ptz.App.LinuxCheck.vbproj
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Ptz.App</RootNamespace>
+    <AssemblyName>Ptz.App.LinuxCheck</AssemblyName>
+    <MyType>Empty</MyType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <NoWarn>$(NoWarn);CA1416;MSB3243</NoWarn>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\src\Ptz.App\**\*.vb" Exclude="..\src\Ptz.App\obj\**;..\src\Ptz.App\bin\**" />
+    <ProjectReference Include="..\src\Ptz.Core\Ptz.Core.vbproj" />
+    <ProjectReference Include="..\src\Ptz.Presentation\Ptz.Presentation.vbproj" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+    <PackageReference Include="Microsoft.WindowsDesktop.App.Ref" Version="8.0.0" ExcludeAssets="all" GeneratePathProperty="true" />
+  </ItemGroup>
+  <Target Name="AddWindowsDesktopRefs" BeforeTargets="ResolveAssemblyReferences;CoreCompile" DependsOnTargets="ResolvePackageAssets">
+    <ItemGroup>
+      <Reference Include="$(PkgMicrosoft_WindowsDesktop_App_Ref)/ref/net8.0/*.dll" />
+    </ItemGroup>
+  </Target>
+</Project>
