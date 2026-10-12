@@ -98,6 +98,46 @@ Namespace Alarms
             Return True
         End Function
 
+        ''' <summary>
+        ''' يستورد إنذاراً صادراً من بوابة بعيدة: يحفظ معرّفه وزمنه الأصليين (لا يُستبدل الزمن)، ويتجاهل المكرَّر بالمعرّف
+        ''' (إعادة بث بعد انقطاع)، ولا يطبّق نافذة التبريد لأن البوابة طبّقتها. يعيد False إن كان معروفاً مسبقاً.
+        ''' </summary>
+        Public Function PublishRemote(alarm As AlarmEvent) As Boolean
+            If alarm Is Nothing Then Throw New ArgumentNullException(NameOf(alarm))
+            Dim handlers As Action(Of AlarmEvent)()
+            Dim sinks As IAlarmSink()
+            SyncLock _lock
+                For Each a As AlarmEvent In _recent
+                    If a.Id = alarm.Id Then Return False
+                Next
+                _recent.AddFirst(alarm)
+                While _recent.Count > _capacity
+                    _recent.RemoveLast()
+                End While
+                handlers = _handlers.ToArray()
+                sinks = _sinks.ToArray()
+            End SyncLock
+            Dispatch(alarm, handlers, sinks)
+            Return True
+        End Function
+
+        Private Shared Sub Dispatch(alarm As AlarmEvent, handlers As Action(Of AlarmEvent)(), sinks As IAlarmSink())
+            For Each h As Action(Of AlarmEvent) In handlers
+                Try
+                    h(alarm)
+                Catch ex As Exception
+                    Diagnostics.Debug.WriteLine("Alarm handler failed: " & ex.Message)
+                End Try
+            Next
+            For Each s As IAlarmSink In sinks
+                Try
+                    s.Accept(alarm)
+                Catch ex As Exception
+                    Diagnostics.Debug.WriteLine("Alarm sink failed: " & ex.Message)
+                End Try
+            Next
+        End Sub
+
         Private Sub PruneKeys(now As DateTime)
             Dim old As New List(Of String)()
             For Each kv In _lastByKey

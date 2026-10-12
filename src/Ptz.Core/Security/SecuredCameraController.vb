@@ -16,12 +16,14 @@ Namespace Security
         Private ReadOnly _audit As IAuditLog
         Private ReadOnly _clock As IClock
         Private ReadOnly _target As String
+        Private ReadOnly _ownsInner As Boolean
         Private _lastMoveAudit As DateTime = DateTime.MinValue
         Private _lastMoveVector As PtzVector
 
         Public Sub New(inner As ICameraController, session As UserSession, access As AccessControl, audit As IAuditLog,
-                       Optional clock As IClock = Nothing)
+                       Optional clock As IClock = Nothing, Optional ownsInner As Boolean = True)
             _inner = inner
+            _ownsInner = ownsInner
             _session = session
             _access = access
             _audit = audit
@@ -225,7 +227,7 @@ Namespace Security
         End Class
 
         Public Sub Dispose() Implements IDisposable.Dispose
-            _inner.Dispose()
+            If _ownsInner Then _inner.Dispose()
         End Sub
     End Class
 

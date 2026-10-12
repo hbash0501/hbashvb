@@ -20,22 +20,26 @@ Public NotInheritable Class CameraSessionDeps
     Public Property HttpHandler As Net.Http.HttpMessageHandler
     ''' <summary>اسم عرض الكاميرا (يظهر في الإنذارات وملفات البيانات).</summary>
     Public Property CameraName As String = ""
+    ''' <summary>Nothing = الوضع المحلي (<see cref="LocalCameraBackendFactory"/>)؛ وإلا الواجهة الخلفية المحددة (بوابة بعيدة).</summary>
+    Public Property BackendFactory As ICameraBackendFactory
 End Class
 
 ''' <summary>سياق جلسة كاميرا واحدة تتشاركه المقدِّمات الفرعية.</summary>
 Public NotInheritable Class CameraContext
     Public ReadOnly Property Deps As CameraSessionDeps
     Public ReadOnly Property Controller As SecuredCameraController
-    Public ReadOnly Property Engine As SmartEngine
+    Public ReadOnly Property Engine As ISmartEngine
+    Public ReadOnly Property SmartConfig As ISmartConfigRepository
     Public ReadOnly Property Messages As IMessageSink
     Public ReadOnly Property Ui As IUiDispatcher
     Public ReadOnly Property Cancellation As Threading.CancellationToken
 
-    Public Sub New(deps As CameraSessionDeps, controller As SecuredCameraController, engine As SmartEngine,
-                   messages As IMessageSink, ct As Threading.CancellationToken)
+    Public Sub New(deps As CameraSessionDeps, controller As SecuredCameraController, engine As ISmartEngine,
+                   smartConfig As ISmartConfigRepository, messages As IMessageSink, ct As Threading.CancellationToken)
         Me.Deps = deps
         Me.Controller = controller
         Me.Engine = engine
+        Me.SmartConfig = smartConfig
         Me.Messages = messages
         Ui = deps.Dispatcher
         Cancellation = ct

@@ -60,6 +60,8 @@ Namespace Engine
     ''' حلقة <c>RunAsync</c> تتولى الجلب والتنفيذ وإدارة الأعطال.
     ''' </summary>
     Public NotInheritable Class SmartEngine
+        Implements ISmartEngine
+
         Private ReadOnly _opt As SmartEngineOptions
         Private ReadOnly _source As IFrameSource
         Private ReadOnly _mover As IPtzMover
@@ -81,8 +83,9 @@ Namespace Engine
         Private _cts As Threading.CancellationTokenSource
         Private _task As Task
 
-        Public Event FrameProcessed As Action(Of SmartFrameResult)
-        Public Event Faulted As Action(Of Exception, Integer)
+        Public Event FrameProcessed As Action(Of SmartFrameResult) Implements ISmartEngine.FrameProcessed
+        Public Event Faulted As Action(Of Exception, Integer) Implements ISmartEngine.Faulted
+        Public Event CommandFailed As Action(Of Exception) Implements ISmartEngine.CommandFailed
 
         Public Sub New(options As SmartEngineOptions, source As IFrameSource, mover As IPtzMover, bus As AlarmBus,
                        Optional recorder As TrajectoryRecorder = Nothing, Optional heatMap As HeatMap = Nothing,
@@ -126,7 +129,7 @@ Namespace Engine
             End SyncLock
         End Sub
 
-        Public Property MotionEnabled As Boolean
+        Public Property MotionEnabled As Boolean Implements ISmartEngine.MotionEnabled
             Get
                 SyncLock _sync
                     Return _opt.EnableMotion
@@ -143,7 +146,7 @@ Namespace Engine
             End Set
         End Property
 
-        Public Property BehaviorEnabled As Boolean
+        Public Property BehaviorEnabled As Boolean Implements ISmartEngine.BehaviorEnabled
             Get
                 SyncLock _sync
                     Return _opt.EnableBehavior
@@ -157,7 +160,7 @@ Namespace Engine
         End Property
 
         ''' <summary>يفرض حالة التعلّم (True/False) أو يعيد القرار للمؤقّت التلقائي (Nothing).</summary>
-        Public Property ForceAnomalyLearning As Boolean?
+        Public Property ForceAnomalyLearning As Boolean? Implements ISmartEngine.ForceAnomalyLearning
             Get
                 SyncLock _sync
                     Return _forceLearning
@@ -171,7 +174,7 @@ Namespace Engine
         End Property
 
         ''' <summary>يطبّق عتبات السلوك الجديدة فوراً (نسخ القيم داخل القفل).</summary>
-        Public Sub ApplyBehaviorOptions(src As BehaviorOptions)
+        Public Sub ApplyBehaviorOptions(src As BehaviorOptions) Implements ISmartEngine.ApplyBehaviorOptions
             If src Is Nothing Then Throw New ArgumentNullException(NameOf(src))
             SyncLock _sync
                 Dim d As BehaviorOptions = _opt.Behavior
@@ -191,7 +194,7 @@ Namespace Engine
             End SyncLock
         End Sub
 
-        Public Property AutoTrackEnabled As Boolean
+        Public Property AutoTrackEnabled As Boolean Implements ISmartEngine.AutoTrackEnabled
             Get
                 SyncLock _sync
                     Return _autoTrackEnabled
@@ -206,13 +209,13 @@ Namespace Engine
         End Property
 
         ''' <summary>يطلب القفل على الهدف عند هذه النقطة (يُعالَج في الإطار التالي).</summary>
-        Public Sub LockTargetAt(point As NormPoint)
+        Public Sub LockTargetAt(point As NormPoint) Implements ISmartEngine.LockTargetAt
             SyncLock _sync
                 _lockPoint = point
             End SyncLock
         End Sub
 
-        Public Sub ReleaseTarget()
+        Public Sub ReleaseTarget() Implements ISmartEngine.ReleaseTarget
             SyncLock _sync
                 _auto.Release()
                 _lockPoint = Nothing
@@ -220,7 +223,7 @@ Namespace Engine
         End Sub
 
         ''' <summary>تُستدعى عند تحريك الكاميرا يدوياً أو بموضع مسبق كي لا تُعتبر الحركة نتيجة إنذارات.</summary>
-        Public Sub NotifyCameraMotion(Optional extraSeconds As Double = 0)
+        Public Sub NotifyCameraMotion(Optional extraSeconds As Double = 0) Implements ISmartEngine.NotifyCameraMotion
             SyncLock _sync
                 _detector.SuspendUntil(_clock.UtcNow.AddSeconds(_opt.SettleSeconds + extraSeconds))
                 _tracker.Reset()
@@ -362,14 +365,14 @@ Namespace Engine
         End Sub
 
         ' ---------------- الحلقة ----------------
-        Public Sub Start()
+        Public Sub Start() Implements ISmartEngine.Start
             If _task IsNot Nothing Then Return
             _cts = New Threading.CancellationTokenSource()
             Dim token As Threading.CancellationToken = _cts.Token
             _task = Task.Run(Function() RunAsync(token))
         End Sub
 
-        Public Async Function StopAsync() As Task
+        Public Async Function StopAsync() As Task Implements ISmartEngine.StopAsync
             If _task Is Nothing Then Return
             _cts.Cancel()
             Try

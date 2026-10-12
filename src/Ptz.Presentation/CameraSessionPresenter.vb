@@ -17,15 +17,15 @@ Public MustInherit Class CameraSessionPresenter
     Private ReadOnly _view As ICameraFormView
     Private ReadOnly _deps As CameraSessionDeps
     Private _cts As Threading.CancellationTokenSource
+    Private _backend As ICameraBackend
     Private _controller As SecuredCameraController
-    Private _engine As SmartEngine
-    Private _source As SnapshotFrameSource
+    Private _engine As ISmartEngine
     Private _ptz As PtzPresenter
     Private _image As ImagePresenter
     Private _smart As SmartPresenter
     Private _alarms As AlarmPresenter
     Private _video As VideoPresenter
-    Private _alertTask As Task
+    Private _backgroundTask As Task
     Private _positionTask As Task
     Private _frames As Integer
     Private _fpsWindowStart As DateTime = DateTime.UtcNow
@@ -50,7 +50,7 @@ Public MustInherit Class CameraSessionPresenter
         End Get
     End Property
 
-    Public ReadOnly Property Engine As SmartEngine
+    Public ReadOnly Property Engine As ISmartEngine
         Get
             Return _engine
         End Get
@@ -68,16 +68,14 @@ Public MustInherit Class CameraSessionPresenter
             _view.ApplyPermissions(_deps.Session.Permissions)
             _view.SetConnectionState(False, UiText.Connecting)
 
-            Dim inner As ICameraController = CameraControllerFactory.Create(Profile, _deps.Connection, _deps.HttpHandler)
-            _controller = New SecuredCameraController(inner, _deps.Session, _deps.Access, _deps.Audit, _deps.Clock)
+            Dim factory As ICameraBackendFactory = If(_deps.BackendFactory, LocalCameraBackendFactory.Instance)
+            _backend = factory.Create(Profile, _deps,
+                                      Function(inner) New SecuredCameraController(inner, _deps.Session, _deps.Access, _deps.Audit, _deps.Clock),
+                                      AddressOf ConfigureEngine)
+            _controller = _backend.Controller
+            _engine = _backend.Engine
 
-            Dim options As New SmartEngineOptions With {.CameraName = _deps.CameraName}
-            ConfigureEngine(options)
-            _source = New SnapshotFrameSource(_controller, _deps.Decoder, _deps.Clock)
-            Dim recorder As New TrajectoryRecorder(IO.Path.Combine(_deps.DataDirectory, "trajectories"), _deps.CameraName)
-            _engine = New SmartEngine(options, _source, _controller.AsAutoTrackMover(), _deps.Bus, recorder, New HeatMap(), _deps.Clock)
-
-            Dim ctx As New CameraContext(_deps, _controller, _engine, _view, ct)
+            Dim ctx As New CameraContext(_deps, _controller, _engine, _backend.SmartConfig, _view, ct)
             _ptz = New PtzPresenter(ctx, _view.Ptz)
             _image = New ImagePresenter(ctx, _view.Image)
             _video = New VideoPresenter(ctx, _view.Video)
@@ -89,14 +87,15 @@ Public MustInherit Class CameraSessionPresenter
             _view.SetConnectionState(True, UiText.Connected)
             _ptz.Initialize()
             _image.Initialize()
-            _smart.Initialize()
+            Await _smart.InitializeAsync()
 
-            AddHandler _source.FrameCaptured, AddressOf OnJpeg
+            AddHandler _backend.Video.FrameCaptured, AddressOf OnJpeg
             AddHandler _engine.FrameProcessed, AddressOf OnResult
             AddHandler _engine.Faulted, AddressOf OnFault
+            AddHandler _engine.CommandFailed, AddressOf OnCommandFailed
             _engine.Start()
             _positionTask = Task.Run(Function() PositionLoopAsync(ct))
-            If (_controller.Features And CameraFeatures.AlertStream) <> 0 Then _alertTask = Task.Run(Function() AlertLoopAsync(ct))
+            _backgroundTask = _backend.StartBackground(ct)
         Catch ex As OperationCanceledException
             _started = False
         Catch ex As Exception When TypeOf ex Is IsapiException OrElse TypeOf ex Is AccessDeniedException OrElse
@@ -122,20 +121,23 @@ Public MustInherit Class CameraSessionPresenter
         If _engine IsNot Nothing Then
             RemoveHandler _engine.FrameProcessed, AddressOf OnResult
             RemoveHandler _engine.Faulted, AddressOf OnFault
-            Await _engine.StopAsync()
+            RemoveHandler _engine.CommandFailed, AddressOf OnCommandFailed
+            Await _engine.StopAsync().ConfigureAwait(False)
         End If
-        If _source IsNot Nothing Then RemoveHandler _source.FrameCaptured, AddressOf OnJpeg
+        If _backend IsNot Nothing Then RemoveHandler _backend.Video.FrameCaptured, AddressOf OnJpeg
         Try
-            If _positionTask IsNot Nothing Then Await _positionTask
-            If _alertTask IsNot Nothing Then Await _alertTask
+            If _positionTask IsNot Nothing Then Await _positionTask.ConfigureAwait(False)
+            If _backgroundTask IsNot Nothing Then Await _backgroundTask.ConfigureAwait(False)
         Catch ex As OperationCanceledException
         End Try
         _positionTask = Nothing
-        _alertTask = Nothing
+        _backgroundTask = Nothing
         _alarms?.Dispose()
         _alarms = Nothing
         _controller?.Dispose()
         _controller = Nothing
+        _backend?.Dispose()
+        _backend = Nothing
         _engine = Nothing
         _cts?.Dispose()
         _cts = Nothing
@@ -178,6 +180,12 @@ Public MustInherit Class CameraSessionPresenter
             End Sub)
     End Sub
 
+    ''' <summary>فشل أمر ذكاء أرسله الوكيل البعيد في الخلفية (رفض صلاحية/انقطاع شبكة).</summary>
+    Private Sub OnCommandFailed(ex As Exception)
+        Dim msg As String = If(TypeOf ex Is AccessDeniedException, UiText.NoPermission, ex.Message)
+        _deps.Dispatcher.Post(Sub() _view.ShowError(msg))
+    End Sub
+
     Private Async Function PositionLoopAsync(ct As Threading.CancellationToken) As Task
         Try
             While Not ct.IsCancellationRequested
@@ -186,21 +194,6 @@ Public MustInherit Class CameraSessionPresenter
             End While
         Catch ex As OperationCanceledException
         End Try
-    End Function
-
-    ''' <summary>يستورد أحداث الكاميرا الذكية الأصلية (VMD/خط/اقتحام...) إلى ناقل الإنذارات.</summary>
-    Private Async Function AlertLoopAsync(ct As Threading.CancellationToken) As Task
-        Using client As New IsapiClient(_deps.Connection, _deps.HttpHandler)
-            Dim stream As New AlertStreamClient(client)
-            Await stream.RunAsync(
-                Sub(ev)
-                    _deps.Bus.Publish(New AlarmEvent With {
-                        .Camera = _deps.CameraName,
-                        .Kind = "Device:" & ev.EventType,
-                        .Severity = AlarmSeverity.Warning,
-                        .Message = $"حدث من الكاميرا: {ev.EventType} {ev.Description}".Trim()})
-                End Sub, Nothing, ct)
-        End Using
     End Function
 
     Public Sub Dispose() Implements IDisposable.Dispose

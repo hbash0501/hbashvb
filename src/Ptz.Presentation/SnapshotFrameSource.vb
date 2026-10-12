@@ -6,13 +6,13 @@ Imports Ptz.Core.Vision
 ''' (بث RTSP عالي المعدل يُضاف بتنفيذ آخر لـ IFrameSource عبر SDK الشركة المصنّعة.)
 ''' </summary>
 Public NotInheritable Class SnapshotFrameSource
-    Implements IFrameSource
+    Implements IFrameSource, IJpegFeed
 
     Private ReadOnly _camera As ICameraController
     Private ReadOnly _decoder As IFrameDecoder
     Private ReadOnly _clock As IClock
 
-    Public Event FrameCaptured As Action(Of Byte())
+    Public Event FrameCaptured As Action(Of Byte()) Implements IJpegFeed.FrameCaptured
 
     Public Sub New(camera As ICameraController, decoder As IFrameDecoder, Optional clock As IClock = Nothing)
         _camera = camera
