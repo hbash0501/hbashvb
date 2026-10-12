@@ -35,6 +35,9 @@ Namespace Hosting
         Public ReadOnly Property LoginGate As New Threading.SemaphoreSlim(Math.Max(1, Environment.ProcessorCount \ 2), Math.Max(1, Environment.ProcessorCount \ 2))
         Public ReadOnly Property AlarmSinks As New List(Of IAlarmSink)()
         Public Property Cameras As CameraRegistry
+        ''' <summary>تخزين مؤقت عام صغير (مثل نتيجة التحقق من سلسلة التدقيق).</summary>
+        Public ReadOnly Property Cache As New Collections.Concurrent.ConcurrentDictionary(Of String, Object)()
+        Public ReadOnly Property StreamQuota As New StreamQuotas()
 
         ''' <summary>مصنع معالج HTTP للكاميرا (الإنتاج: معالج آمن + قاطع دائرة؛ الاختبارات: معالج وهمي).</summary>
         Public Property CameraHandlerFactory As Func(Of CameraConnection, HttpMessageHandler)
@@ -103,5 +106,41 @@ Namespace Hosting
             Return svc
         End Function
     End Class
+
+''' <summary>حصص بثوث SSE: لكل مستخدم وعامة (تُحرَّر في Finally متزامن).</summary>
+Public NotInheritable Class StreamQuotas
+    Private ReadOnly _lock As New Object()
+    Private ReadOnly _perUser As New Dictionary(Of String, Integer)(StringComparer.OrdinalIgnoreCase)
+    Private _global As Integer
+
+    Public Function TryAcquire(user As String, maxPerUser As Integer, maxGlobal As Integer) As Boolean
+        SyncLock _lock
+            Dim n As Integer = 0
+            _perUser.TryGetValue(user, n)
+            If n >= maxPerUser OrElse _global >= maxGlobal Then Return False
+            _perUser(user) = n + 1
+            _global += 1
+            Return True
+        End SyncLock
+    End Function
+
+    Public Sub Release(user As String)
+        SyncLock _lock
+            Dim n As Integer = 0
+            If _perUser.TryGetValue(user, n) Then
+                If n <= 1 Then _perUser.Remove(user) Else _perUser(user) = n - 1
+                _global = Math.Max(0, _global - 1)
+            End If
+        End SyncLock
+    End Sub
+
+    Public ReadOnly Property Total As Integer
+        Get
+            SyncLock _lock
+                Return _global
+            End SyncLock
+        End Get
+    End Property
+End Class
 
 End Namespace

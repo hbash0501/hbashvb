@@ -37,12 +37,13 @@ Namespace Isapi
         Private ReadOnly _http As HttpClient
         Private ReadOnly _timeout As TimeSpan
 
-        ''' <param name="handler">للاختبارات: معالج بديل. في الإنتاج يُنشأ معالج آمن تلقائياً.</param>
-        Public Sub New(connection As CameraConnection, Optional handler As HttpMessageHandler = Nothing)
+        ''' <param name="handler">للاختبارات/البوابة: معالج بديل. في الإنتاج المحلي يُنشأ معالج آمن تلقائياً.</param>
+        ''' <param name="ownsHandler">False حين يُشارَك المعالج مع عميل آخر (فلا يُتخلَّص منه مع هذا العميل).</param>
+        Public Sub New(connection As CameraConnection, Optional handler As HttpMessageHandler = Nothing, Optional ownsHandler As Boolean = True)
             If connection Is Nothing Then Throw New ArgumentNullException(NameOf(connection))
             connection.Validate()
             _timeout = TimeSpan.FromSeconds(connection.TimeoutSeconds)
-            _http = New HttpClient(If(handler, CreateSecureHandler(connection)), True) With {
+            _http = New HttpClient(If(handler, CreateSecureHandler(connection)), ownsHandler OrElse handler Is Nothing) With {
                 .BaseAddress = connection.BaseUri,
                 .Timeout = Threading.Timeout.InfiniteTimeSpan,
                 .MaxResponseContentBufferSize = MaxResponseBytes

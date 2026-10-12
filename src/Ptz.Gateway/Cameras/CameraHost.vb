@@ -65,6 +65,34 @@ Namespace Cameras
         Public ReadOnly Property Events As New EventHub()
         Public ReadOnly Property Lease As PtzLease
         Public ReadOnly Property GeometryGate As New Threading.SemaphoreSlim(1, 1)
+        ''' <summary>يسلسل أوامر الحركة لكل كاميرا؛ الإيقاف يرفع <see cref="StopGeneration"/> قبل الانتظار فتُهمَل حركة سابقة عالقة.</summary>
+        Public ReadOnly Property PtzGate As New Threading.SemaphoreSlim(1, 1)
+        Private _stopGeneration As Integer
+        Public ReadOnly Property StopGeneration As Integer
+            Get
+                Return Threading.Volatile.Read(_stopGeneration)
+            End Get
+        End Property
+
+        Public Function BumpStopGeneration() As Integer
+            Return Threading.Interlocked.Increment(_stopGeneration)
+        End Function
+
+        ''' <summary>يسجّل مرة واحدة لكل (جلسة،كاميرا): عند إبطال الجلسة المالكة للعقد تُصدر البوابة إيقافاً.</summary>
+        Public Sub RegisterLeaseRevoke(rec As SessionRecord)
+            rec.Items.GetOrAdd("leasereg:" & Id,
+                Function(k) As Object
+                    Return rec.RevokedToken.Register(Sub()
+                                                         If Lease.OnSessionRevoked(rec.SessionId) Then Task.Run(AddressOf SafeStopAsync)
+                                                     End Sub)
+                End Function)
+        End Sub
+
+        ''' <summary>تعليق كشف الحركة مؤقتاً عند تحريك الكاميرا (السياسة تُطبَّق على الخادم لا العميل).</summary>
+        Public Sub NotifyMotion(Optional extraSeconds As Double = 0)
+            Engine?.NotifyCameraMotion(extraSeconds)
+            Frames.ForceNext()
+        End Sub
         Public ReadOnly Property ViewerCount As Integer
             Get
                 Return Events.SubscriberCount
@@ -224,6 +252,8 @@ Namespace Cameras
             cts.Cancel()
             _leaseTimer?.Dispose()
             _leaseTimer = Nothing
+            _forceTimer?.Dispose()
+            _forceTimer = Nothing
             If Lease.IsActive Then
                 Lease.OnStop(Guid.Empty)
                 Await SafeStopAsync().ConfigureAwait(False)
@@ -340,6 +370,20 @@ Namespace Cameras
             End SyncLock
             Dim reason As String = If(online, "ok", If(breaker, "cameraAuth", "cameraUnreachable"))
             Events.PublishControl(New SseMessage("health", Nothing, WireJson.Serialize(New HealthWire With {.Online = online, .Reason = reason, .ConsecutiveFailures = fails})))
+        End Sub
+
+        ' ---------------- تعلّم الشذوذ المفروض: يعود تلقائياً بعد 60 دقيقة (حتى لا يُترك الكشف معطّلاً بصمت) ----------------
+        Private _forceTimer As Threading.Timer
+
+        Public Sub OnForceLearningChanged(value As Boolean?)
+            _forceTimer?.Dispose()
+            _forceTimer = Nothing
+            If value.HasValue AndAlso value.Value Then
+                _forceTimer = New Threading.Timer(Sub(st)
+                                                      Engine.ForceAnomalyLearning = Nothing
+                                                      PublishState("svc:gateway")
+                                                  End Sub, Nothing, TimeSpan.FromMinutes(60), Threading.Timeout.InfiniteTimeSpan)
+            End If
         End Sub
 
         ' ---------------- حالة المحرك والهندسة ----------------

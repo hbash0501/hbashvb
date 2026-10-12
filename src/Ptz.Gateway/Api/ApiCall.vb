@@ -103,6 +103,7 @@ Namespace Api
         ''' <summary>المتحكم المؤمَّن لهذه الجلسة وهذه الكاميرا (يفرض الصلاحية ويدقّق).</summary>
         Public ReadOnly Property Controller As SecuredCameraController
             Get
+                If Camera.Raw Is Nothing Then Throw New ApiException(503, "camera_unavailable")
                 Return Camera.SecuredFor(Rec)
             End Get
         End Property

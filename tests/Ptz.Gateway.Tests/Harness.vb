@@ -72,6 +72,8 @@ Public NotInheritable Class Harness
         h.OnXml("GET", "/ISAPI/Image/channels/1/color", "<Color><brightnessLevel>40</brightnessLevel><contrastLevel>50</contrastLevel><saturationLevel>60</saturationLevel></Color>")
         h.OnXml("PUT", "/ISAPI/Image/channels/1/color", FakeCameraHandler.OkStatus)
         h.OnXml("GET", "/ISAPI/Image/channels/1/irCutFilter", "<IrcutFilter><IrcutFilterType>auto</IrcutFilterType></IrcutFilter>")
+        h.OnXml("GET", "/ISAPI/Image/channels/1/focusConfiguration", "<FocusConfiguration><focusStyle>AUTO</focusStyle></FocusConfiguration>")
+        h.OnXml("PUT", "/ISAPI/Image/channels/1/focusConfiguration", FakeCameraHandler.OkStatus)
         h.OnXml("PUT", "/ISAPI/System/Video/inputs/channels/1/focus", FakeCameraHandler.OkStatus)
         h.OnXml("PUT", "/ISAPI/PTZCtrl/channels/1/auxcontrols/1", FakeCameraHandler.OkStatus)
         h.OnXml("PUT", "/ISAPI/System/reboot", FakeCameraHandler.OkStatus)

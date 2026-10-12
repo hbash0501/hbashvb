@@ -10,7 +10,8 @@ Namespace Isapi
 
         Public Shared Async Function RunAsync(connection As CameraConnection, handler As Net.Http.HttpMessageHandler, cameraName As String,
                                               bus As AlarmBus, ct As Threading.CancellationToken) As Task
-            Using client As New IsapiClient(connection, handler)
+            ' المعالج المُمرَّر مشترك مع المتحكم (وقاطع الحماية)، فلا يجوز أن يتخلص منه عميل التنبيهات.
+            Using client As New IsapiClient(connection, handler, ownsHandler:=False)
                 Dim stream As New AlertStreamClient(client)
                 Await stream.RunAsync(
                     Sub(ev)

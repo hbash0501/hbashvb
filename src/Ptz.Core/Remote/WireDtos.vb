@@ -76,6 +76,8 @@ Namespace Remote
         Public Property BehaviorEnabled As Boolean?
         Public Property AutoTrackEnabled As Boolean?
         Public Property ForceAnomalyLearning As Boolean?
+        ''' <summary>true = إعادة قرار التعلّم للمؤقّت التلقائي (إلغاء الفرض).</summary>
+        Public Property AutoAnomalyLearning As Boolean?
     End Class
 
     Public NotInheritable Class ProfileDto
