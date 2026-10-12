@@ -31,6 +31,7 @@ Namespace Security
         Private ReadOnly _lock As New Object()
         Private ReadOnly _users As New Dictionary(Of String, UserRecord)(StringComparer.OrdinalIgnoreCase)
         Private ReadOnly _iterations As Integer
+        Private _stamp As String = ""
 
         Public Sub New(path As String, Optional audit As IAuditLog = Nothing, Optional clock As Abstractions.IClock = Nothing,
                        Optional iterations As Integer = Pbkdf2Iterations)
@@ -71,8 +72,9 @@ Namespace Security
 
         Private Shared Function ValidateUserName(userName As String) As String
             If String.IsNullOrWhiteSpace(userName) OrElse userName.Length < 3 OrElse userName.Length > 32 Then Return "اسم المستخدم من 3 إلى 32 حرفاً."
-            If Not userName.All(Function(c) Char.IsLetterOrDigit(c) OrElse c = "_"c OrElse c = "."c OrElse c = "-"c) Then
-                Return "اسم المستخدم يقبل حروفاً وأرقاماً و . _ - فقط."
+            ' ASCII فقط: يمنع حسابات متشابهة بصرياً بمحارف Unicode (homoglyph) في سجلات التدقيق وواجهات الإدارة.
+            If Not userName.All(Function(c) Char.IsAsciiLetterOrDigit(c) OrElse c = "_"c OrElse c = "."c OrElse c = "-"c) Then
+                Return "اسم المستخدم يقبل حروفاً لاتينية وأرقاماً و . _ - فقط."
             End If
             Return Nothing
         End Function
@@ -175,6 +177,85 @@ Namespace Security
             End SyncLock
         End Function
 
+        ''' <summary>
+        ''' فحص بيانات الاعتماد دون أي أثر جانبي (لا عدّاد إخفاق، لا قفل، لا كتابة ملف، لا تدقيق): للبوابة البعيدة التي
+        ''' تطبّق تقييدها الخاص. تُنفَّذ PBKDF2 مرة واحدة دائماً (ملح وهمي للمستخدم غير الموجود). يعيد نسخة أو Nothing
+        ''' لغير الموجود/كلمة المرور الخاطئة/المعطّل/المقفل محلياً.
+        ''' </summary>
+        Public Function VerifyCredentials(userName As String, password As String) As UserRecord
+            Dim now As DateTime = _clock.UtcNow
+            Dim rec As UserRecord = Nothing
+            Dim salt As Byte()
+            Dim expected As Byte()
+            Dim iterations As Integer
+            SyncLock _lock
+                If userName IsNot Nothing Then _users.TryGetValue(userName, rec)
+                If rec IsNot Nothing Then
+                    salt = Convert.FromBase64String(rec.Salt)
+                    expected = Convert.FromBase64String(rec.Hash)
+                    iterations = rec.Iterations
+                Else
+                    salt = New Byte(15) {}
+                    expected = New Byte(31) {}
+                    iterations = _iterations
+                End If
+            End SyncLock
+            Dim actual As Byte() = Hash(If(password, ""), salt, iterations)
+            Dim match As Boolean = CryptographicOperations.FixedTimeEquals(actual, expected)
+            SyncLock _lock
+                If rec Is Nothing OrElse Not match OrElse rec.Disabled OrElse rec.LockedUntilUtc > now Then Return Nothing
+                Return Clone(rec)
+            End SyncLock
+        End Function
+
+        ''' <summary>نسخة من سجل المستخدم أو Nothing.</summary>
+        Public Function TryGet(userName As String) As UserRecord
+            SyncLock _lock
+                Dim rec As UserRecord = Nothing
+                If userName IsNot Nothing AndAlso _users.TryGetValue(userName, rec) Then Return Clone(rec)
+                Return Nothing
+            End SyncLock
+        End Function
+
+        ''' <summary>
+        ''' بصمة أمان: SHA-256 على الدور والتعطيل والملح والتجزئة. تتغير عند تغيير الدور أو كلمة المرور أو التعطيل
+        ''' فتُبطل الجلسات البعيدة القائمة. Nothing لمستخدم غير موجود.
+        ''' </summary>
+        Public Function GetSecurityStamp(userName As String) As String
+            SyncLock _lock
+                Dim rec As UserRecord = Nothing
+                If userName Is Nothing OrElse Not _users.TryGetValue(userName, rec) Then Return Nothing
+                Dim material As String = $"{CInt(rec.Role)}|{rec.Disabled}|{rec.Salt}|{rec.Hash}"
+                Return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(material)))
+            End SyncLock
+        End Function
+
+        Public Sub Unlock(actor As String, userName As String)
+            SyncLock _lock
+                Dim rec As UserRecord = Find(userName)
+                rec.FailedCount = 0
+                rec.LockedUntilUtc = DateTime.MinValue
+                Save()
+            End SyncLock
+            _audit.Write(actor, "User.Unlock", userName, "OK", "")
+        End Sub
+
+        ''' <summary>يعيد تحميل الملف إن تغيّر من عملية أخرى (أداة الإدارة). يعيد True إن تغيّر المحتوى.</summary>
+        Public Function ReloadIfChanged() As Boolean
+            SyncLock _lock
+                If FileStamp() = _stamp Then Return False
+                _users.Clear()
+                Load()
+                Return True
+            End SyncLock
+        End Function
+
+        Private Function FileStamp() As String
+            If Not IO.File.Exists(_path) Then Return ""
+            Dim fi As New IO.FileInfo(_path)
+            Return fi.LastWriteTimeUtc.Ticks.ToString(Globalization.CultureInfo.InvariantCulture) & ":" & fi.Length.ToString(Globalization.CultureInfo.InvariantCulture)
+        End Function
+
         ' ---------- داخلي ----------
         Private Function Find(userName As String) As UserRecord
             Dim rec As UserRecord = Nothing
@@ -203,6 +284,7 @@ Namespace Security
         End Function
 
         Private Sub Load()
+            _stamp = FileStamp()
             If Not IO.File.Exists(_path) Then Return
             Dim list As List(Of UserRecord) = JsonSerializer.Deserialize(Of List(Of UserRecord))(IO.File.ReadAllText(_path, Encoding.UTF8))
             If list Is Nothing Then Return
@@ -218,6 +300,7 @@ Namespace Security
             IO.File.WriteAllText(tmp, JsonSerializer.Serialize(_users.Values.ToList()), Encoding.UTF8)
             If Not OperatingSystem.IsWindows() Then IO.File.SetUnixFileMode(tmp, IO.UnixFileMode.UserRead Or IO.UnixFileMode.UserWrite)
             IO.File.Move(tmp, _path, True)
+            _stamp = FileStamp()
         End Sub
     End Class
 

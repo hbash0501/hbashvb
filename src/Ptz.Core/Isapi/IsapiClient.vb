@@ -50,7 +50,7 @@ Namespace Isapi
             _http.DefaultRequestHeaders.Accept.ParseAdd("application/xml, image/jpeg, */*")
         End Sub
 
-        Private Shared Function CreateSecureHandler(c As CameraConnection) As HttpMessageHandler
+        Public Shared Function CreateSecureHandler(c As CameraConnection) As HttpMessageHandler
             Dim cache As New CredentialCache()
             Dim cred As New NetworkCredential(c.Username, c.Password)
             cache.Add(c.BaseUri, "Digest", cred)

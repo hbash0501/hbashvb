@@ -221,9 +221,7 @@ Public NotInheritable Class Ds2Se7c432mwPresenter
     End Property
 
     Protected Overrides Sub ConfigureEngine(options As SmartEngineOptions)
-        ' لقطات 4MP أكبر حجماً: معدل أقل يحمي الشبكة والمعالج؛ ضجيج أقل (DarkFighter) يسمح بعتبة أدق.
-        options.TargetFps = 4.0
-        options.Motion.Subtractor.ThresholdSigma = 2.8F
+        EnginePresets.Apply(Profile, options)
     End Sub
 End Class
 
@@ -242,7 +240,6 @@ Public NotInheritable Class Ds2De7232iwPresenter
     End Property
 
     Protected Overrides Sub ConfigureEngine(options As SmartEngineOptions)
-        options.TargetFps = 5.0
-        options.Motion.Subtractor.ThresholdSigma = 3.0F
+        EnginePresets.Apply(Profile, options)
     End Sub
 End Class

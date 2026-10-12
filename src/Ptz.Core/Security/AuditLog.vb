@@ -103,11 +103,11 @@ Namespace Security
                 Dim e As New AuditEntry With {
                     .Seq = _seq + 1,
                     .TimeUtc = _clock.UtcNow,
-                    .User = If(user, ""),
-                    .Action = If(action, ""),
-                    .Target = If(target, ""),
-                    .Outcome = If(outcome, ""),
-                    .Details = Truncate(If(details, ""), 1000),
+                    .User = AuditSanitizer.Clean(user, 64),
+                    .Action = AuditSanitizer.Clean(action, 64),
+                    .Target = AuditSanitizer.Clean(target, 128),
+                    .Outcome = AuditSanitizer.Clean(outcome, 16),
+                    .Details = AuditSanitizer.Clean(details, 1000),
                     .PrevHash = _lastHash
                 }
                 e.Hash = Compute(e)
