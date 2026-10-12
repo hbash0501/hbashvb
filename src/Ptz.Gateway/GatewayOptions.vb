@@ -30,6 +30,8 @@ Public NotInheritable Class StreamOptions
     Public Property MaxGlobal As Integer = 12
     Public Property HeartbeatSeconds As Integer = 15
     Public Property MaxLifetimeMinutes As Integer = 60
+    ''' <summary>دورية فحص إبطال الجلسة/انتهائها/بصمة المستخدم أثناء البث.</summary>
+    Public Property GuardSeconds As Integer = 10
 End Class
 
 Public NotInheritable Class PtzOptions

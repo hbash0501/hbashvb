@@ -128,7 +128,7 @@ Namespace Api
                         End If
                         lastWrite.Restart()
                     End If
-                    If endReason Is Nothing AndAlso lastGuard.Elapsed >= TimeSpan.FromSeconds(10) Then
+                    If endReason Is Nothing AndAlso lastGuard.Elapsed >= TimeSpan.FromSeconds(opt.GuardSeconds) Then
                         lastGuard.Restart()
                         endReason = GuardReason(c, rec, watch.Elapsed)
                     End If

@@ -190,9 +190,119 @@ Public NotInheritable Class Harness
         Return IO.File.ReadAllLines(IO.Path.Combine(Dir, "audit.log"))
     End Function
 
+    ''' <summary>يفتح بث SSE (تُقرأ الترويسات فقط) ويعيد قارئاً للأحداث.</summary>
+    Public Function OpenSse(path As String, token As String, Optional lastEventId As String = Nothing, Optional ip As String = Nothing) As SseTestReader
+        Dim req As New HttpRequestMessage(HttpMethod.Get, path)
+        If token IsNot Nothing Then req.Headers.Authorization = New AuthenticationHeaderValue("Bearer", token)
+        If lastEventId IsNot Nothing Then req.Headers.TryAddWithoutValidation("Last-Event-ID", lastEventId)
+        If ip IsNot Nothing Then
+            req.Headers.Add("X-Test-Ip", ip)
+            req.Headers.TryAddWithoutValidation("X-Test-Https", "1")
+        End If
+        Dim resp As HttpResponseMessage = Client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead).GetAwaiter().GetResult()
+        Return New SseTestReader(resp)
+    End Function
+
     Public Sub Dispose() Implements IDisposable.Dispose
         Client.Dispose()
         App.StopAsync().GetAwaiter().GetResult()
         App.DisposeAsync().AsTask().GetAwaiter().GetResult()
+    End Sub
+End Class
+
+
+''' <summary>حدث SSE واحد كما استُلم (التعليقات ": hb" تظهر باسم "#comment").</summary>
+Public NotInheritable Class SseTestEvent
+    Public Property Name As String = ""
+    Public Property Id As String
+    Public Property Data As String = ""
+End Class
+
+''' <summary>قارئ SSE للاختبارات مع مهلة لكل قراءة.</summary>
+Public NotInheritable Class SseTestReader
+    Implements IDisposable
+
+    Private ReadOnly _resp As HttpResponseMessage
+    Private ReadOnly _reader As IO.StreamReader
+    Private ReadOnly _cts As New Threading.CancellationTokenSource()
+
+    Public Sub New(resp As HttpResponseMessage)
+        _resp = resp
+        If resp.StatusCode = HttpStatusCode.OK Then
+            _reader = New IO.StreamReader(resp.Content.ReadAsStreamAsync().GetAwaiter().GetResult(), Encoding.UTF8)
+        End If
+    End Sub
+
+    Public ReadOnly Property Response As HttpResponseMessage
+        Get
+            Return _resp
+        End Get
+    End Property
+
+    Public ReadOnly Property Status As HttpStatusCode
+        Get
+            Return _resp.StatusCode
+        End Get
+    End Property
+
+    ''' <summary>يقرأ الحدث التالي أو يعيد Nothing عند انتهاء البث أو انقضاء المهلة.</summary>
+    Public Function ReadEvent(Optional timeoutSeconds As Double = 5) As SseTestEvent
+        If _reader Is Nothing Then Return Nothing
+        Dim ev As New SseTestEvent()
+        Dim sawAny As Boolean = False
+        Dim dataLines As New List(Of String)()
+        Using cts As Threading.CancellationTokenSource = Threading.CancellationTokenSource.CreateLinkedTokenSource(_cts.Token)
+            cts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds))
+            Try
+                While True
+                    Dim line As String = _reader.ReadLineAsync(cts.Token).AsTask().GetAwaiter().GetResult()
+                    If line Is Nothing Then Return If(sawAny, Finish(ev, dataLines), Nothing)
+                    If line.Length = 0 Then
+                        If sawAny Then Return Finish(ev, dataLines)
+                        Continue While
+                    End If
+                    sawAny = True
+                    If line.StartsWith(":", StringComparison.Ordinal) Then
+                        ev.Name = "#comment"
+                        dataLines.Add(line.Substring(1).Trim())
+                    ElseIf line.StartsWith("event:", StringComparison.Ordinal) Then
+                        ev.Name = line.Substring(6).Trim()
+                    ElseIf line.StartsWith("id:", StringComparison.Ordinal) Then
+                        ev.Id = line.Substring(3).Trim()
+                    ElseIf line.StartsWith("data:", StringComparison.Ordinal) Then
+                        dataLines.Add(line.Substring(5).TrimStart())
+                    ElseIf line.StartsWith("retry:", StringComparison.Ordinal) Then
+                        ev.Name = "#retry"
+                        dataLines.Add(line.Substring(6).Trim())
+                    End If
+                End While
+            Catch ex As OperationCanceledException
+                Return Nothing
+            End Try
+        End Using
+        Return Nothing
+    End Function
+
+    Private Shared Function Finish(ev As SseTestEvent, dataLines As List(Of String)) As SseTestEvent
+        ev.Data = String.Join(vbLf, dataLines)
+        Return ev
+    End Function
+
+    ''' <summary>يقرأ حتى يظهر حدث بالاسم المطلوب (يتخطى غيره) أو تنتهي المهلة الكلية.</summary>
+    Public Function WaitFor(name As String, Optional timeoutSeconds As Double = 5) As SseTestEvent
+        Dim sw As Diagnostics.Stopwatch = Diagnostics.Stopwatch.StartNew()
+        While sw.Elapsed.TotalSeconds < timeoutSeconds
+            Dim ev As SseTestEvent = ReadEvent(Math.Max(0.1, timeoutSeconds - sw.Elapsed.TotalSeconds))
+            If ev Is Nothing Then Return Nothing
+            If ev.Name = name Then Return ev
+        End While
+        Return Nothing
+    End Function
+
+    Public Sub Dispose() Implements IDisposable.Dispose
+        _cts.Cancel()
+        _reader?.Dispose()
+        _resp.Dispose()
+        _cts.Dispose()
     End Sub
 End Class

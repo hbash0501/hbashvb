@@ -128,8 +128,10 @@ Namespace Api
                 cam.GeometryGate.Release()
             End Try
             If mismatch Then
-                c.Http.Response.Headers("ETag") = Etag(cam.GeometryRev())
-                Throw New ApiException(412, "precondition_failed")
+                ' الترويسة عبر ExtraHeaders لأن كتابة الخطأ تمسح ترويسات الاستجابة الحالية
+                Dim pf As New ApiException(412, "precondition_failed")
+                pf.ExtraHeaders("ETag") = Etag(cam.GeometryRev())
+                Throw pf
             End If
             cam.Events.PublishControl(New SseMessage("geo", Nothing, WireJson.Serialize(New GeoWire With {.Rev = newRev, .By = c.UserName})))
             NoteChange(c, "geometry")
