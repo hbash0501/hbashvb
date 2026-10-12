@@ -1,0 +1,54 @@
+# /etc/systemd/system/ptz-gateway.service
+# التثبيت (مثال):
+#   sudo useradd --system --home /var/lib/ptz-gateway --shell /usr/sbin/nologin ptzgw
+#   sudo install -d -o ptzgw -g ptzgw -m 700 /var/lib/ptz-gateway
+#   sudo install -d -o root -g ptzgw -m 750 /etc/ptz-gateway /opt/ptz-gateway
+#   dotnet publish src/Ptz.Gateway -c Release -o /opt/ptz-gateway     # على جهاز البناء ثم انسخ المخرجات
+#   sudo cp deploy/gateway.example.json /etc/ptz-gateway/gateway.json  # ثم عدّله
+#   sudo -u ptzgw env PTZ_GATEWAY_CONFIG=/etc/ptz-gateway/gateway.json PTZ_MASTER_KEY_FILE=/etc/ptz-gateway/master.key \
+#        /opt/ptz-gateway/PtzGateway user add <name> supervisor      # أول مستخدم، ثم: totp enroll <name>، camera set ...
+[Unit]
+Description=PTZ Gateway (remote access for Hikvision PTZ cameras)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=ptzgw
+Group=ptzgw
+WorkingDirectory=/opt/ptz-gateway
+ExecStart=/opt/ptz-gateway/PtzGateway serve
+Environment=PTZ_GATEWAY_CONFIG=/etc/ptz-gateway/gateway.json
+Environment=PTZ_MASTER_KEY_FILE=/etc/ptz-gateway/master.key
+Environment=DOTNET_gcServer=0
+Environment=DOTNET_EnableDiagnostics=0
+Restart=on-failure
+RestartSec=3
+# إيقاف نظيف: البوابة توقف حركة الكاميرا قبل الخروج
+TimeoutStopSec=20
+
+# تقييد النظام (صلاحيات دنيا)
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadWritePaths=/var/lib/ptz-gateway
+ReadOnlyPaths=/etc/ptz-gateway
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

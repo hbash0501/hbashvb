@@ -1,0 +1,26 @@
+name: ci
+on:
+  push:
+  pull_request:
+
+jobs:
+  core-and-tests:
+    # النواة والمقدِّمات والاختبارات + فحص تجميع واجهة WinForms على Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '8.0.x' }
+      - run: dotnet build HbashPTZ.CrossPlatform.slnf -c Release
+      - run: dotnet test tests/Ptz.Tests/Ptz.Tests.vbproj -c Release --no-build
+      # اختبارات تكامل البوابة (خادم حقيقي عبر TestServer، TLS حقيقي، عميل إنتاجي) — تعمل تسلسلياً عمداً
+      - run: dotnet test tests/Ptz.Gateway.Tests/Ptz.Gateway.Tests.vbproj -c Release --no-build
+
+  windows-app:
+    # بناء التطبيق الفعلي (WinForms) على Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '8.0.x' }
+      - run: dotnet build src/Ptz.App/Ptz.App.vbproj -c Release
