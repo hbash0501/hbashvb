@@ -1,1 +1,203 @@
-<!doctype html><title>PTZ</title>
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="referrer" content="no-referrer">
+<title>وحدة تحكم PTZ</title>
+<link rel="stylesheet" href="/app.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<noscript><p class="nojs">يتطلب هذا التطبيق تفعيل JavaScript.</p></noscript>
+<div id="toasts" role="status" aria-live="polite"></div>
+<div id="sr" class="sr" role="alert" aria-live="assertive"></div>
+
+<main id="login" class="login">
+  <form id="lf" method="post" action="#" autocomplete="on" novalidate>
+    <h1>وحدة تحكم الكاميرات</h1>
+    <p class="muted">سجّل الدخول للتحكم بالكاميرات عن بُعد.</p>
+    <label for="lu">اسم المستخدم</label>
+    <input id="lu" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="64" required dir="ltr">
+    <label for="lp">كلمة المرور</label>
+    <input id="lp" name="password" type="password" autocomplete="current-password" maxlength="128" required dir="ltr">
+    <label for="lt" id="lt-l">رمز التحقق (6 أرقام)</label>
+    <input id="lt" name="otp" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" dir="ltr" aria-describedby="lerr">
+    <p id="lerr" class="err" role="alert"></p>
+    <button id="lbtn" class="primary" type="submit">دخول</button>
+  </form>
+</main>
+
+<div id="app" hidden>
+  <header class="top">
+    <strong class="brand">PTZ</strong>
+    <span class="who"><span id="who"></span> <small id="role" class="chip"></small></span>
+    <span class="sess"><span id="cd" class="ltr" title="الوقت المتبقي للجلسة"></span> <button id="ext" class="sm" hidden>تمديد</button></span>
+    <button id="lo" class="sm">خروج</button>
+  </header>
+  <div id="banner" class="banner" role="status" hidden></div>
+  <nav id="cams" class="cams" aria-label="الكاميرات"></nav>
+
+  <div class="layout">
+    <section class="view" aria-label="البث المباشر">
+      <div id="stage" class="stage" data-mode="view">
+        <canvas id="vid" width="640" height="360" role="img" aria-label="صورة الكاميرا المباشرة"></canvas>
+        <canvas id="ov" aria-hidden="true"></canvas>
+        <div id="nosig" class="nosig">لا توجد إشارة</div>
+        <div id="st" class="st ltr"></div>
+      </div>
+      <div class="tools">
+        <button id="t-zoom" class="tg" aria-pressed="false">⛶ تكبير منطقة</button>
+        <button id="t-tgt" class="tg" aria-pressed="false">◎ تتبّع هدف</button>
+        <label class="inl">الجودة <select id="tier"></select></label>
+        <label class="inl"><input type="checkbox" id="showgeo" checked> المناطق</label>
+      </div>
+      <p id="modehint" class="hint" hidden></p>
+    </section>
+
+    <section class="side">
+      <div class="tabs" role="tablist" aria-label="الأقسام">
+        <button role="tab" id="tb-ctl" aria-controls="p-ctl" aria-selected="true">التحكم</button>
+        <button role="tab" id="tb-img" aria-controls="p-img" aria-selected="false" tabindex="-1">الصورة</button>
+        <button role="tab" id="tb-smt" aria-controls="p-smt" aria-selected="false" tabindex="-1">الذكاء</button>
+        <button role="tab" id="tb-alm" aria-controls="p-alm" aria-selected="false" tabindex="-1">الإنذارات <span id="alm-n" class="cnt" hidden></span></button>
+        <button role="tab" id="tb-adm" aria-controls="p-adm" aria-selected="false" tabindex="-1">الإدارة</button>
+      </div>
+
+      <div id="p-ctl" role="tabpanel" aria-labelledby="tb-ctl">
+        <p id="ctl-na" class="hint" hidden>لا تملك صلاحية التحكم بالحركة؛ العرض فقط.</p>
+        <div id="padgrp">
+          <div class="padrow">
+            <div id="pad" class="pad" tabindex="0" role="group" aria-label="عصا التحكم بالحركة" aria-describedby="padhint">
+              <i class="ar u" aria-hidden="true">▲</i><i class="ar d" aria-hidden="true">▼</i><i class="ar l" aria-hidden="true">◀</i><i class="ar r" aria-hidden="true">▶</i>
+              <b id="knob" class="knob"></b>
+            </div>
+            <div class="btncol" role="group" aria-label="التقريب">
+              <button class="hold" data-k="z" data-d="1" aria-label="تقريب">＋</button>
+              <span class="muted">تقريب</span>
+              <button class="hold" data-k="z" data-d="-1" aria-label="تبعيد">－</button>
+            </div>
+          </div>
+          <label class="rng">السرعة <input id="spd" type="range" min="5" max="100" step="5" value="50"><output id="spdv" class="ltr">50</output></label>
+          <p id="padhint" class="hint">الأسهم للتحريك · + و − للتقريب · المسافة أو Esc للإيقاف</p>
+        </div>
+        <div id="lensgrp" class="row" role="group" aria-label="العدسة" hidden>
+          <span class="muted">تركيز</span>
+          <button class="hold" data-k="focus" data-d="near">قريب</button>
+          <button class="hold" data-k="focus" data-d="far">بعيد</button>
+          <span class="muted">الحدقة</span>
+          <button class="hold" data-k="iris" data-d="near">إغلاق</button>
+          <button class="hold" data-k="iris" data-d="far">فتح</button>
+        </div>
+        <div class="row">
+          <button id="b-home">⌂ الرئيسية</button>
+          <button id="b-sethome">تعيين الموضع الحالي كرئيسي</button>
+        </div>
+        <p id="pos" class="hint"></p>
+        <details id="d-pre" open>
+          <summary>المواضع المحفوظة</summary>
+          <ul id="prelist" class="rows"></ul>
+          <form id="prefm" class="row" method="post" action="#">
+            <label>الرقم <input id="pre-n" type="number" min="1" max="255" value="1" required></label>
+            <label>الاسم <input id="pre-nm" maxlength="32" required></label>
+            <button type="submit">حفظ الموضع</button>
+          </form>
+        </details>
+        <details id="d-pat">
+          <summary>الدوريات والأنماط</summary>
+          <div id="r-patrol" class="row"><label>دورية <input id="pa-n" type="number" min="1" max="8" value="1"></label><button data-a="start">تشغيل</button><button data-a="stop">إيقاف</button></div>
+          <div id="r-pattern" class="row"><label>نمط <input id="pt-n" type="number" min="1" max="8" value="1"></label><button data-a="run">تشغيل</button><button data-a="stop">إيقاف</button></div>
+        </details>
+      </div>
+
+      <div id="p-img" role="tabpanel" aria-labelledby="tb-img" hidden>
+        <p id="img-ro" class="hint" hidden>لا تملك صلاحية تعديل الصورة؛ العرض فقط.</p>
+        <div id="imgctl"></div>
+        <div id="auxrow"></div>
+      </div>
+
+      <div id="p-smt" role="tabpanel" aria-labelledby="tb-smt" hidden>
+        <p id="smt-na" class="hint" hidden>محرك الذكاء غير متاح لهذه الكاميرا.</p>
+        <fieldset class="grp"><legend>المحرّك</legend>
+          <label class="sw"><input type="checkbox" id="s-mot"> كشف الحركة</label>
+          <label class="sw"><input type="checkbox" id="s-beh"> تحليل السلوك</label>
+          <label class="sw"><input type="checkbox" id="s-trk"> التتبع التلقائي</label>
+          <label class="fld">تعلّم الشذوذ
+            <select id="s-learn"><option value="auto">تلقائي</option><option value="on">تعلّم مفروض</option><option value="off">إيقاف التعلّم</option></select>
+          </label>
+        </fieldset>
+        <div class="row">
+          <button id="s-tgt">◎ اختيار هدف</button>
+          <button id="s-rel">إلغاء الهدف</button>
+          <button id="s-save">حفظ نموذج الشذوذ</button>
+        </div>
+        <details id="d-beh"><summary>عتبات السلوك</summary><form id="behf" method="post" action="#"></form></details>
+        <details id="d-geo" open>
+          <summary>المناطق والخطوط</summary>
+          <div class="row">
+            <label class="fld">الاسم <input id="g-name" maxlength="32"></label>
+            <label class="fld">الخطورة <select id="g-sev"><option value="critical">حرج</option><option value="warning">تحذير</option><option value="info">معلومة</option></select></label>
+            <label class="fld">اتجاه الخط <select id="g-dir"><option value="both">الاتجاهان</option><option value="leftToRight">يسار ← يمين</option><option value="rightToLeft">يمين ← يسار</option></select></label>
+          </div>
+          <div class="row">
+            <button data-g="zone">＋ منطقة</button>
+            <button data-g="line">＋ خط</button>
+            <button data-g="mask">＋ قناع</button>
+          </div>
+          <div id="geobar" class="row" hidden>
+            <button id="g-fin" class="primary">إنهاء الرسم</button>
+            <button id="g-undo">تراجع عن نقطة</button>
+            <button id="g-can">إلغاء</button>
+          </div>
+          <ul id="geolist" class="rows"></ul>
+          <p id="geostale" class="warn" hidden>تغيّرت الهندسة على الخادم من مستخدم آخر.</p>
+          <div class="row">
+            <button id="g-save" class="primary">حفظ التعديلات</button>
+            <button id="g-rev">تراجع / إعادة تحميل</button>
+          </div>
+        </details>
+      </div>
+
+      <div id="p-alm" role="tabpanel" aria-labelledby="tb-alm" hidden>
+        <div class="grp">
+          <label class="sw"><input type="checkbox" id="a-snd"> تنبيه صوتي</label>
+          <label class="sw"><input type="checkbox" id="a-ntf"> إشعارات المتصفح</label>
+          <label class="sw"><input type="checkbox" id="a-un"> غير المُقَرّة فقط</label>
+          <label class="sw"><input type="checkbox" id="a-cur"> الكاميرا الحالية فقط</label>
+        </div>
+        <ul id="allist" class="rows" aria-label="قائمة الإنذارات"></ul>
+        <p id="alempty" class="hint">لا توجد إنذارات.</p>
+      </div>
+
+      <div id="p-adm" role="tabpanel" aria-labelledby="tb-adm" hidden>
+        <h2>جلساتي النشطة</h2>
+        <div class="row"><button id="ss-r">تحديث</button></div>
+        <ul id="sslist" class="rows"></ul>
+        <section id="audsec">
+          <h2>سجل التدقيق</h2>
+          <div class="row">
+            <button id="au-r">تحديث</button>
+            <button id="au-v">التحقق من سلامة السلسلة</button>
+          </div>
+          <p id="au-vr" class="hint" role="status"></p>
+          <ul id="aulist" class="rows"></ul>
+          <button id="au-m" hidden>تحميل المزيد</button>
+        </section>
+      </div>
+    </section>
+  </div>
+
+  <div class="stopbar"><button id="estop" class="danger">⏹ إيقاف طارئ</button></div>
+</div>
+
+<dialog id="dlg" aria-labelledby="dlg-t">
+  <form id="dlg-f" method="post" action="#">
+    <h2 id="dlg-t"></h2>
+    <p id="dlg-x"></p>
+    <input id="dlg-c" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" dir="ltr" aria-label="رمز التحقق" hidden>
+    <div class="row"><button id="dlg-ok" class="primary" type="submit">موافق</button><button id="dlg-no" type="button">إلغاء</button></div>
+  </form>
+</dialog>
+</body>
+</html>

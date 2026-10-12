@@ -32,7 +32,9 @@ Namespace Remote
         End Sub
 
         Public Shared Function UiMessage(code As String, field As String) As String
-            Dim tail As String = If(String.IsNullOrEmpty(field), "", " (" & field & ")")
+            ' اسم الحقل يأتي من الخادم: لا يُعرض إلا إن كان معرّفاً بسيطاً (لا نصاً حراً يُحقن في الواجهة)
+            Dim safeField As Boolean = Not String.IsNullOrEmpty(field) AndAlso System.Text.RegularExpressions.Regex.IsMatch(field, "^[A-Za-z0-9._-]{1,40}\z")
+            Dim tail As String = If(safeField, " (" & field & ")", "")
             Select Case code
                 Case "unauthorized", "session_expired" : Return "انتهت الجلسة؛ سجّل الدخول من جديد."
                 Case "invalid_credentials" : Return "بيانات الدخول غير صحيحة أو الحساب مقفل مؤقتاً."
