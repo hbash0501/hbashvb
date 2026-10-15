@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><RootNamespace>AIDocumentArchiveVB</RootNamespace><OptionStrict>On</OptionStrict><OptionInfer>On</OptionInfer><EnableDefaultCompileItems>false</EnableDefaultCompileItems></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="CoreTests.vb" />
+    <Compile Include="../AIDocumentArchiveVB/Services/BasiraDates.vb" Link="BasiraDates.vb" />
+    <Compile Include="../AIDocumentArchiveVB/Services/BasiraCaseExportService.vb" Link="BasiraCaseExportService.vb" />
+    <Compile Include="../AIDocumentArchiveVB/Models/DocumentRecord.vb" Link="DocumentRecord.vb" />
+    <Compile Include="../AIDocumentArchiveVB/Models/ProcessingJob.vb" Link="ProcessingJob.vb" />
+    <Compile Include="../AIDocumentArchiveVB/Models/BasiraModels.vb" Link="BasiraModels.vb" />
+    <Compile Include="../AIDocumentArchiveVB/Services/BasiraEngine.vb" Link="BasiraEngine.vb" />
+    <Compile Include="../AIDocumentArchiveVB/Services/BasiraStore.vb" Link="BasiraStore.vb" />
+    <Compile Include="../AIDocumentArchiveVB/Services/BasiraCitations.vb" Link="BasiraCitations.vb" />
+    <Compile Include="../AIDocumentArchiveVB/Services/ProcessingJobQueueService.vb" Link="ProcessingJobQueueService.vb" />
+    <Compile Include="../AIDocumentArchiveVB/Services/BasiraJobNotifications.vb" Link="BasiraJobNotifications.vb" />
+    <Compile Include="../AIDocumentArchiveVB/Services/CancellableProcess.vb" Link="CancellableProcess.vb" />
+    <Compile Include="../AIDocumentArchiveVB/Services/PasswordHashService.vb" Link="PasswordHashService.vb" />
+    <Compile Include="../AIDocumentArchiveVB/Services/ReplyExportService.vb" Link="ReplyExportService.vb" />
+  </ItemGroup>
+</Project>

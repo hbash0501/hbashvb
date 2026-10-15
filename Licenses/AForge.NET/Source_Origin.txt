@@ -1,0 +1,7 @@
+AForge.NET upstream: https://github.com/andrewkirillov/AForge.NET
+Downloaded: 2026-10-03
+Source archive: https://codeload.github.com/andrewkirillov/AForge.NET/zip/refs/heads/master
+Included unchanged source folders: Sources/Core, Sources/Video, Sources/Video.DirectShow, with their C# project files, resources and original signing files. Upstream building, license, copyright and release files are also preserved.
+Core, Video and Video.DirectShow source assembly versions verified as 2.2.5.0. No source modifications were made.
+Build the upstream projects in order Core, Video, Video.DirectShow. Their original references use a ../../Release folder; place the preceding build output there, or update the project reference to that built DLL. Bundled runtime DLLs remain separate and can be replaced by compatible builds.
+Corresponding source ZIP SHA-256: 850c960dae4f98a9b6200c5d2fc5756efe5a847dcfc337d87ca5edc8b92c52b7

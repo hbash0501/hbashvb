@@ -1,0 +1,308 @@
+﻿<?xml version='1.0' encoding='utf-8'?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="15.0">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{B8D8D3CF-5AAE-4C52-95F4-0CB2A7B3F2D8}</ProjectGuid>
+    <OutputType>WinExe</OutputType>
+    <StartupObject>AIDocumentArchiveVB.Program</StartupObject>
+    <RootNamespace>AIDocumentArchiveVB</RootNamespace>
+    <AssemblyName>AIDocumentArchiveVB</AssemblyName>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <MyType>WindowsForms</MyType>
+    <OptionExplicit>On</OptionExplicit>
+    <OptionCompare>Binary</OptionCompare>
+    <OptionStrict>Off</OptionStrict>
+    <OptionInfer>On</OptionInfer>
+    <Deterministic>true</Deterministic>
+    <ApplicationIcon>Assets\basira.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <DefineDebug>true</DefineDebug>
+    <DefineTrace>true</DefineTrace>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DocumentationFile>AIDocumentArchiveVB.xml</DocumentationFile>
+    <NoWarn>42016,41999,42017,42018,42019,42032,42036,42353,42354,42355</NoWarn>
+    <Prefer32Bit>false</Prefer32Bit>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugType>pdbonly</DebugType>
+    <DefineDebug>false</DefineDebug>
+    <DefineTrace>true</DefineTrace>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DocumentationFile>AIDocumentArchiveVB.xml</DocumentationFile>
+    <NoWarn>42016,41999,42017,42018,42019,42032,42036,42353,42354,42355</NoWarn>
+    <Prefer32Bit>false</Prefer32Bit>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Data" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+    <Reference Include="System.Security" />
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Xml" />
+    <Reference Include="System.Xml.Linq" />
+    <Reference Include="AForge">
+      <HintPath>..\packages\AForge.2.2.5\lib\AForge.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="AForge.Video">
+      <HintPath>..\packages\AForge.Video.2.2.5\lib\AForge.Video.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="AForge.Video.DirectShow">
+      <HintPath>..\packages\AForge.Video.DirectShow.2.2.5\lib\AForge.Video.DirectShow.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="System.Data.SQLite">
+      <HintPath>..\packages\Stub.System.Data.SQLite.Core.NetFramework.1.0.118.0\lib\net46\System.Data.SQLite.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Import Include="Microsoft.VisualBasic" />
+    <Import Include="System" />
+    <Import Include="System.Collections" />
+    <Import Include="System.Collections.Generic" />
+    <Import Include="System.Data" />
+    <Import Include="System.Drawing" />
+    <Import Include="System.Diagnostics" />
+    <Import Include="System.Windows.Forms" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="Program.vb" />
+    <Compile Include="AppServices.vb" />
+    <Compile Include="Models\DocumentRecord.vb" />
+    <Compile Include="Models\FileSignatureValidationResult.vb" />
+    <Compile Include="Models\EnterpriseProcessingProgress.vb" />
+    <Compile Include="Models\EnterpriseProcessingResult.vb" />
+    <Compile Include="Models\AiAnalysisResult.vb" />
+    <Compile Include="Models\CategoryInfo.vb" />
+    <Compile Include="Models\ImportResult.vb" />
+    <Compile Include="Models\AuditLogEntry.vb" />
+    <Compile Include="Models\UserAccount.vb" />
+    <Compile Include="Models\DocumentSearchCriteria.vb" />
+    <Compile Include="Models\WorkflowHistoryEntry.vb" />
+    <Compile Include="Models\SmartOcrResult.vb" />
+    <Compile Include="Models\KnowledgeEntity.vb" />
+    <Compile Include="Models\KnowledgeSearchResult.vb" />
+    <Compile Include="Models\ArchiveRelation.vb" />
+    <Compile Include="Models\ArchiveAnswerResult.vb" />
+    <Compile Include="Models\SmartInboxItem.vb" />
+    <Compile Include="Models\PdfOcrOptions.vb" />
+    <Compile Include="Models\PdfOcrPageResult.vb" />
+    <Compile Include="Models\PdfOcrResult.vb" />
+    <Compile Include="Models\LayoutWordConversionOptions.vb" />
+    <Compile Include="Models\LayoutWordConversionResult.vb" />
+    <Compile Include="Models\ProcessingJob.vb" />
+    <Compile Include="Models\PerformanceSnapshot.vb" />
+    <Compile Include="Models\WorkspaceAction.vb" />
+    <Compile Include="Models\AiProviderProfile.vb" />
+    <Compile Include="Models\AiProviderResponse.vb" />
+    <Compile Include="Models\AiProviderHealthStatus.vb" />
+    <Compile Include="Models\DocumentQualityAssessment.vb" />
+    <Compile Include="Models\AutomationAction.vb" />
+    <Compile Include="Models\AutomationRunResult.vb" />
+    <Compile Include="Models\ProcessingProfile.vb" />
+    <Compile Include="Services\AppSettings.vb" />
+    <Compile Include="Services\ProductionRuntimeGuard.vb" />
+    <Compile Include="Services\DocumentSecurityService.vb" />
+    <Compile Include="Services\EnterpriseDocumentPipelineService.vb" />
+    <Compile Include="Services\ArchiveRepository.vb" />
+    <Compile Include="Services\StorageService.vb" />
+    <Compile Include="Services\AiAssistantService.vb" />
+    <Compile Include="Services\OcrService.vb" />
+    <Compile Include="Services\SmartOcrExtractionService.vb" />
+    <Compile Include="Services\OpenAIClientService.vb" />
+    <Compile Include="Services\OpenAIArchiveService.vb" />
+    <Compile Include="Services\KnowledgeIndexService.vb" />
+    <Compile Include="Services\RelationDiscoveryService.vb" />
+    <Compile Include="Services\SemanticArchiveAnswerService.vb" />
+    <Compile Include="Services\WiaScanService.vb" />
+    <Compile Include="Services\FileFingerprintService.vb" />
+    <Compile Include="Services\FileTextExtractor.vb" />
+    <Compile Include="Services\DocumentImportService.vb" />
+    <Compile Include="Services\AuthService.vb" />
+    <Compile Include="Services\ArchiveNumberService.vb" />
+    <Compile Include="Services\ArchiveMaintenanceService.vb" />
+    <Compile Include="Services\SmartInboxRoutingService.vb" />
+    <Compile Include="Services\PdfOcrService.vb" />
+    <Compile Include="Services\TextFormattingService.vb" />
+    <Compile Include="Services\ReplyExportService.vb" />
+    <Compile Include="Services\LayoutPreservingWordExportService.vb" />
+    <Compile Include="Services\ProcessingCacheService.vb" />
+    <Compile Include="Services\SpeedPromptService.vb" />
+    <Compile Include="Services\FastEntityExtractionService.vb" />
+    <Compile Include="Services\PerformanceAiService.vb" />
+    <Compile Include="Services\ProcessingJobQueueService.vb" />
+    <Compile Include="Services\BasiraJobNotifications.vb" />
+    <Compile Include="Services\SpeedEngineService.vb" />
+    <Compile Include="Services\EnterpriseSqliteService.vb" />
+    <Compile Include="Services\AiGatewayService.vb" />
+    <Compile Include="Services\MultiAiResilienceService.vb" />
+    <Compile Include="Services\DocumentQualityGateService.vb" />
+    <Compile Include="Services\ProcessingProfileService.vb" />
+    <Compile Include="Services\IntelligentAutomationService.vb" />
+    <Compile Include="Services\DocumentWorkspaceOrchestrator.vb" />
+    <Compile Include="UX\UiThemeService.vb" />
+    <Compile Include="EnterpriseSecurityCenterForm.Designer.vb">
+      <DependentUpon>EnterpriseSecurityCenterForm.vb</DependentUpon>
+    </Compile>
+    <Compile Include="EnterpriseSecurityCenterForm.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="ProgressDialogForm.Designer.vb">
+      <DependentUpon>ProgressDialogForm.vb</DependentUpon>
+    </Compile>
+    <Compile Include="ProgressDialogForm.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="LayoutPreservingWordForm.Designer.vb">
+      <DependentUpon>LayoutPreservingWordForm.vb</DependentUpon>
+    </Compile>
+    <Compile Include="LayoutPreservingWordForm.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="ProcessingCenterForm.Designer.vb">
+      <DependentUpon>ProcessingCenterForm.vb</DependentUpon>
+    </Compile>
+    <Compile Include="ProcessingCenterForm.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="DocumentWorkspaceForm.Designer.vb">
+      <DependentUpon>DocumentWorkspaceForm.vb</DependentUpon>
+    </Compile>
+    <Compile Include="DocumentWorkspaceForm.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="AutomationQualityCenterForm.Designer.vb">
+      <DependentUpon>AutomationQualityCenterForm.vb</DependentUpon>
+    </Compile>
+    <Compile Include="AutomationQualityCenterForm.vb">
+      <SubType>Form</SubType>
+    </Compile>
+<Compile Include="AdminCenterForm.Designer.vb">
+      <DependentUpon>AdminCenterForm.vb</DependentUpon>
+    </Compile>
+    <Compile Include="AdminCenterForm.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="EmployeeGuideForm.Designer.vb">
+      <DependentUpon>EmployeeGuideForm.vb</DependentUpon>
+    </Compile>
+    <Compile Include="EmployeeGuideForm.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="LoginForm.Designer.vb">
+      <DependentUpon>LoginForm.vb</DependentUpon>
+    </Compile>
+    <Compile Include="LoginForm.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="ArchiveWizardForm.Designer.vb">
+      <DependentUpon>ArchiveWizardForm.vb</DependentUpon>
+    </Compile>
+    <Compile Include="ArchiveWizardForm.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="CameraImportForm.Designer.vb">
+      <DependentUpon>CameraImportForm.vb</DependentUpon>
+    </Compile>
+    <Compile Include="CameraImportForm.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="CategoryManagerForm.Designer.vb">
+      <DependentUpon>CategoryManagerForm.vb</DependentUpon>
+    </Compile>
+    <Compile Include="CategoryManagerForm.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="SettingsForm.Designer.vb">
+      <DependentUpon>SettingsForm.vb</DependentUpon>
+    </Compile>
+    <Compile Include="SettingsForm.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="DocumentPreviewForm.Designer.vb">
+      <DependentUpon>DocumentPreviewForm.vb</DependentUpon>
+    </Compile>
+    <Compile Include="DocumentPreviewForm.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="UserManagerForm.Designer.vb">
+      <DependentUpon>UserManagerForm.vb</DependentUpon>
+    </Compile>
+    <Compile Include="UserManagerForm.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="AuditLogForm.Designer.vb">
+      <DependentUpon>AuditLogForm.vb</DependentUpon>
+    </Compile>
+    <Compile Include="AuditLogForm.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="ArchiveMaintenanceForm.Designer.vb">
+      <DependentUpon>ArchiveMaintenanceForm.vb</DependentUpon>
+    </Compile>
+    <Compile Include="ArchiveMaintenanceForm.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="AskArchiveProForm.Designer.vb">
+      <DependentUpon>AskArchiveProForm.vb</DependentUpon>
+    </Compile>
+    <Compile Include="AskArchiveProForm.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="PdfOcrCenterForm.Designer.vb">
+      <DependentUpon>PdfOcrCenterForm.vb</DependentUpon>
+    </Compile>
+    <Compile Include="PdfOcrCenterForm.vb">
+      <SubType>Form</SubType>
+    </Compile>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="Models\BasiraModels.vb" />
+    <Compile Include="Services\BasiraEngine.vb" />
+    <Compile Include="Services\QueueSettingsAdapter.vb" />
+    <Compile Include="Services\BasiraStore.vb" />
+    <Compile Include="Services\PasswordHashService.vb" />
+    <Compile Include="FirstPasswordForm.Designer.vb"><DependentUpon>FirstPasswordForm.vb</DependentUpon></Compile>
+    <Compile Include="FirstPasswordForm.vb"><SubType>Form</SubType></Compile>
+    <Compile Include="Services\BasiraAssistantService.vb" />
+    <Compile Include="Services\BasiraCitations.vb" />
+    <Compile Include="Services\BasiraCaseExportService.vb" />
+    <Compile Include="Services\BasiraDates.vb" />
+    <Compile Include="Services\CancellableProcess.vb" />
+    <Compile Include="UX\BasiraControls.vb" />
+    <Compile Include="BasiraShellForm.Designer.vb"><DependentUpon>BasiraShellForm.vb</DependentUpon></Compile>
+    <Compile Include="BasiraShellForm.vb"><SubType>Form</SubType></Compile>
+    <Compile Include="BasiraDocumentEditorForm.Designer.vb"><DependentUpon>BasiraDocumentEditorForm.vb</DependentUpon></Compile>
+    <Compile Include="BasiraDocumentEditorForm.vb"><SubType>Form</SubType></Compile>
+    <Compile Include="BasiraRevisionViewerForm.Designer.vb"><DependentUpon>BasiraRevisionViewerForm.vb</DependentUpon></Compile>
+    <Compile Include="BasiraRevisionViewerForm.vb"><SubType>Form</SubType></Compile>
+    <Compile Include="My Project\AssemblyInfo.vb" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="App.config" />
+    <None Include="app.manifest" />
+    <Content Include="Assets\basira.ico" />
+    <None Include="packages.config" />
+    </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.VisualBasic.targets" />
+  <Target Name="CopySQLiteInteropBasira" AfterTargets="Build">
+    <ItemGroup>
+      <SQLiteX86 Include="..\packages\Stub.System.Data.SQLite.Core.NetFramework.1.0.118.0\build\net46\x86\SQLite.Interop.dll" />
+      <SQLiteX64 Include="..\packages\Stub.System.Data.SQLite.Core.NetFramework.1.0.118.0\build\net46\x64\SQLite.Interop.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(SQLiteX86)" DestinationFolder="$(OutputPath)x86" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(SQLiteX64)" DestinationFolder="$(OutputPath)x64" SkipUnchangedFiles="true" />
+  </Target>
+</Project>
