@@ -776,10 +776,33 @@ Partial Public Class BasiraShellForm
         ElseIf e.Control AndAlso e.KeyCode = Keys.I Then
             ImportClick(sender, EventArgs.Empty)
             e.SuppressKeyPress = True
+        ElseIf e.Control AndAlso e.Shift AndAlso e.KeyCode = Keys.H Then
+            ExportHealthReport()
+            e.SuppressKeyPress = True
         ElseIf e.KeyCode = Keys.F5 Then
             RefreshClick(sender, EventArgs.Empty)
             e.SuppressKeyPress = True
         End If
+    End Sub
+    Private Async Sub ExportHealthReport()
+        If Not Allowed("export") Then
+            lblStatus.Text = "لا تملك صلاحية تصدير التقارير."
+            Return
+        End If
+        Using dialog As New SaveFileDialog With {.Filter = "HTML|*.html", .FileName = "Basira_Health_" & DateTime.Now.ToString("yyyyMMdd_HHmm") & ".html"}
+            If dialog.ShowDialog(Me) <> DialogResult.OK Then Return
+            Try
+                Dim pathValue = dialog.FileName
+                Dim engine = _engine
+                Dim author = If(AppServices.Auth.CurrentUser Is Nothing, "", AppServices.Auth.CurrentUser.FullName)
+                lblStatus.Text = "جارٍ إعداد تقرير صحة الأرشيف..."
+                Await Task.Run(Sub() ArchiveHealthReportService.Export(AppServices.Repository.GetDocuments(), engine.Findings(), author, pathValue))
+                AppServices.Repository.AddAudit("تصدير تقرير صحة الأرشيف", "", "", pathValue)
+                If Not IsDisposed Then lblStatus.Text = "تم حفظ تقرير صحة الأرشيف (Ctrl+Shift+H)."
+            Catch ex As Exception
+                ReportError("تعذر إعداد التقرير", ex)
+            End Try
+        End Using
     End Sub
     Private Sub ShellClosing(sender As Object, e As FormClosingEventArgs) Handles MyBase.FormClosing
         If _importing Then

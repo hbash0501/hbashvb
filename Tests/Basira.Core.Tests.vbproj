@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><RootNamespace>AIDocumentArchiveVB</RootNamespace><OptionStrict>On</OptionStrict><OptionInfer>On</OptionInfer><EnableDefaultCompileItems>false</EnableDefaultCompileItems></PropertyGroup>
   <ItemGroup>
     <Compile Include="CoreTests.vb" />
@@ -8,6 +8,7 @@
     <Compile Include="../AIDocumentArchiveVB/Models/ProcessingJob.vb" Link="ProcessingJob.vb" />
     <Compile Include="../AIDocumentArchiveVB/Models/BasiraModels.vb" Link="BasiraModels.vb" />
     <Compile Include="../AIDocumentArchiveVB/Services/BasiraEngine.vb" Link="BasiraEngine.vb" />
+    <Compile Include="../AIDocumentArchiveVB/Services/ArchiveHealthReportService.vb" Link="ArchiveHealthReportService.vb" />
     <Compile Include="../AIDocumentArchiveVB/Services/BasiraStore.vb" Link="BasiraStore.vb" />
     <Compile Include="../AIDocumentArchiveVB/Services/BasiraCitations.vb" Link="BasiraCitations.vb" />
     <Compile Include="../AIDocumentArchiveVB/Services/ProcessingJobQueueService.vb" Link="ProcessingJobQueueService.vb" />

@@ -112,6 +112,7 @@ Module CoreTests
                 End Using
             End Using
             TestQueue(folder)
+            TestHealthReport()
             TestProcesses()
             TestJobNotifications()
             Console.WriteLine("TOTAL " & count.ToString() & " checks passed")
@@ -214,6 +215,17 @@ Module CoreTests
         End Sub)
         Check(deliveries = 1, "Concurrent duplicate terminal events generate one notification")
     End Sub
+    Private Sub TestHealthReport()
+        Dim docs As New List(Of DocumentRecord) From {
+            New DocumentRecord With {.Title = "عقد <صيانة>", .GeneralCategory = "عقود", .Status = "قيد المراجعة", .TextContent = "نص"},
+            New DocumentRecord With {.Title = "فاتورة", .Status = "مؤرشف"}}
+        Dim engine As New BasiraEngine(docs)
+        Dim html = ArchiveHealthReportService.Build(docs, engine.Findings(), "اختبار", New DateTime(2026, 10, 1))
+        Check(html.Contains("dir='rtl'") AndAlso html.Contains("تقرير صحة الأرشيف"), "Health report is RTL HTML")
+        Check(Not html.Contains("<صيانة>") AndAlso html.Contains("&lt;صيانة&gt;"), "Health report encodes document titles")
+        Check(ArchiveHealthReportService.Build(Nothing, Nothing, "", DateTime.Today).Contains("0%"), "Health report handles empty archive")
+    End Sub
+
     Private Sub TestProcesses()
         If OperatingSystem.IsWindows() Then
             Console.WriteLine("SKIP Linux process fixtures; validate OCR on Windows")
