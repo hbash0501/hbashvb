@@ -9,6 +9,10 @@
     <Compile Include="../AIDocumentArchiveVB/Models/BasiraModels.vb" Link="BasiraModels.vb" />
     <Compile Include="../AIDocumentArchiveVB/Services/BasiraEngine.vb" Link="BasiraEngine.vb" />
     <Compile Include="../AIDocumentArchiveVB/Services/PasswordPolicy.vb" Link="PasswordPolicy.vb" />
+    <Compile Include="../AIDocumentArchiveVB/Services/AuditChain.vb" Link="AuditChain.vb" />
+    <Compile Include="../AIDocumentArchiveVB/Services/AuthService.vb" Link="AuthService.vb" />
+    <Compile Include="../AIDocumentArchiveVB/Services/AppSettings.vb" Link="AppSettings.vb" />
+    <Compile Include="../AIDocumentArchiveVB/Models/UserAccount.vb" Link="UserAccount.vb" />
     <Compile Include="../AIDocumentArchiveVB/Services/ArchiveHealthReportService.vb" Link="ArchiveHealthReportService.vb" />
     <Compile Include="../AIDocumentArchiveVB/Services/BasiraStore.vb" Link="BasiraStore.vb" />
     <Compile Include="../AIDocumentArchiveVB/Services/BasiraCitations.vb" Link="BasiraCitations.vb" />

@@ -2,6 +2,18 @@
 
 تطبيق سطح مكتب لأرشفة المستندات وفهرستها والبحث فيها، مبني بلغة VB.NET (Windows Forms) على .NET Framework 4.8، ويدعم استخراج النص (OCR)، والمسح الضوئي، والكاميرا، وطابور معالجة في الخلفية، وبحثاً عربياً بالأدلة، وحزم تصدير.
 
+## بوابة الويب المركزية
+
+بوابة ويب (ASP.NET Core) تتيح لعدة مستخدمين البحث في الأرشيف نفسه ومتابعة نبضه من المتصفح، بقراءة فقط وبأمان مشدّد وسجل وصول مقاوم للتلاعب. التفاصيل: `docs/WEB_PORTAL_AR.md`.
+
+| الدخول | نبض الأرشيف |
+|---|---|
+| ![الدخول](docs/screenshots/01-login.png) | ![نبض الأرشيف](docs/screenshots/02-pulse-light.png) |
+| **البحث** | **تفاصيل المستند** |
+| ![البحث](docs/screenshots/03-docs.png) | ![التفاصيل](docs/screenshots/04-drawer.png) |
+
+اللقطات من بيانات اختبارية مولَّدة بـ`tools/SampleData`.
+
 ## المتطلبات
 
 - Windows 10/11 أو Windows Server مناسب، و.NET Framework 4.8.
@@ -21,6 +33,7 @@
 | `docs/ANALYSIS_REPORT_AR.md` | تحليل النسخة السابقة ونقاط الضعف والمعالجة |
 | `docs/EXECUTION_REPORT_AR.md` | تقرير التنفيذ وحدود التحقق |
 | `docs/OPERATIONS_AR.md` | دليل التشغيل والصيانة والنسخ الاحتياطي |
+| `docs/WEB_PORTAL_AR.md` | بوابة الويب: الأمان والتشغيل والحدود |
 | `docs/PERFORMANCE_REPORT_AR.md` | قياسات أداء محرك البحث قبل التحسين وبعده |
 | `docs/ARCHITECTURE_AR.md` | البنية التقنية للمكونات |
 | `docs/SCANNER_AND_PROGRESS_AR.md` | المسح الضوئي وإشعارات المعالجة |
@@ -28,6 +41,6 @@
 
 ## الاختبارات
 
-مشروع `Tests/Basira.Core.Tests.vbproj` (‏.NET 8) يشغّل 56 فحصاً للمحرك والبحث والمواعيد والإحالات والطابور وحزم التصدير وسياسة كلمات المرور وتقرير الصحة: `dotnet run --project Tests -c Release`. للمعيار الأدائي أضف `-- --bench`.
+مشروع `Tests/Basira.Core.Tests.vbproj` (‏.NET 8) يشغّل 67 فحصاً للمحرك والبحث والمواعيد والإحالات والطابور وحزم التصدير وسياسة كلمات المرور وتقرير الصحة: `dotnet run --project Tests -c Release`. للمعيار الأدائي أضف `-- --bench`. اختبارات بوابة الويب: `dotnet test tests/Basira.Web.Tests`.
 
 يتحقق `tools/CompileCheck` من تجميع التطبيق كاملاً مقابل مراجع .NET Framework 4.8 على أي نظام (بما فيه Linux) مع معاملة التحذيرات كأخطاء، ويعمل مع الاختبارات في `.github/workflows/ci.yml`: `dotnet build tools/CompileCheck/CompileCheck.vbproj -c Release`.

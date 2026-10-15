@@ -118,6 +118,8 @@ Module CoreTests
             TestQueue(folder)
             TestHealthReport()
             TestPasswordPolicy()
+            TestAuditChain()
+            TestServerAuth(folder)
             TestProcesses()
             TestJobNotifications()
             Console.WriteLine("TOTAL " & count.ToString() & " checks passed")
@@ -269,6 +271,43 @@ Module CoreTests
             Dim ans = sw.ElapsedMilliseconds
             Console.WriteLine("N=" & size.ToString() & " | build=" & build.ToString() & "ms | search(avg of 20)=" & search.ToString("0.0", CultureInfo.InvariantCulture) & "ms | findings=" & find.ToString() & "ms (" & findings.ToString() & ") | answer=" & ans.ToString() & "ms")
         Next
+    End Sub
+
+    Private Sub TestAuditChain()
+        Dim lines As New List(Of String)
+        Dim prev = AuditChain.GenesisHash
+        For i = 1 To 5
+            Dim line = AuditChain.BuildLine(i, prev, New DateTime(2026, 10, 1, 8, i, 0, DateTimeKind.Utc), "مستخدم" & vbTab & "1", "بحث", "سطر" & vbLf & "ثانٍ \ " & i.ToString())
+            lines.Add(line)
+            prev = line.Split(ChrW(9))(6)
+        Next
+        Dim ok = AuditChain.Verify(lines)
+        Check(ok.IsValid AndAlso ok.Count = 5 AndAlso ok.LastHash = prev, "Audit chain verifies untouched log")
+        Dim edited = New List(Of String)(lines)
+        edited(2) = edited(2).Replace("بحث", "حذف")
+        Dim r1 = AuditChain.Verify(edited)
+        Check(Not r1.IsValid AndAlso r1.FirstBrokenLine = 3, "Audit chain detects edited entry")
+        Dim removed = New List(Of String)(lines)
+        removed.RemoveAt(1)
+        Dim r2 = AuditChain.Verify(removed)
+        Check(Not r2.IsValid AndAlso r2.FirstBrokenLine = 2, "Audit chain detects removed entry")
+        Dim swapped = New List(Of String)(lines)
+        Dim tmp = swapped(3) : swapped(3) = swapped(4) : swapped(4) = tmp
+        Check(Not AuditChain.Verify(swapped).IsValid, "Audit chain detects reordering")
+        Check(AuditChain.Verify(New List(Of String)).IsValid, "Audit chain accepts empty log")
+    End Sub
+
+    Private Sub TestServerAuth(folder As String)
+        Dim data = Path.Combine(folder, "auth")
+        Dim settings As New AppSettings With {.BaseDataFolder = data, .ArchiveRootFolder = Path.Combine(data, "files"), .CurrentEmployeeName = "اختبار"}
+        Dim auth As New AuthService(settings)
+        Check(auth.NeedsInitialSetup, "Fresh store requires initial setup")
+        auth.CreateInitialAdmin("Tr0ub4dor&3x!")
+        Check(Not auth.NeedsInitialSetup, "Initial admin created once")
+        Check(auth.VerifyCredentials("ADMIN", "Tr0ub4dor&3x!") IsNot Nothing, "VerifyCredentials accepts correct password")
+        Check(auth.VerifyCredentials("admin", "wrong-password") Is Nothing AndAlso auth.VerifyCredentials("nobody", "x") Is Nothing, "VerifyCredentials rejects bad credentials")
+        Check(auth.CurrentUser Is Nothing, "VerifyCredentials has no session side effect")
+        Check(AuthService.RoleHasPermission("قارئ", "search") AndAlso Not AuthService.RoleHasPermission("قارئ", "export") AndAlso AuthService.RoleHasPermission("مراجع", "audit"), "Role permissions")
     End Sub
 
     Private Sub TestProcesses()

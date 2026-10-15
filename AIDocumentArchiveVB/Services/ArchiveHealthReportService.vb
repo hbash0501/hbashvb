@@ -9,9 +9,41 @@ Imports System.Text
 
 ' يولّد تقرير «صحة الأرشيف» كملف HTML مستقل (عربي، متجاوب، قابل للطباعة)
 ' من السجلات ونتائج BasiraEngine.Findings دون أي اتصال خارجي.
+Public Class HealthMetrics
+    Public Property Total As Integer
+    Public Property WithText As Integer
+    Public Property Categorized As Integer
+    Public Property Sensitive As Integer
+    Public Property Closed As Integer
+    Public Property Overdue As Integer
+    Public Property Duplicates As Integer
+    Public Property TextPercent As Integer
+    Public Property CategoryPercent As Integer
+    Public Property Score As Integer
+End Class
+
 Public NotInheritable Class ArchiveHealthReportService
     Private Sub New()
     End Sub
+
+    Public Shared Function Compute(documents As IList(Of DocumentRecord), findings As IList(Of BasiraFinding)) As HealthMetrics
+        Dim docs As IList(Of DocumentRecord) = If(documents, New List(Of DocumentRecord)())
+        Dim items As IList(Of BasiraFinding) = If(findings, New List(Of BasiraFinding)())
+        Dim m As New HealthMetrics()
+        m.Total = docs.Count
+        m.WithText = docs.Where(Function(d) Not String.IsNullOrWhiteSpace(d.TextContent)).Count()
+        m.Categorized = docs.Where(Function(d) Not String.IsNullOrWhiteSpace(d.GeneralCategory)).Count()
+        m.Sensitive = docs.Where(Function(d) BasiraEngine.IsSensitive(d)).Count()
+        m.Closed = docs.Where(Function(d) BasiraEngine.IsClosed(d)).Count()
+        m.Overdue = items.Where(Function(f) f.Kind = "موعد" AndAlso f.Severity = 0).Count()
+        m.Duplicates = items.Where(Function(f) f.Kind = "نسخة مطابقة").Count()
+        m.TextPercent = Pct(m.WithText, m.Total)
+        m.CategoryPercent = Pct(m.Categorized, m.Total)
+        If m.Total > 0 Then
+            m.Score = Math.Max(0, Math.Min(100, CInt(Math.Round((m.TextPercent + m.CategoryPercent) / 2.0R)) - Math.Min(30, m.Overdue * 5) - Math.Min(20, m.Duplicates * 2)))
+        End If
+        Return m
+    End Function
 
     Private Shared Function H(value As String) As String
         Return WebUtility.HtmlEncode(If(value, ""))
@@ -30,19 +62,15 @@ Public NotInheritable Class ArchiveHealthReportService
     Public Shared Function Build(documents As IList(Of DocumentRecord), findings As IList(Of BasiraFinding), preparedBy As String, now As DateTime) As String
         Dim docs As IList(Of DocumentRecord) = If(documents, New List(Of DocumentRecord)())
         Dim items As IList(Of BasiraFinding) = If(findings, New List(Of BasiraFinding)())
-        Dim total As Integer = docs.Count
-        Dim withText As Integer = docs.Where(Function(d) Not String.IsNullOrWhiteSpace(d.TextContent)).Count()
-        Dim categorized As Integer = docs.Where(Function(d) Not String.IsNullOrWhiteSpace(d.GeneralCategory)).Count()
-        Dim sensitive As Integer = docs.Where(Function(d) BasiraEngine.IsSensitive(d)).Count()
-        Dim closed As Integer = docs.Where(Function(d) BasiraEngine.IsClosed(d)).Count()
-        Dim overdue As Integer = items.Where(Function(f) f.Kind = "موعد" AndAlso f.Severity = 0).Count()
-        Dim duplicates As Integer = items.Where(Function(f) f.Kind = "نسخة مطابقة").Count()
-        Dim textPct As Integer = Pct(withText, total)
-        Dim catPct As Integer = Pct(categorized, total)
-        Dim score As Integer = 0
-        If total > 0 Then
-            score = Math.Max(0, Math.Min(100, CInt(Math.Round((textPct + catPct) / 2.0R)) - Math.Min(30, overdue * 5) - Math.Min(20, duplicates * 2)))
-        End If
+        Dim m As HealthMetrics = Compute(docs, items)
+        Dim total As Integer = m.Total
+        Dim textPct As Integer = m.TextPercent
+        Dim catPct As Integer = m.CategoryPercent
+        Dim overdue As Integer = m.Overdue
+        Dim sensitive As Integer = m.Sensitive
+        Dim closed As Integer = m.Closed
+        Dim duplicates As Integer = m.Duplicates
+        Dim score As Integer = m.Score
 
         Dim sb As New StringBuilder()
         sb.AppendLine("<!doctype html><html lang='ar' dir='rtl'><head><meta charset='utf-8'>")

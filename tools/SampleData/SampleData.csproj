@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- مولّد أرشيف اختباري لبيئات التطوير والمعاينة فقط؛ لا يُنشر مع المنصة. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Basira.Core/Basira.Core.vbproj" />
+  </ItemGroup>
+</Project>

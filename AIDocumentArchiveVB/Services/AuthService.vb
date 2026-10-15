@@ -122,8 +122,12 @@ Public Class AuthService
 
     Public Function HasPermission(permissionName As String) As Boolean
         If CurrentUser Is Nothing Then Return False
-        If CurrentUser.RoleName = "مدير النظام" Then Return True
-        Select Case CurrentUser.RoleName
+        Return RoleHasPermission(CurrentUser.RoleName, permissionName)
+    End Function
+
+    Public Shared Function RoleHasPermission(roleName As String, permissionName As String) As Boolean
+        If roleName = "مدير النظام" Then Return True
+        Select Case roleName
             Case "مدير الأرشيف"
                 Return New String() {"view", "preview", "search", "import", "edit", "export", "scan", "workflow", "audit", "manage_categories", "ai", "maintenance"}.Contains(permissionName)
             Case "موظف أرشفة"
@@ -134,6 +138,19 @@ Public Class AuthService
                 Return New String() {"view", "preview", "search"}.Contains(permissionName)
         End Select
         Return False
+    End Function
+
+    ' تحقق من بيانات الدخول دون أي أثر جانبي (لا حفظ ولا تغيير للمستخدم الحالي)؛ يناسب الخوادم متعددة الطلبات.
+    Public Function VerifyCredentials(userName As String, password As String) As UserAccount
+        userName = If(userName, "").Trim()
+        password = If(password, "")
+        Dim u = GetUsers().FirstOrDefault(Function(x) String.Equals(x.UserName, userName, StringComparison.OrdinalIgnoreCase) AndAlso x.IsActive)
+        If u Is Nothing Then
+            ' عمل مكافئ تقريباً لتقليل الفارق الزمني الذي يكشف وجود الحساب.
+            PasswordHashService.Hash(password, "0000000000000000")
+            Return Nothing
+        End If
+        Return If(PasswordHashService.Verify(password, u.Salt, u.PasswordHash), u, Nothing)
     End Function
 
     Public Shared Function AvailableRoles() As String()
@@ -147,7 +164,7 @@ Public Class AuthService
 
     Private Shared Function CreateSalt() As String
         Dim bytes(15) As Byte
-        Using rng As New RNGCryptoServiceProvider()
+        Using rng As RandomNumberGenerator = RandomNumberGenerator.Create()
             rng.GetBytes(bytes)
         End Using
         Return Convert.ToBase64String(bytes)

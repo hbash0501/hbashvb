@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- نواة بصيرة المشتركة (محرك البحث، النماذج، المستودع، المصادقة، التقارير) كمكتبة .NET 8
+       تُبنى من الملفات المصدرية نفسها التي يستخدمها تطبيق Windows، فلا نسخة ثانية من المنطق. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>AIDocumentArchiveVB</RootNamespace>
+    <AssemblyName>Basira.Core</AssemblyName>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <OptionStrict>Off</OptionStrict>
+    <OptionInfer>On</OptionInfer>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <NoWarn>42016,41999,42017,42018,42019,42032,42036,42353,42354,42355</NoWarn>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../AIDocumentArchiveVB/Models/*.vb" />
+    <Compile Include="../../AIDocumentArchiveVB/Services/BasiraEngine.vb" />
+    <Compile Include="../../AIDocumentArchiveVB/Services/BasiraStore.vb" />
+    <Compile Include="../../AIDocumentArchiveVB/Services/BasiraCitations.vb" />
+    <Compile Include="../../AIDocumentArchiveVB/Services/BasiraDates.vb" />
+    <Compile Include="../../AIDocumentArchiveVB/Services/PasswordHashService.vb" />
+    <Compile Include="../../AIDocumentArchiveVB/Services/PasswordPolicy.vb" />
+    <Compile Include="../../AIDocumentArchiveVB/Services/AuditChain.vb" />
+    <Compile Include="../../AIDocumentArchiveVB/Services/ArchiveHealthReportService.vb" />
+    <Compile Include="../../AIDocumentArchiveVB/Services/AppSettings.vb" />
+    <Compile Include="../../AIDocumentArchiveVB/Services/AuthService.vb" />
+    <Compile Include="../../AIDocumentArchiveVB/Services/ArchiveRepository.vb" />
+  </ItemGroup>
+</Project>
