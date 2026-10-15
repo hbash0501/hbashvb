@@ -43,6 +43,5 @@ Public Module AppServices
         Orchestrator = New DocumentWorkspaceOrchestrator(Settings, Repository, ProcessingQueue, Speed, AiGateway, EnterpriseDb)
         EnterprisePipeline = New EnterpriseDocumentPipelineService(Settings, Repository, Security, IntelligentAutomation, ProcessingProfiles, QualityGate, ProcessingQueue, EnterpriseDb)
 
-        Auth.EnsureDefaultUsers()
     End Sub
 End Module

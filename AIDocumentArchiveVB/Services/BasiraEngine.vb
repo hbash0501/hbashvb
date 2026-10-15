@@ -90,12 +90,15 @@ Public Class BasiraEngine
             ' يدعم البحث بجزء من رقم المرجع دون تخمين لغوي.
             If Regex.IsMatch(Normalize(query), "\d") Then candidates.UnionWith(_entries.Where(Function(e) Normalize(e.Document.ArchiveNumber & " " & e.Document.ReferenceNumber).Contains(Normalize(query))))
         End If
-        Dim result As New List(Of BasiraHit)
+        ' يُحسب المقتطف لأعلى النتائج فقط؛ حسابه لكل مرشح يجعل زمن البحث متناسباً مع حجم النصوص كلها.
+        Dim normalizedQuery As String = Normalize(query)
+        Dim today As DateTime = DateTime.Today
+        Dim scored As New List(Of Tuple(Of Entry, Double, List(Of String)))
         For Each e In candidates
             token.ThrowIfCancellationRequested()
             Dim d = e.Document
             If Not String.IsNullOrWhiteSpace(category) AndAlso category <> "الكل" AndAlso d.GeneralCategory <> category Then Continue For
-            If Not MatchesFilter(d, filter, DateTime.Today) Then Continue For
+            If Not MatchesFilter(d, filter, today) Then Continue For
             Dim score As Double = 0
             Dim matched As New List(Of String)
             For Each kv In weights
@@ -107,12 +110,18 @@ Public Class BasiraEngine
                 If e.Title.Contains(kv.Key) Then score += kv.Value * 2.0
                 matched.Add(kv.Key)
             Next
-            If Not String.IsNullOrWhiteSpace(query) AndAlso Normalize(d.ArchiveNumber & " " & d.ReferenceNumber).Contains(Normalize(query)) Then score += 12
-            Dim offset As Integer
-            Dim excerpt = BuildExcerpt(d.TextContent, matched, offset)
-            result.Add(New BasiraHit With {.Document = d, .Score = Math.Round(score, 3), .Excerpt = excerpt, .Offset = offset, .Matches = String.Join("، ", matched)})
+            If normalizedQuery <> "" AndAlso Normalize(d.ArchiveNumber & " " & d.ReferenceNumber).Contains(normalizedQuery) Then score += 12
+            scored.Add(Tuple.Create(e, Math.Round(score, 3), matched))
         Next
-        Return result.OrderByDescending(Function(h) h.Score).ThenByDescending(Function(h) h.Document.UpdatedAt).Take(Math.Max(1, limit)).ToList()
+        Dim top = scored.OrderByDescending(Function(t) t.Item2).ThenByDescending(Function(t) t.Item1.Document.UpdatedAt).Take(Math.Max(1, limit)).ToList()
+        Dim result As New List(Of BasiraHit)
+        For Each t In top
+            token.ThrowIfCancellationRequested()
+            Dim offset As Integer
+            Dim excerpt = BuildExcerpt(t.Item1.Document.TextContent, t.Item3, offset)
+            result.Add(New BasiraHit With {.Document = t.Item1.Document, .Score = t.Item2, .Excerpt = excerpt, .Offset = offset, .Matches = String.Join("، ", t.Item3)})
+        Next
+        Return result
     End Function
 
     Public Shared Function BuildExcerpt(text As String, terms As IEnumerable(Of String), ByRef offset As Integer) As String

@@ -33,15 +33,24 @@ Public Class AuthService
         BasiraStore.AtomicSave(_usersPath, _db)
     End Sub
 
-    Public Sub EnsureDefaultUsers()
-        If _db.Root.Elements("User").Any() Then Return
+    ' لا يُنشأ أي حساب افتراضي؛ يُنشأ حساب المدير الأول بكلمة مرور يحددها المستخدم.
+    Public ReadOnly Property NeedsInitialSetup As Boolean
+        Get
+            Return Not _db.Root.Elements("User").Any()
+        End Get
+    End Property
+
+    Public Sub CreateInitialAdmin(password As String)
+        If Not NeedsInitialSetup Then Throw New InvalidOperationException("تم إعداد المنصة مسبقاً.")
+        Dim reason = PasswordPolicy.Validate(password, "admin")
+        If reason <> "" Then Throw New ArgumentException(reason)
         Dim admin As New UserAccount With {
             .FullName = "مدير النظام",
             .UserName = "admin",
             .RoleName = "مدير النظام",
             .IsActive = True
         }
-        SetPassword(admin, "admin123")
+        SetPassword(admin, password)
         _db.Root.Add(ToElement(admin))
         SaveDb()
     End Sub

@@ -25,7 +25,11 @@ Module CoreTests
             Thread.Sleep(15)
         End While
     End Sub
-    Sub Main()
+    Sub Main(args As String())
+        If args IsNot Nothing AndAlso args.Contains("--bench") Then
+            Benchmark()
+            Return
+        End If
         Dim folder = Path.Combine(Path.GetTempPath(), "basira-tests-" & Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory(folder)
         Try
@@ -113,6 +117,7 @@ Module CoreTests
             End Using
             TestQueue(folder)
             TestHealthReport()
+            TestPasswordPolicy()
             TestProcesses()
             TestJobNotifications()
             Console.WriteLine("TOTAL " & count.ToString() & " checks passed")
@@ -217,13 +222,53 @@ Module CoreTests
     End Sub
     Private Sub TestHealthReport()
         Dim docs As New List(Of DocumentRecord) From {
-            New DocumentRecord With {.Title = "عقد <صيانة>", .GeneralCategory = "عقود", .Status = "قيد المراجعة", .TextContent = "نص"},
+            New DocumentRecord With {.Title = "عقد <صيانة>", .Status = "قيد المراجعة", .TextContent = "نص"},
             New DocumentRecord With {.Title = "فاتورة", .Status = "مؤرشف"}}
         Dim engine As New BasiraEngine(docs)
         Dim html = ArchiveHealthReportService.Build(docs, engine.Findings(), "اختبار", New DateTime(2026, 10, 1))
         Check(html.Contains("dir='rtl'") AndAlso html.Contains("تقرير صحة الأرشيف"), "Health report is RTL HTML")
         Check(Not html.Contains("<صيانة>") AndAlso html.Contains("&lt;صيانة&gt;"), "Health report encodes document titles")
         Check(ArchiveHealthReportService.Build(Nothing, Nothing, "", DateTime.Today).Contains("0%"), "Health report handles empty archive")
+    End Sub
+
+    Private Sub TestPasswordPolicy()
+        Check(PasswordPolicy.Validate("short1") <> "", "Password policy rejects short passwords")
+        Check(PasswordPolicy.Validate("admin123") <> "" AndAlso PasswordPolicy.Validate("aaaaaaaaaaaa") <> "", "Password policy rejects common and repeated passwords")
+        Check(PasswordPolicy.Validate("My-admin-Secret-9", "admin") <> "", "Password policy rejects embedded user name")
+        Check(PasswordPolicy.Validate("Tr0ub4dor&3x!") = "", "Password policy accepts a strong password")
+    End Sub
+
+    ' قياس أداء المحرك على أرشيف اصطناعي: dotnet run --project Tests -c Release -- --bench
+    Private Sub Benchmark()
+        Dim words = "عقد صيانة أنظمة تجهيزات فاتورة مالية تعميم إجازات موارد بشرية تدريب موظفين تقرير أداء محضر تسليم مراجعة اعتماد مشروع توريد مناقصة ميزانية شكوى طلب قرار لجنة اجتماع خطة".Split(" "c)
+        Dim cats = New String() {"عقود", "مالي", "إداري", "تقارير", "مراسلات", "موارد بشرية"}
+        Dim rnd As New Random(42)
+        For Each size In New Integer() {1000, 10000, 50000}
+            Dim docs As New List(Of DocumentRecord)
+            For i = 1 To size
+                Dim sb As New StringBuilder()
+                For w = 1 To 120
+                    sb.Append(words(rnd.Next(words.Length))).Append(" "c)
+                Next
+                docs.Add(New DocumentRecord With {.Id = i.ToString(), .Title = words(rnd.Next(words.Length)) & " " & words(rnd.Next(words.Length)) & " " & i.ToString(), .GeneralCategory = cats(rnd.Next(cats.Length)), .Status = If(i Mod 5 = 0, "مؤرشف", "قيد المراجعة"), .TextContent = sb.ToString(), .FileHashSha256 = Guid.NewGuid().ToString("N"), .DueDateText = If(i Mod 7 = 0, "2026/10/" & (1 + i Mod 28).ToString("00"), "")})
+            Next
+            Dim sw = Stopwatch.StartNew()
+            Dim engine As New BasiraEngine(docs)
+            Dim build = sw.ElapsedMilliseconds
+            sw.Restart()
+            Dim hits = 0
+            For q = 1 To 20
+                hits += engine.Search(words(rnd.Next(words.Length)) & " " & words(rnd.Next(words.Length)), "", "all", 100).Count
+            Next
+            Dim search = sw.ElapsedMilliseconds / 20.0R
+            sw.Restart()
+            Dim findings = engine.Findings(New DateTime(2026, 10, 15)).Count
+            Dim find = sw.ElapsedMilliseconds
+            sw.Restart()
+            Dim answer = engine.LocalAnswer("عقد صيانة")
+            Dim ans = sw.ElapsedMilliseconds
+            Console.WriteLine("N=" & size.ToString() & " | build=" & build.ToString() & "ms | search(avg of 20)=" & search.ToString("0.0", CultureInfo.InvariantCulture) & "ms | findings=" & find.ToString() & "ms (" & findings.ToString() & ") | answer=" & ans.ToString() & "ms")
+        Next
     End Sub
 
     Private Sub TestProcesses()

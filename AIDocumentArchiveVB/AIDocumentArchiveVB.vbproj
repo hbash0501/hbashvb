@@ -280,6 +280,7 @@
     <Compile Include="Services\BasiraCitations.vb" />
     <Compile Include="Services\BasiraCaseExportService.vb" />
     <Compile Include="Services\ArchiveHealthReportService.vb" />
+    <Compile Include="Services\PasswordPolicy.vb" />
     <Compile Include="Services\BasiraDates.vb" />
     <Compile Include="Services\CancellableProcess.vb" />
     <Compile Include="UX\BasiraControls.vb" />

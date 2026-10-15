@@ -1,0 +1,49 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- يتحقق من تجميع التطبيق الكامل مقابل مراجع .NET Framework 4.8 على أي نظام (لا ينتج نسخة قابلة للنشر).
+       النسخة الرسمية تُبنى على Windows عبر BUILD_AND_VALIDATE_AR.ps1. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <RootNamespace>AIDocumentArchiveVB</RootNamespace>
+    <AssemblyName>AIDocumentArchiveVB</AssemblyName>
+    <StartupObject>AIDocumentArchiveVB.Program</StartupObject>
+    <MyType>WindowsForms</MyType>
+    <OptionStrict>Off</OptionStrict>
+    <OptionInfer>On</OptionInfer>
+    <OptionExplicit>On</OptionExplicit>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <NoWarn>42016,41999,42017,42018,42019,42032,42036,42353,42354,42355</NoWarn>
+    <BaseIntermediateOutputPath>obj/</BaseIntermediateOutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Import Include="Microsoft.VisualBasic" />
+    <Import Include="System" />
+    <Import Include="System.Collections" />
+    <Import Include="System.Collections.Generic" />
+    <Import Include="System.Data" />
+    <Import Include="System.Diagnostics" />
+    <Import Include="System.Drawing" />
+    <Import Include="System.Linq" />
+    <Import Include="System.Windows.Forms" />
+    <Import Include="System.Xml.Linq" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net48" Version="1.0.3" PrivateAssets="all" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Data" />
+    <Reference Include="System.Security" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+    <Reference Include="System.Xml.Linq" />
+    <Reference Include="AForge"><HintPath>../../packages/AForge.2.2.5/lib/AForge.dll</HintPath></Reference>
+    <Reference Include="AForge.Video"><HintPath>../../packages/AForge.Video.2.2.5/lib/AForge.Video.dll</HintPath></Reference>
+    <Reference Include="AForge.Video.DirectShow"><HintPath>../../packages/AForge.Video.DirectShow.2.2.5/lib/AForge.Video.DirectShow.dll</HintPath></Reference>
+    <Reference Include="System.Data.SQLite"><HintPath>../../packages/Stub.System.Data.SQLite.Core.NetFramework.1.0.118.0/lib/net46/System.Data.SQLite.dll</HintPath></Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../../AIDocumentArchiveVB/**/*.vb" Exclude="../../AIDocumentArchiveVB/bin/**;../../AIDocumentArchiveVB/obj/**" />
+  </ItemGroup>
+</Project>

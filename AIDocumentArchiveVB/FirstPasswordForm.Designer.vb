@@ -25,7 +25,7 @@ Partial Public Class FirstPasswordForm
         MaximizeBox = False
         MinimizeBox = False
         Dim title As New Label With {.Text = "بداية جديدة وآمنة", .Location = New Point(24, 20), .Size = New Size(432, 35), .Font = New Font("Segoe UI", 18.0F, FontStyle.Bold), .ForeColor = BasiraTheme.Ink}
-        lblNote = New Label With {.Text = "عيّن كلمة مرور جديدة للحساب الافتراضي قبل الدخول.", .Location = New Point(24, 65), .Size = New Size(432, 45), .ForeColor = BasiraTheme.Muted}
+        lblNote = New Label With {.Text = "عيّن كلمة مرور حساب المدير (10 أحرف فأكثر) قبل الدخول.", .Location = New Point(24, 65), .Size = New Size(432, 45), .ForeColor = BasiraTheme.Muted}
         txtNew = New TextBox With {.Location = New Point(24, 122), .Size = New Size(432, 32), .UseSystemPasswordChar = True}
         txtConfirm = New TextBox With {.Location = New Point(24, 168), .Size = New Size(432, 32), .UseSystemPasswordChar = True}
         btnSave = BasiraTheme.Button("حفظ ودخول", True)
