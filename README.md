@@ -22,6 +22,10 @@
 - للبناء: Visual Studio 2022 (أدوات سطح مكتب VB.NET وحزمة استهداف .NET Framework 4.8).
 - لـ OCR: Tesseract مع اللغتين `ara` و`eng`. لملفات PDF المصورة: Poppler أو Ghostscript.
 
+## حزمة Windows الجاهزة
+
+`tools/build-windows-package.sh` يبني التطبيق المكتبي من أي نظام (Linux أو Windows أو macOS) ويجمعه في `dist/Basira_<الإصدار>.zip`: ملف التشغيل ومكتباته (الكاميرا وSQLite x86/x64) والتراخيص ودليل مختصر. فك الحزمة في مجلد جديد وشغّل `RUN_BASIRA.cmd`؛ تظهر في شاشة الدخول عبارة «الإصدار …» للتأكد من النسخة.
+
 ## البناء والتشغيل
 
 1. شغّل `BUILD_AND_VALIDATE_AR.ps1` (يتحقق من الملفات والمراجع ثم يبني نسخة Release).

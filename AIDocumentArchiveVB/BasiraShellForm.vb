@@ -10,6 +10,7 @@ Imports System.Windows.Forms
 
 Partial Public Class BasiraShellForm
     Private _engine As New BasiraEngine(New List(Of DocumentRecord))
+    Private _referenceIndex As New CorrespondenceIndex(New List(Of DocumentRecord))
     Private _documents As New List(Of DocumentRecord)
     Private _revision As Long = -1
     Private _refreshing As Boolean
@@ -40,6 +41,7 @@ Partial Public Class BasiraShellForm
         btnRunOcr.Enabled = Allowed("edit")
         btnExportAnswer.Enabled = Allowed("export")
         btnExportCase.Enabled = Allowed("export")
+        btnHealthReport.Enabled = Allowed("export")
         btnAsk.Enabled = Allowed("search")
         navAdmin.Enabled = AppServices.Auth.CurrentUser.RoleName = "مدير النظام"
         btnCancelJob.Enabled = Allowed("edit")
@@ -111,9 +113,11 @@ Partial Public Class BasiraShellForm
             Dim docs = Await Task.Run(Function() AppServices.Repository.GetDocuments())
             Dim engine = Await Task.Run(Function() New BasiraEngine(docs))
             Dim findings = Await Task.Run(Function() engine.Findings())
+            Dim referenceIndex = Await Task.Run(Function() New CorrespondenceIndex(docs))
             If IsDisposed Then Return
             _documents = docs
             _engine = engine
+            _referenceIndex = referenceIndex
             _revision = beforeRevision
             Dim category = CStr(cboCategory.SelectedItem)
             _binding = True
@@ -202,6 +206,57 @@ Partial Public Class BasiraShellForm
         boxEntities.Text = "أسماء: " & d.OcrNames & vbCrLf & "جهات: " & d.OcrEntities & vbCrLf & "تواريخ: " & d.OcrDates & vbCrLf & "مبالغ: " & d.OcrAmounts & vbCrLf & "مرجع: " & d.OcrReferenceNumbers & vbCrLf & "وارد: " & d.OcrIncomingNumbers & vbCrLf & "صادر: " & d.OcrOutgoingNumbers & vbCrLf & "هويات: " & d.OcrNationalIds & vbCrLf & "إقامات: " & d.OcrIqamaNumbers & vbCrLf & "جوازات: " & d.OcrPassportNumbers & vbCrLf & "هواتف: " & d.OcrPhoneNumbers & vbCrLf & "بريد: " & d.OcrEmails
         LoadHistory(d.Id)
         SetGraph(d)
+        LoadReferences(d)
+    End Sub
+
+    ' يستخرج الإشارات من النص المعروض (مواضع RichTextBox نفسها) ويميّزها، ويربطها بمستندات الأرشيف.
+    Private Sub LoadReferences(d As DocumentRecord)
+        Dim rows As New List(Of ReferenceRow)
+        Try
+            For Each m In _referenceIndex.Resolve(boxText.Text, d.Id)
+                Dim r = m.Reference
+                Dim target = m.Documents.FirstOrDefault()
+                rows.Add(New ReferenceRow With {
+                    .KindLabel = r.KindLabel,
+                    .Cited = If(r.DocumentType = "", "", r.DocumentType & " ") & "رقم " & r.RawNumber,
+                    .DateText = If(r.DateText = "", "—", r.DateText & If(r.Date.HasValue, "", " (غير صالح)")),
+                    .Gregorian = If(r.Date.HasValue AndAlso r.Calendar = "هجري", r.Date.Value.ToString("yyyy/MM/dd", Globalization.CultureInfo.InvariantCulture) & " م", ""),
+                    .OwnerLabel = r.OwnerLabel,
+                    .InArchive = If(target Is Nothing, "غير موجود", target.ArchiveNumber & " — " & target.Title),
+                    .TargetId = If(target Is Nothing, "", target.Id),
+                    .Offset = r.Offset,
+                    .Length = r.Length})
+                If r.Offset + r.Length <= boxText.TextLength Then
+                    boxText.Select(r.Offset, r.Length)
+                    boxText.SelectionBackColor = Color.FromArgb(255, 238, 189)
+                End If
+            Next
+            boxText.Select(0, 0)
+        Catch ex As Exception
+            Diagnostics.Trace.WriteLine(ex.ToString())
+        End Try
+        gridReferences.DataSource = rows
+        referencesTab.Text = If(rows.Count = 0, "الإشارات", "الإشارات (" & rows.Count.ToString() & ")")
+        lblReferencesNote.Text = If(rows.Count = 0, "لا توجد في نص هذا المستند إشارات إلى خطابات أو قرارات سابقة.", "انقر مرتين على إشارة: يُفتح المستند المشار إليه إن وُجد في الأرشيف، وإلا يظهر موضعها في النص.")
+    End Sub
+
+    Private Sub ReferenceOpen(sender As Object, e As DataGridViewCellEventArgs) Handles gridReferences.CellDoubleClick
+        If e.RowIndex < 0 Then Return
+        Dim row = TryCast(gridReferences.Rows(e.RowIndex).DataBoundItem, ReferenceRow)
+        If row Is Nothing Then Return
+        If row.TargetId <> "" Then
+            ' OpenDocument تمسح البحث والتصفية فيظهر المستند المقصود في القائمة ثم تحدده.
+            OpenDocument(row.TargetId)
+        Else
+            detailTabs.SelectedIndex = 1
+            boxText.Select(Math.Min(row.Offset, boxText.TextLength), Math.Min(row.Length, Math.Max(0, boxText.TextLength - row.Offset)))
+            boxText.ScrollToCaret()
+            boxText.Focus()
+        End If
+    End Sub
+
+    Private Sub HealthReportClick(sender As Object, e As EventArgs) Handles btnHealthReport.Click
+        ExportHealthReport()
     End Sub
 
     Private Async Sub LoadHistory(documentId As String)
@@ -240,6 +295,8 @@ Partial Public Class BasiraShellForm
         boxSummary.Clear()
         boxEntities.Clear()
         boxHistory.Clear()
+        gridReferences.DataSource = Nothing
+        referencesTab.Text = "الإشارات"
     End Sub
 
     Private Sub SetGraph(d As DocumentRecord)
@@ -822,4 +879,16 @@ Partial Public Class BasiraShellForm
         lblStatus.Text = title & ": " & ex.Message
         Diagnostics.Trace.WriteLine(ex.ToString())
     End Sub
+End Class
+
+Friend Class ReferenceRow
+    Public Property KindLabel As String
+    Public Property Cited As String
+    Public Property DateText As String
+    Public Property Gregorian As String
+    Public Property OwnerLabel As String
+    Public Property InArchive As String
+    Public Property TargetId As String
+    Public Property Offset As Integer
+    Public Property Length As Integer
 End Class

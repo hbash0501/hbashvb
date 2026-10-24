@@ -127,6 +127,7 @@ Module CoreTests
             TestAuditChain()
             TestServerAuth(folder)
             TestReferenceParser()
+            TestCorrespondenceIndex()
             TestProcesses()
             TestJobNotifications()
             Console.WriteLine("TOTAL " & count.ToString() & " checks passed")
@@ -395,6 +396,19 @@ Module CoreTests
             Dim score = EvaluateReferences(corpusDir, False)
             Check(score.Item3 > 0 AndAlso score.Item1 = score.Item3 AndAlso score.Item1 = score.Item2, "Reference corpus '" & Path.GetFileName(corpusDir) & "' fully extracted")
         Next
+    End Sub
+
+    Private Sub TestCorrespondenceIndex()
+        Dim original As New DocumentRecord With {.Id = "A", .Title = "خطاب الوزارة", .ArchiveNumber = "ARC-2026-001", .ExternalNumber = "4567/12"}
+        Dim ours As New DocumentRecord With {.Id = "B", .Title = "خطابنا السابق", .ArchiveNumber = "ARC-2026-002", .OcrOutgoingNumbers = "1120، 1121"}
+        Dim reply As New DocumentRecord With {.Id = "C", .Title = "الرد", .ArchiveNumber = "ARC-2026-003", .OcrReferenceNumbers = "4567/12", .TextContent = "إشارة إلى خطابكم رقم ٤٥٦٧-١٢ وتاريخ ١٤٤٧/٣/١٢هـ، وإلحاقاً لخطابنا رقم 1121، ورداً على خطابكم رقم 999."}
+        Dim index As New CorrespondenceIndex(New List(Of DocumentRecord) From {original, ours, reply})
+        Dim matches = index.Resolve(reply.TextContent, reply.Id)
+        Check(matches.Count = 3, "Index resolves every reference in the text")
+        Check(matches(0).Documents.Count = 1 AndAlso matches(0).Documents(0).Id = "A", "Reference links to the cited document by external number")
+        Check(matches(1).Documents.Count = 1 AndAlso matches(1).Documents(0).Id = "B", "Reference links through multi-valued outgoing numbers")
+        Check(matches(2).Documents.Count = 0, "Unknown reference number has no link")
+        Check(index.Resolve(original.TextContent, original.Id).Count = 0 AndAlso index.Find(New CorrespondenceReference With {.Number = "4567/12"}, "A").Count = 0, "Index excludes the document itself and numbers only cited in text")
     End Sub
 
     Private Sub TestProcesses()

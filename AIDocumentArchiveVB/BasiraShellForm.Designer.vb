@@ -46,6 +46,10 @@ Partial Public Class BasiraShellForm
     Friend WithEvents gridEvidence As DataGridView
     Friend WithEvents gridJobs As DataGridView
     Friend WithEvents gridCollections As DataGridView
+    Friend WithEvents gridReferences As DataGridView
+    Friend WithEvents btnHealthReport As Button
+    Friend referencesTab As TabPage
+    Friend lblReferencesNote As Label
     Friend WithEvents searchTimer As Timer
     Friend WithEvents liveTimer As Timer
     Friend WithEvents detailTabs As TabControl
@@ -183,8 +187,14 @@ Partial Public Class BasiraShellForm
         BasiraTheme.Column(gridFindings, "Kind", "الإجراء", 70)
         BasiraTheme.Column(gridFindings, "Title", "المستند", 145)
         BasiraTheme.Column(gridFindings, "Reason", "سبب التنبيه", 170)
+        Dim overviewBar = Toolbar()
+        btnHealthReport = BasiraTheme.Button("تقرير صحة الأرشيف", True)
+        btnHealthReport.Width = 175
+        Dim healthHint As New Label With {.AutoSize = True, .Text = "تقرير HTML يُطبع ويُشارك: مؤشر الصحة والتوزيعات والتنبيهات  •  Ctrl+Shift+H", .ForeColor = BasiraTheme.Muted, .Font = New Font("Segoe UI", 9.0F), .Margin = New Padding(12, 12, 8, 0)}
+        overviewBar.Controls.AddRange(New Control() {btnHealthReport, healthHint})
         overviewPage.Controls.Add(gridFindings)
         overviewPage.Controls.Add(lblOverviewNote)
+        overviewPage.Controls.Add(overviewBar)
         overviewPage.Controls.Add(metrics)
 
         ' المستندات: قائمة + تفاصيل في الصفحة نفسها
@@ -219,6 +229,21 @@ Partial Public Class BasiraShellForm
         boxHistory = BasiraTheme.ReadBox()
         AddTab(detailTabs, "البطاقة", boxSummary)
         AddTab(detailTabs, "النص والدليل", boxText)
+        ' الإشارات إلى خطابات وقرارات سابقة كما وردت في نص المستند، مع المستند المقصود إن كان في الأرشيف.
+        Dim referencesPanel As New Panel With {.Dock = DockStyle.Fill, .BackColor = Color.White}
+        gridReferences = BasiraTheme.Grid()
+        BasiraTheme.Column(gridReferences, "KindLabel", "النوع", 60)
+        BasiraTheme.Column(gridReferences, "Cited", "المستند المشار إليه", 95)
+        BasiraTheme.Column(gridReferences, "DateText", "التاريخ", 70)
+        BasiraTheme.Column(gridReferences, "Gregorian", "الموافق", 70)
+        BasiraTheme.Column(gridReferences, "OwnerLabel", "الجهة", 70)
+        BasiraTheme.Column(gridReferences, "InArchive", "في الأرشيف", 110)
+        lblReferencesNote = New Label With {.Dock = DockStyle.Top, .Height = 40, .ForeColor = BasiraTheme.Muted, .Font = New Font("Segoe UI", 9.0F), .Padding = New Padding(4, 4, 4, 0),
+            .Text = "انقر مرتين على إشارة: يُفتح المستند المشار إليه إن وُجد في الأرشيف، وإلا يظهر موضعها في النص."}
+        referencesPanel.Controls.Add(gridReferences)
+        referencesPanel.Controls.Add(lblReferencesNote)
+        AddTab(detailTabs, "الإشارات", referencesPanel)
+        referencesTab = detailTabs.TabPages(detailTabs.TabPages.Count - 1)
         AddTab(detailTabs, "الكيانات", boxEntities)
         AddTab(detailTabs, "السجل والنسخ", boxHistory)
         Dim docToolbar = Toolbar()

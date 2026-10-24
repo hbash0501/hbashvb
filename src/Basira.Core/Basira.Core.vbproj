@@ -22,6 +22,7 @@
     <Compile Include="../../AIDocumentArchiveVB/Services/PasswordPolicy.vb" />
     <Compile Include="../../AIDocumentArchiveVB/Services/AuditChain.vb" />
     <Compile Include="../../AIDocumentArchiveVB/Services/CorrespondenceReferenceParser.vb" />
+    <Compile Include="../../AIDocumentArchiveVB/Services/CorrespondenceIndex.vb" />
     <Compile Include="../../AIDocumentArchiveVB/Services/ArchiveHealthReportService.vb" />
     <Compile Include="../../AIDocumentArchiveVB/Services/AppSettings.vb" />
     <Compile Include="../../AIDocumentArchiveVB/Services/AuthService.vb" />

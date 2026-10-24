@@ -6,6 +6,7 @@ Partial Public Class LoginForm
         InitializeComponent()
         Me.Text = "بصيرة | تسجيل الدخول"
         UiThemeService.StylePrimaryButton(btnLogin, "green")
+        lblHint.Text = "الإصدار " & Application.ProductVersion & "  •  للمساعدة في الدخول تواصل مع مسؤول النظام."
     End Sub
 
     Private Sub btnLogin_Click(sender As Object, e As EventArgs) Handles btnLogin.Click

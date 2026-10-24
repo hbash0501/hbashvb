@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- يتحقق من تجميع التطبيق الكامل مقابل مراجع .NET Framework 4.8 على أي نظام (لا ينتج نسخة قابلة للنشر).
-       النسخة الرسمية تُبنى على Windows عبر BUILD_AND_VALIDATE_AR.ps1. -->
+  <!-- يبني التطبيق المكتبي الكامل مقابل مراجع .NET Framework 4.8 على أي نظام (بما فيه Linux) مع معاملة التحذيرات كأخطاء.
+       ناتجه ملف تشغيل Windows مع مكتباته؛ يجمعه tools/build-windows-package.sh في حزمة جاهزة.
+       البناء على Windows عبر Visual Studio يبقى متاحاً بـ BUILD_AND_VALIDATE_AR.ps1. -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net48</TargetFramework>
@@ -16,6 +17,14 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <NoWarn>42016,41999,42017,42018,42019,42032,42036,42353,42354,42355</NoWarn>
     <BaseIntermediateOutputPath>obj/</BaseIntermediateOutputPath>
+    <ApplicationIcon>../../AIDocumentArchiveVB/Assets/basira.ico</ApplicationIcon>
+    <ApplicationManifest>../../AIDocumentArchiveVB/app.manifest</ApplicationManifest>
+    <AppConfig>../../AIDocumentArchiveVB/App.config</AppConfig>
+    <Prefer32Bit>false</Prefer32Bit>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <Deterministic>true</Deterministic>
+    <DebugType>none</DebugType>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
   <ItemGroup>
     <Import Include="Microsoft.VisualBasic" />
@@ -46,4 +55,8 @@
   <ItemGroup>
     <Compile Include="../../AIDocumentArchiveVB/**/*.vb" Exclude="../../AIDocumentArchiveVB/bin/**;../../AIDocumentArchiveVB/obj/**" />
   </ItemGroup>
+  <Target Name="CopySQLiteInterop" AfterTargets="Build">
+    <Copy SourceFiles="../../packages/Stub.System.Data.SQLite.Core.NetFramework.1.0.118.0/build/net46/x86/SQLite.Interop.dll" DestinationFolder="$(OutDir)x86" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="../../packages/Stub.System.Data.SQLite.Core.NetFramework.1.0.118.0/build/net46/x64/SQLite.Interop.dll" DestinationFolder="$(OutDir)x64" SkipUnchangedFiles="true" />
+  </Target>
 </Project>
