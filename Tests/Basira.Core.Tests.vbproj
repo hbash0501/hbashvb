@@ -10,6 +10,7 @@
     <Compile Include="../AIDocumentArchiveVB/Services/BasiraEngine.vb" Link="BasiraEngine.vb" />
     <Compile Include="../AIDocumentArchiveVB/Services/PasswordPolicy.vb" Link="PasswordPolicy.vb" />
     <Compile Include="../AIDocumentArchiveVB/Services/AuditChain.vb" Link="AuditChain.vb" />
+    <Compile Include="../AIDocumentArchiveVB/Services/CorrespondenceReferenceParser.vb" Link="CorrespondenceReferenceParser.vb" />
     <Compile Include="../AIDocumentArchiveVB/Services/AuthService.vb" Link="AuthService.vb" />
     <Compile Include="../AIDocumentArchiveVB/Services/AppSettings.vb" Link="AppSettings.vb" />
     <Compile Include="../AIDocumentArchiveVB/Models/UserAccount.vb" Link="UserAccount.vb" />
@@ -21,5 +22,8 @@
     <Compile Include="../AIDocumentArchiveVB/Services/CancellableProcess.vb" Link="CancellableProcess.vb" />
     <Compile Include="../AIDocumentArchiveVB/Services/PasswordHashService.vb" Link="PasswordHashService.vb" />
     <Compile Include="../AIDocumentArchiveVB/Services/ReplyExportService.vb" Link="ReplyExportService.vb" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Corpus/**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

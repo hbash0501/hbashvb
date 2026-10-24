@@ -26,6 +26,12 @@ Module CoreTests
         End While
     End Sub
     Sub Main(args As String())
+        If args IsNot Nothing AndAlso args.Contains("--references") Then
+            Dim idx = Array.IndexOf(args, "--references")
+            Dim dir = If(idx + 1 < args.Length, args(idx + 1), Path.Combine(AppContext.BaseDirectory, "Corpus", "references"))
+            EvaluateReferences(dir, True)
+            Return
+        End If
         If args IsNot Nothing AndAlso args.Contains("--bench") Then
             Benchmark()
             Return
@@ -120,6 +126,7 @@ Module CoreTests
             TestPasswordPolicy()
             TestAuditChain()
             TestServerAuth(folder)
+            TestReferenceParser()
             TestProcesses()
             TestJobNotifications()
             Console.WriteLine("TOTAL " & count.ToString() & " checks passed")
@@ -271,6 +278,26 @@ Module CoreTests
             Dim ans = sw.ElapsedMilliseconds
             Console.WriteLine("N=" & size.ToString() & " | build=" & build.ToString() & "ms | search(avg of 20)=" & search.ToString("0.0", CultureInfo.InvariantCulture) & "ms | findings=" & find.ToString() & "ms (" & findings.ToString() & ") | answer=" & ans.ToString() & "ms")
         Next
+        Dim corpusText = String.Join(vbLf, Directory.GetDirectories(Path.Combine(AppContext.BaseDirectory, "Corpus")).SelectMany(Function(d) Directory.GetFiles(d, "*.txt")).Select(Function(f) IO.File.ReadAllText(f, Encoding.UTF8)))
+        Dim filler = String.Join(" ", Enumerable.Repeat("نفيدكم بأنه تمت دراسة الموضوع من قبل الإدارة المختصة وتقرر ما يلي", 40))
+        Dim big As New StringBuilder()
+        While big.Length < 1000000
+            big.Append(corpusText).Append(vbLf).Append(filler).Append(vbLf)
+        End While
+        Dim swp = Stopwatch.StartNew()
+        Dim found = CorrespondenceReferenceParser.Parse(big.ToString()).Count
+        Console.WriteLine("Reference parser: " & (big.Length \ 1024).ToString() & " KB in " & swp.ElapsedMilliseconds.ToString() & "ms (" & found.ToString() & " unique references)")
+        Dim letters = Directory.GetDirectories(Path.Combine(AppContext.BaseDirectory, "Corpus")).SelectMany(Function(d) Directory.GetFiles(d, "*.txt")).Select(Function(f) IO.File.ReadAllText(f, Encoding.UTF8) & vbLf & filler & vbLf & filler).ToList()
+        CorrespondenceReferenceParser.Parse(letters(0))
+        swp.Restart()
+        Dim parsed = 0
+        For rep = 1 To 200
+            For Each l In letters
+                CorrespondenceReferenceParser.Parse(l)
+                parsed += 1
+            Next
+        Next
+        Console.WriteLine("Reference parser: " & parsed.ToString() & " letters (~" & (letters.Average(Function(l) l.Length) / 1024).ToString("0.0", CultureInfo.InvariantCulture) & " KB each) in " & swp.ElapsedMilliseconds.ToString() & "ms = " & (swp.Elapsed.TotalMilliseconds * 1000 / parsed).ToString("0", CultureInfo.InvariantCulture) & " µs/letter")
     End Sub
 
     Private Sub TestAuditChain()
@@ -308,6 +335,66 @@ Module CoreTests
         Check(auth.VerifyCredentials("admin", "wrong-password") Is Nothing AndAlso auth.VerifyCredentials("nobody", "x") Is Nothing, "VerifyCredentials rejects bad credentials")
         Check(auth.CurrentUser Is Nothing, "VerifyCredentials has no session side effect")
         Check(AuthService.RoleHasPermission("قارئ", "search") AndAlso Not AuthService.RoleHasPermission("قارئ", "export") AndAlso AuthService.RoleHasPermission("مراجع", "audit"), "Role permissions")
+    End Sub
+
+    ' يقيس دقة محلل الإشارات على مجلد خطابات: لكل NAME.txt ملف NAME.expected بأسطر النوع|الجهة|الرقم|التاريخ.
+    Private Function EvaluateReferences(folder As String, verbose As Boolean) As Tuple(Of Integer, Integer, Integer, Integer)
+        Dim tp = 0, predicted = 0, expected = 0, cases = 0
+        For Each file In Directory.GetFiles(folder, "*.txt").OrderBy(Function(f) f, StringComparer.Ordinal)
+            cases += 1
+            Dim refs = CorrespondenceReferenceParser.Parse(IO.File.ReadAllText(file, Encoding.UTF8))
+            Dim got = refs.Select(Function(r) r.ToExpectedLine()).ToList()
+            Dim expPath = Path.ChangeExtension(file, ".expected")
+            Dim exp = If(IO.File.Exists(expPath), IO.File.ReadAllLines(expPath, Encoding.UTF8).Where(Function(l) l.Trim() <> "").Select(Function(l) l.Trim()).ToList(), Nothing)
+            predicted += got.Count
+            If exp IsNot Nothing Then
+                expected += exp.Count
+                Dim hits = got.Where(Function(g) exp.Contains(g)).Count()
+                tp += hits
+                Dim ok = hits = exp.Count AndAlso hits = got.Count
+                If verbose OrElse Not ok Then
+                    Console.WriteLine(If(ok, "OK   ", "DIFF ") & Path.GetFileName(file))
+                    For Each m In exp.Where(Function(e) Not got.Contains(e))
+                        Console.WriteLine("       فائت:    " & m)
+                    Next
+                    For Each g In got.Where(Function(x) Not exp.Contains(x))
+                        Console.WriteLine("       زائد:    " & g)
+                    Next
+                End If
+            ElseIf verbose Then
+                Console.WriteLine("---- " & Path.GetFileName(file))
+                For Each r In refs
+                    Console.WriteLine("       " & r.ToExpectedLine() & "  | " & r.KindLabel & " | " & r.OwnerLabel & " | ثقة " & r.Confidence.ToString() & " | " & r.Evidence)
+                Next
+            End If
+        Next
+        If expected > 0 Then
+            Dim precision = If(predicted = 0, 1.0R, tp / CDbl(predicted))
+            Dim recall = tp / CDbl(expected)
+            Console.WriteLine("Reference corpus: " & cases.ToString() & " cases, expected " & expected.ToString() & ", predicted " & predicted.ToString() &
+                              ", precision " & precision.ToString("0.000", CultureInfo.InvariantCulture) & ", recall " & recall.ToString("0.000", CultureInfo.InvariantCulture))
+        End If
+        Return Tuple.Create(tp, predicted, expected, cases)
+    End Function
+
+    Private Sub TestReferenceParser()
+        Dim canonical As String = ""
+        Dim value As DateTime
+        Check(CorrespondenceReferenceParser.TryParseDate("1447/01/01هـ", canonical, value) AndAlso value = New DateTime(2025, 6, 26) AndAlso canonical = "H1447-01-01", "Hijri 1 Muharram 1447 is 26 June 2025 (Umm al-Qura)")
+        Check(CorrespondenceReferenceParser.TryParseDate("1 رمضان 1446", canonical, value) AndAlso value = New DateTime(2025, 3, 1), "Textual Hijri month resolves")
+        Check(CorrespondenceReferenceParser.TryParseDate("٣ سبتمبر ٢٠٢٥م", canonical, value) AndAlso canonical = "G2025-09-03", "Textual Gregorian month with Eastern digits")
+        Check(Not CorrespondenceReferenceParser.TryParseDate("1447/13/40هـ", canonical, value) AndAlso Not CorrespondenceReferenceParser.TryParseDate("12/3/47", canonical, value), "Reject invalid and two-digit-year dates")
+        Check(CorrespondenceReferenceParser.NumberKey(" ٠٠٤٥ / ص ") = "45/ص" AndAlso CorrespondenceReferenceParser.NumberKey("hr-2025-0114") = "HR/2025/114", "Reference number canonical form")
+        Check(CorrespondenceReferenceParser.NumbersMatch("4567/12", "٤٥٦٧-١٢") AndAlso CorrespondenceReferenceParser.NumbersMatch("4567 / 12", "456712") AndAlso Not CorrespondenceReferenceParser.NumbersMatch("12", "120"), "Tolerant reference number matching")
+        Dim letter = "السلام عليكم" & vbLf & "إشـارةً إلى خطابكم رقم ٤٥٦٧ وتاريخ ١٤٤٧/٣/١٢هـ بشأن التقرير."
+        Dim refs = CorrespondenceReferenceParser.Parse(letter)
+        Check(refs.Count = 1 AndAlso refs(0).Evidence.StartsWith("إشـارةً إلى خطابكم", StringComparison.Ordinal) AndAlso letter.Substring(refs(0).Offset, refs(0).Length).EndsWith("١٤٤٧/٣/١٢هـ", StringComparison.Ordinal), "Reference evidence maps to original text")
+        Check(refs(0).RawNumber = "٤٥٦٧" AndAlso refs(0).Number = "4567" AndAlso refs(0).Confidence = 100, "Reference keeps raw number and full confidence")
+        Check(CorrespondenceReferenceParser.Parse("").Count = 0 AndAlso CorrespondenceReferenceParser.Parse(New String("ا"c, 5000)).Count = 0, "Reference parser handles empty and degenerate input")
+        For Each corpusDir In Directory.GetDirectories(Path.Combine(AppContext.BaseDirectory, "Corpus")).OrderBy(Function(d) d, StringComparer.Ordinal)
+            Dim score = EvaluateReferences(corpusDir, False)
+            Check(score.Item3 > 0 AndAlso score.Item1 = score.Item3 AndAlso score.Item1 = score.Item2, "Reference corpus '" & Path.GetFileName(corpusDir) & "' fully extracted")
+        Next
     End Sub
 
     Private Sub TestProcesses()

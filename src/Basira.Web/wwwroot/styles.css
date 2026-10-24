@@ -87,6 +87,9 @@ tr.click{cursor:pointer}tr.click:hover td{background:var(--soft)}
 .tablewrap{overflow-x:auto;padding:4px 8px}
 .empty{text-align:center;color:var(--mut);padding:42px 10px}
 .error{color:var(--red);min-height:1.6em;margin:8px 0 0;font-size:14px}
+.refs{display:grid;gap:8px}
+.ref{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px}
+.ref .meta{align-items:center;color:var(--ink)}.ref .q{margin:6px 0 0;color:var(--mut);font-size:14px}
 .src{border-right:4px solid var(--teal);padding:10px 14px;margin:10px 0;background:var(--soft);border-radius:0 10px 10px 0}
 .src .q{white-space:pre-wrap;margin:6px 0 0;font-size:14.5px}
 

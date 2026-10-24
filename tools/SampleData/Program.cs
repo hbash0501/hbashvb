@@ -39,6 +39,16 @@ for (var i = 1; i <= count; i++)
     var hasText = rnd.Next(12) != 0;
     var entity = entities[rnd.Next(entities.Length)];
     var refNo = $"REF-{2026}-{rnd.Next(100, 400)}";
+    var created = today.AddDays(-rnd.Next(1, 90));
+    var cited = created.AddDays(-rnd.Next(3, 40));
+    var cal = new System.Globalization.UmAlQuraCalendar();
+    var hijri = $"{cal.GetYear(cited)}/{cal.GetMonth(cited):00}/{cal.GetDayOfMonth(cited):00}هـ";
+    var opening = (i % 3) switch
+    {
+        0 => $"إشارة إلى خطاب سعادتكم رقم {rnd.Next(1000, 9999)} وتاريخ {hijri} بشأن {t.Title}، ",
+        1 when i > 5 => $"إلحاقاً لخطابنا رقم ARC-2026-{i - 3:000} وتاريخ {hijri}، ",
+        _ => "",
+    };
     var doc = new DocumentRecord
     {
         Title = t.Title + (i % 4 == 0 ? $" ({i})" : ""),
@@ -53,10 +63,10 @@ for (var i = 1; i <= count; i++)
         Confidentiality = sensitive ? "سري" : "عادي",
         Tags = string.Join("، ", new[] { t.Sub, entity }),
         Summary = t.Body.Split('،', '.')[0],
-        TextContent = hasText ? $"الموضوع: {t.Title}\n\n{t.Body}\n\nالمرجع: {refNo}. الجهة: {entity}. المستند رقم {i}." : "",
+        TextContent = hasText ? $"الموضوع: {t.Title}\n\n{opening}{t.Body}\n\nالمرجع: {refNo}. الجهة: {entity}. المستند رقم {i}." : "",
         FileHashSha256 = i % 11 == 0 ? new string('a', 64) : Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N"),
         FileName = $"doc-{i:000}.pdf", FileType = ".pdf", PageCount = rnd.Next(1, 12),
-        CreatedAt = today.AddDays(-rnd.Next(1, 90)),
+        CreatedAt = created,
     };
     repo.SaveDocument(doc);
 }

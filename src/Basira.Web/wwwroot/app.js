@@ -210,9 +210,27 @@ async function openDoc(id) {
       s.summary && h('p', { text: s.summary }),
       h('dl', { class: 'kv' }, kv.flatMap(([k, v]) => [h('dt', { text: k }), h('dd', { text: v })])),
       d.entities && h('p', { class: 'meta', text: 'كيانات: ' + d.entities }),
-      d.restricted ? h('div', { class: 'card empty', text: 'نص هذا المستند الحساس متاح للمراجعين ومديري الأرشيف فقط.' }) : d.text ? [h('h3', { text: 'النص المستخرج', style: 'margin:14px 0 6px' }), h('div', { class: 'textbox', text: d.text })] : null,
+      d.references?.length ? [h('h3', { text: 'الإشارات في نص المستند', style: 'margin:16px 0 6px' }), h('div', { class: 'refs' }, d.references.map(refItem))] : null,
+      d.restricted ? h('div', { class: 'card empty', text: 'نص هذا المستند الحساس متاح للمراجعين ومديري الأرشيف فقط.' }) : d.text ? [h('h3', { text: 'النص المستخرج', style: 'margin:14px 0 6px' }), h('div', { class: 'textbox' }, markSpans(d.text, d.references || []))] : null,
       d.links.length ? [h('h3', { text: 'مستندات مرتبطة', style: 'margin:18px 0 6px' }), h('div', { class: 'list' }, d.links.map(l => h('button', { class: 'doc', type: 'button', onclick: () => openDoc(l.id) }, h('b', { text: l.title }), h('div', { class: 'meta' }, h('span', { text: l.archiveNumber }), h('span', { text: l.reason })))))] : null);
   } catch (e) { if (e.message !== 'auth') body.replaceChildren(h('div', { class: 'card empty', text: e.message })); }
+}
+const gregorian = new Intl.DateTimeFormat('ar-SA-u-ca-gregory-nu-latn', { year: 'numeric', month: 'long', day: 'numeric' });
+function refItem(r) {
+  const when = r.date ? (r.calendar === 'هجري' ? `${r.dateText} (الموافق ${gregorian.format(new Date(r.date))})` : r.dateText) : (r.dateText ? r.dateText + ' (تاريخ غير صالح)' : 'دون تاريخ');
+  return h('div', { class: 'ref' },
+    h('div', { class: 'meta' }, h('span', { class: 'pill ok', text: r.kindLabel }), h('b', { text: `${r.documentType ? r.documentType + ' ' : ''}رقم ${r.rawNumber}` }), h('span', { text: when }), h('span', { text: r.ownerLabel })),
+    h('p', { class: 'q', text: '«' + r.evidence + '»' }));
+}
+/* يميّز مواضع الإشارات داخل النص الأصلي اعتماداً على مواضعها المحسوبة في الخادم. */
+function markSpans(text, refs) {
+  const frag = document.createDocumentFragment(); let pos = 0;
+  for (const r of [...refs].sort((a, b) => a.offset - b.offset)) {
+    if (r.offset < pos || r.offset + r.length > text.length) continue;
+    frag.append(text.slice(pos, r.offset), h('mark', { text: text.slice(r.offset, r.offset + r.length), title: r.kindLabel }));
+    pos = r.offset + r.length;
+  }
+  frag.append(text.slice(pos)); return frag;
 }
 function closeDrawer() { $('#drawer').hidden = true; lastFocus?.focus?.(); }
 $('#drawer-close').addEventListener('click', closeDrawer);

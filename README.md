@@ -12,6 +12,8 @@
 | **البحث** | **تفاصيل المستند** |
 | ![البحث](docs/screenshots/03-docs.png) | ![التفاصيل](docs/screenshots/04-drawer.png) |
 
+![الإشارات في نص المستند](docs/screenshots/08-references.png)
+
 اللقطات من بيانات اختبارية مولَّدة بـ`tools/SampleData`.
 
 ## المتطلبات
@@ -33,6 +35,7 @@
 | `docs/ANALYSIS_REPORT_AR.md` | تحليل النسخة السابقة ونقاط الضعف والمعالجة |
 | `docs/EXECUTION_REPORT_AR.md` | تقرير التنفيذ وحدود التحقق |
 | `docs/OPERATIONS_AR.md` | دليل التشغيل والصيانة والنسخ الاحتياطي |
+| `docs/REFERENCE_PARSER_AR.md` | محلل الإشارات في المراسلات: القياس والمعايرة على خطاباتكم |
 | `docs/WEB_PORTAL_AR.md` | بوابة الويب: الأمان والتشغيل والحدود |
 | `docs/PERFORMANCE_REPORT_AR.md` | قياسات أداء محرك البحث قبل التحسين وبعده |
 | `docs/ARCHITECTURE_AR.md` | البنية التقنية للمكونات |
@@ -41,6 +44,6 @@
 
 ## الاختبارات
 
-مشروع `Tests/Basira.Core.Tests.vbproj` (‏.NET 8) يشغّل 67 فحصاً للمحرك والبحث والمواعيد والإحالات والطابور وحزم التصدير وسياسة كلمات المرور وتقرير الصحة: `dotnet run --project Tests -c Release`. للمعيار الأدائي أضف `-- --bench`. اختبارات بوابة الويب: `dotnet test tests/Basira.Web.Tests`.
+مشروع `Tests/Basira.Core.Tests.vbproj` (‏.NET 8) يشغّل 80 فحصاً للمحرك والبحث والمواعيد والإحالات والطابور وحزم التصدير وسياسة كلمات المرور وتقرير الصحة: `dotnet run --project Tests -c Release`. للمعيار الأدائي أضف `-- --bench`. اختبارات بوابة الويب: `dotnet test tests/Basira.Web.Tests`.
 
 يتحقق `tools/CompileCheck` من تجميع التطبيق كاملاً مقابل مراجع .NET Framework 4.8 على أي نظام (بما فيه Linux) مع معاملة التحذيرات كأخطاء، ويعمل مع الاختبارات في `.github/workflows/ci.yml`: `dotnet build tools/CompileCheck/CompileCheck.vbproj -c Release`.

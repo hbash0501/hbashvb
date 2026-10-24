@@ -23,8 +23,8 @@ public sealed class PortalFixture : IDisposable
         var auth = new AuthService(settings);
         auth.CreateInitialAdmin(AdminPassword);
         auth.SaveUser(new UserAccount { UserName = "reader", FullName = "قارئ", RoleName = "قارئ" }, "Reader-Pass-2026!");
-        repo.SaveDocument(new DocumentRecord { Title = "عقد صيانة الأنظمة", GeneralCategory = "عقود", Status = "قيد المراجعة", ArchiveNumber = "ARC-1", TextContent = "يرجى مراجعة عقد الصيانة قبل الموعد", Confidentiality = "عادي", SourceEntity = "إدارة العقود" });
-        repo.SaveDocument(new DocumentRecord { Title = "محضر تحقيق سري", GeneralCategory = "سري", Status = "قيد المراجعة", ArchiveNumber = "ARC-2", TextContent = "محتوى سري للغاية عن التحقيق", Confidentiality = "سري" });
+        repo.SaveDocument(new DocumentRecord { Title = "عقد صيانة الأنظمة", GeneralCategory = "عقود", Status = "قيد المراجعة", ArchiveNumber = "ARC-1", TextContent = "إشارة إلى خطابكم رقم ٤٥٦٧ وتاريخ ١٤٤٧/٣/١٢هـ، يرجى مراجعة عقد الصيانة قبل الموعد", Confidentiality = "عادي", SourceEntity = "إدارة العقود" });
+        repo.SaveDocument(new DocumentRecord { Title = "محضر تحقيق سري", GeneralCategory = "سري", Status = "قيد المراجعة", ArchiveNumber = "ARC-2", TextContent = "رداً على خطابكم رقم 999 وتاريخ 1447/1/1هـ، محتوى سري للغاية عن التحقيق", Confidentiality = "سري" });
         Factory = new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
         {
             b.UseSetting("Basira:DataFolder", Data);
@@ -108,6 +108,31 @@ public class PortalTests : IClassFixture<PortalFixture>
         await PortalFixture.Login(admin, "admin", PortalFixture.AdminPassword);
         var adminDetail = await admin.GetFromJsonAsync<JsonElement>("/api/documents/" + item.GetProperty("id").GetString());
         Assert.Contains("سري للغاية", adminDetail.GetProperty("text").GetString());
+    }
+
+    [Fact]
+    public async Task Document_detail_lists_correspondence_references_but_not_for_restricted_text()
+    {
+        var admin = _f.Client();
+        await PortalFixture.Login(admin, "admin", PortalFixture.AdminPassword);
+        var list = await admin.GetFromJsonAsync<JsonElement>("/api/documents?q=" + Uri.EscapeDataString("صيانة"));
+        var id = list.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("archiveNumber").GetString() == "ARC-1").GetProperty("id").GetString();
+        var detail = await admin.GetFromJsonAsync<JsonElement>("/api/documents/" + id);
+        var r = detail.GetProperty("references").EnumerateArray().Single();
+        Assert.Equal("reference", r.GetProperty("kind").GetString());
+        Assert.Equal("4567", r.GetProperty("number").GetString());
+        Assert.Equal("H1447-03-12", r.GetProperty("canonicalDate").GetString());
+        var text = detail.GetProperty("text").GetString()!;
+        Assert.StartsWith("إشارة إلى خطابكم", text.Substring(r.GetProperty("offset").GetInt32(), r.GetProperty("length").GetInt32()));
+
+        var reader = _f.Client();
+        await PortalFixture.Login(reader, "reader", "Reader-Pass-2026!");
+        var secret = await reader.GetFromJsonAsync<JsonElement>("/api/documents?q=" + Uri.EscapeDataString("تحقيق"));
+        var secretId = secret.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("archiveNumber").GetString() == "ARC-2").GetProperty("id").GetString();
+        var secretDetail = await reader.GetFromJsonAsync<JsonElement>("/api/documents/" + secretId);
+        Assert.Empty(secretDetail.GetProperty("references").EnumerateArray());
+        var adminSecret = await admin.GetFromJsonAsync<JsonElement>("/api/documents/" + secretId);
+        Assert.Equal("reply", adminSecret.GetProperty("references").EnumerateArray().Single().GetProperty("kind").GetString());
     }
 
     [Fact]

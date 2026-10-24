@@ -128,6 +128,7 @@ public static class PortalApi
                 text = restricted ? "" : Limit(d.TextContent, 60000),
                 entities = restricted ? "" : string.Join("، ", new[] { d.OcrNames, d.OcrEntities }.Where(x => !string.IsNullOrWhiteSpace(x))),
                 links = snap.Engine.Links(id).Select(l => new { l.Document.Id, l.Document.Title, l.Document.ArchiveNumber, l.Reason }),
+                references = restricted ? new List<object>() : References(d.TextContent),
             });
         });
 
@@ -169,6 +170,16 @@ public static class PortalApi
             return Results.Ok(new { valid = result.IsValid, count = result.Count, firstBrokenLine = result.FirstBrokenLine, message = result.Message, lastHash = result.LastHash, entries = recent });
         });
     }
+
+    /// <summary>الإشارات إلى مراسلات وقرارات سابقة كما وردت في نص المستند (محلل الإشارات في النواة).</summary>
+    private static List<object> References(string? text) =>
+        CorrespondenceReferenceParser.Parse(Limit(text, 60000)).Select(r => (object)new
+        {
+            kind = r.KindCode, kindLabel = r.KindLabel, owner = r.OwnerCode, ownerLabel = r.OwnerLabel,
+            documentType = r.DocumentType, number = r.Number, rawNumber = r.RawNumber,
+            dateText = r.DateText, canonicalDate = r.CanonicalDate, date = r.Date, calendar = r.Calendar,
+            evidence = r.Evidence, confidence = r.Confidence, offset = r.Offset, length = r.Length,
+        }).ToList();
 
     private static UserAccount User(HttpContext c) => (UserAccount)c.Items["user"]!;
 
