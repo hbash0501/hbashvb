@@ -12,6 +12,7 @@
     <Compile Include="../AIDocumentArchiveVB/Services/AuditChain.vb" Link="AuditChain.vb" />
     <Compile Include="../AIDocumentArchiveVB/Services/CorrespondenceReferenceParser.vb" Link="CorrespondenceReferenceParser.vb" />
     <Compile Include="../AIDocumentArchiveVB/Services/CorrespondenceIndex.vb" Link="CorrespondenceIndex.vb" />
+    <Compile Include="../AIDocumentArchiveVB/Services/DeadlineExtractor.vb" Link="DeadlineExtractor.vb" />
     <Compile Include="../AIDocumentArchiveVB/Services/AuthService.vb" Link="AuthService.vb" />
     <Compile Include="../AIDocumentArchiveVB/Services/AppSettings.vb" Link="AppSettings.vb" />
     <Compile Include="../AIDocumentArchiveVB/Models/UserAccount.vb" Link="UserAccount.vb" />

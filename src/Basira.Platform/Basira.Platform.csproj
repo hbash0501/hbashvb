@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!-- منصة بصيرة: خادم ASP.NET Core بقاعدة SQLite، وواجهة عربية مضمّنة في الملف التنفيذي. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Basira.Platform</RootNamespace>
+    <AssemblyName>Basira</AssemblyName>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
+    <Version>3.0.0</Version>
+    <Product>بصيرة</Product>
+    <ApplicationIcon>../../AIDocumentArchiveVB/Assets/basira.ico</ApplicationIcon>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.31" />
+    <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" Version="8.0.31" />
+    <PackageReference Include="PdfPig" Version="0.1.14" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Remove="wwwroot/**" />
+    <EmbeddedResource Include="wwwroot/**" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Basira.Core/Basira.Core.vbproj" />
+  </ItemGroup>
+</Project>

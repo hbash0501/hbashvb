@@ -130,7 +130,7 @@ Public NotInheritable Class CorrespondenceReferenceParser
         "(?<num>(?:[0-9](?: [0-9]){2,}(?![0-9])|[A-Za-z0-9]+|\p{L}{1,3}(?!\p{L}))(?:\s*[/\\\-]\s*(?:[A-Za-z0-9]+|\p{L}{1,3}(?!\p{L})))*)", RegexOptions.Compiled)
 
     Private Shared ReadOnly Months As New Dictionary(Of String, Tuple(Of String, Integer))(StringComparer.Ordinal)
-    Private Shared ReadOnly DateBody As String
+    Friend Shared ReadOnly DateBody As String
     Private Shared ReadOnly DateRx As Regex
     Private Shared ReadOnly BareDateRx As Regex
 
@@ -378,7 +378,7 @@ Public NotInheritable Class CorrespondenceReferenceParser
         End If
     End Sub
 
-    Private Shared Function Resolve(m As Match, ByRef canonical As String, ByRef value As DateTime, ByRef calendar As String) As Boolean
+    Friend Shared Function Resolve(m As Match, ByRef canonical As String, ByRef value As DateTime, ByRef calendar As String) As Boolean
         Dim y, mo, d As Integer
         Dim cal As String
         Dim suf As String = m.Groups("suf").Value

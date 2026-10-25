@@ -1,0 +1,291 @@
+// بصيرة — الإدراج، الأسئلة، الإدارة، الدخول، ولوحة الأوامر.
+import { h, icon, api, fmt, nf, mount, markTerms, toast, can, state, onEvent } from './core.js';
+import { pageHead, empty, docRow } from './views.js';
+
+// ======================= الإدراج =======================
+const STAGE_DONE = new Set(['done', 'failed']);
+function jobRow(j) {
+  const cls = j.state === 'failed' ? 'danger' : j.state === 'done' ? 'ok' : '';
+  return h('div', { class: 'job', 'data-job': j.id },
+    h('div', { class: 'row' }, h('a', { href: '#/doc/' + encodeURIComponent(j.documentId), style: 'font-weight:600', text: j.title }), h('span', { class: 'chip ' + cls, text: j.state === 'queued' ? 'بانتظار الدور' : j.state === 'running' ? `${j.progress}%` : j.state === 'done' ? 'اكتملت' : 'تعذرت' })),
+    h('div', { class: 'muted small', text: j.stage + (j.message ? ' — ' + j.message : '') }),
+    STAGE_DONE.has(j.state) ? null : h('div', { class: 'bar', style: 'margin-top:6px' }, h('i', { style: `width:${Math.max(4, j.progress)}%` })));
+}
+
+export async function renderInbox(view) {
+  if (!can('import')) { mount(view, empty('shield', 'لا تملك صلاحية الإدراج.')); return; }
+  const meta = state.meta || {};
+  let direction = 'وارد';
+  const dirSeg = h('div', { class: 'seg', role: 'group', 'aria-label': 'الاتجاه' });
+  const drawDir = () => mount(dirSeg, (meta.directions || ['وارد', 'صادر', 'داخلي']).map(d => h('button', { type: 'button', 'aria-pressed': String(d === direction), text: d, onclick: () => { direction = d; drawDir(); } })));
+  drawDir();
+  const category = h('input', { list: 'inbox-cats', placeholder: 'اختياري', 'aria-label': 'التصنيف' });
+  const conf = h('select', { 'aria-label': 'السرية' }, (meta.confidentialities || ['عادي']).map(c => h('option', { value: c, text: c })));
+  const fileInput = h('input', { type: 'file', multiple: true, hidden: true, accept: '.pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.gif,.webp,.docx,.txt' });
+  const results = h('div');
+  const jobsBox = h('div');
+
+  async function upload(files) {
+    if (!files.length) return;
+    const form = new FormData();
+    for (const f of files) form.append('files', f, f.name);
+    form.append('direction', direction); form.append('category', category.value); form.append('confidentiality', conf.value);
+    mount(results, h('div', { class: 'skeleton', style: 'min-height:40px' }));
+    try {
+      const r = await api('/inbox', { method: 'POST', form });
+      mount(results, r.map(x => h('div', { class: 'list-item' }, x.error ? icon('alert') : x.duplicate ? icon('link') : icon('check'),
+        h('div', { class: 'grow' }, h('span', { class: 't', text: x.name }), h('span', { class: 'muted small', text: x.error ? x.error : x.duplicate ? `موجود مسبقاً بالرقم ${x.archiveNo} — لم يُكرر` : `أُدرج بالرقم ${x.archiveNo}، والمعالجة جارية` })),
+        x.id ? h('a', { class: 'btn sm', href: '#/doc/' + encodeURIComponent(x.id) }, 'فتح') : null)));
+      loadJobs();
+    } catch (e) { mount(results, h('p', { class: 'error', text: e.message })); }
+  }
+  fileInput.addEventListener('change', () => { upload([...fileInput.files]); fileInput.value = ''; });
+  const drop = h('div', { class: 'drop', tabindex: 0, role: 'button', 'aria-label': 'اختر ملفات أو أفلتها هنا', onclick: () => fileInput.click(), onkeydown: e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } } },
+    icon('upload'), h('h2', { text: 'أفلت الخطابات هنا أو اخترها من جهازك' }), h('p', { class: 'muted', text: 'PDF، صور ممسوحة، Word، أو نص. يُستخرج النص والرقم والتاريخ والموضوع والإشارات والمهل تلقائياً، ويُرفض المكرر.' }));
+  drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+  drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); upload([...e.dataTransfer.files]); });
+
+  // ===== الكاميرا =====
+  const camBox = h('div', { class: 'camera', hidden: true });
+  let stream;
+  async function openCamera() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 2480 }, height: { ideal: 3508 } } });
+      const video = h('video', { autoplay: true, playsinline: true, muted: true });
+      video.srcObject = stream;
+      mount(camBox, video, h('div', { class: 'row', style: 'margin-top:10px' },
+        h('button', { class: 'btn primary', onclick: () => {
+          const c = document.createElement('canvas'); c.width = video.videoWidth; c.height = video.videoHeight;
+          c.getContext('2d').drawImage(video, 0, 0);
+          c.toBlob(b => { upload([new File([b], `التقاط-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.jpg`, { type: 'image/jpeg' })]); }, 'image/jpeg', 0.92);
+        } }, icon('camera'), 'التقاط وإدراج'),
+        h('button', { class: 'btn', onclick: closeCamera }, 'إغلاق الكاميرا')));
+      camBox.hidden = false;
+    } catch (e) { toast('تعذر فتح الكاميرا: ' + (e.message || e.name), { error: true }); }
+  }
+  function closeCamera() { stream?.getTracks().forEach(t => t.stop()); stream = null; camBox.hidden = true; mount(camBox); }
+
+  async function loadJobs() {
+    const jobs = await api('/jobs?take=20');
+    mount(jobsBox, jobs.length ? jobs.map(jobRow) : empty('clock', 'لا مهام معالجة بعد.'));
+  }
+  const off = onEvent(msg => {
+    if (msg.type !== 'job' || !document.body.contains(jobsBox)) { if (!document.body.contains(jobsBox)) { off(); closeCamera(); } return; }
+    const row = jobsBox.querySelector(`[data-job="${msg.payload.id}"]`);
+    if (row) row.replaceWith(jobRow(msg.payload)); else { jobsBox.querySelector('.empty')?.remove(); jobsBox.prepend(jobRow(msg.payload)); }
+  });
+
+  mount(view, pageHead('الإدراج', 'أدخل الخطابات مرة واحدة؛ تتكفل بصيرة بقراءتها وربطها بمعاملاتها.'),
+    h('div', { class: 'grid cols-3' },
+      h('div', { class: 'stack' },
+        h('section', { class: 'card pad' }, h('div', { class: 'form' },
+          h('div', {}, h('label', { class: 'f', text: 'الاتجاه' }), dirSeg),
+          h('div', {}, h('label', { class: 'f', text: 'السرية' }), conf),
+          h('div', { class: 'full' }, h('label', { class: 'f', text: 'التصنيف' }), category, h('datalist', { id: 'inbox-cats' }, (meta.categories || []).map(c => h('option', { value: c })))))),
+        drop, fileInput,
+        h('div', { class: 'row' }, h('button', { class: 'btn', onclick: openCamera }, icon('camera'), 'التقاط بالكاميرا'), h('span', { class: 'muted small', text: 'للسكانر: اضبطه ليحفظ في «مجلد الإدراج» المحدد في الإدارة، فتُدرج الملفات تلقائياً.' })),
+        camBox, results),
+      h('section', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, icon('refresh'), 'المعالجة')), h('div', { class: 'card-body' }, jobsBox))));
+  await loadJobs();
+}
+
+// ======================= اسأل بصيرة =======================
+export async function renderAsk(view, params) {
+  const q = h('input', { type: 'search', placeholder: 'مثال: ما الذي طلبته وزارة المالية بشأن المشاريع المتعثرة؟', 'aria-label': 'سؤال', value: params.get('q') || '' });
+  const out = h('div');
+  async function ask() {
+    const text = q.value.trim(); if (!text) return;
+    mount(out, h('div', { class: 'skeleton' }));
+    try {
+      const r = await api('/ask?' + new URLSearchParams({ q: text }));
+      mount(out, r.found ? [h('p', { class: 'muted', style: 'margin-bottom:12px', text: 'مقتطفات أصلية مرتبطة بسؤالك، مرقّمة بمصادرها. افتح المصدر للتحقق من سياقه.' }),
+        ...r.evidence.map(e => h('section', { class: 'card pad', style: 'margin-bottom:12px' },
+          h('div', { class: 'row' }, h('span', { class: 'chip ok', text: `[${e.number}]` }), h('a', { href: '#/doc/' + encodeURIComponent(e.documentId), style: 'font-weight:700', text: e.title }), h('span', { class: 'muted small num', text: e.archiveNo }),
+            e.thread ? h('a', { class: 'btn sm', href: '#/thread/' + encodeURIComponent(e.thread), style: 'margin-inline-start:auto' }, icon('thread'), 'المعاملة') : null),
+          e.restricted ? h('p', { class: 'muted', style: 'margin-top:8px' }, icon('shield'), ' مصدر حساس؛ محتواه مقيّد لدورك.') : h('p', { style: 'margin-top:8px;white-space:pre-wrap;line-height:1.9' }, markTerms(e.quote, text.split(/\s+/).join('،')))))]
+        : empty('search', 'لم أجد نصوصاً مناسبة. جرّب اسم الجهة أو رقم المعاملة أو كلمة من الموضوع.'));
+    } catch (e) { mount(out, empty('alert', e.message)); }
+  }
+  q.addEventListener('keydown', e => { if (e.key === 'Enter') ask(); });
+  mount(view, pageHead('اسأل بصيرة', 'إجابات من نصوص أرشيفك وحده، بأدلة مرقّمة، دون إرسال أي شيء إلى خدمة خارجية.'),
+    h('div', { class: 'filters' }, h('div', { class: 'search' }, icon('spark'), q), h('button', { class: 'btn primary', onclick: ask }, 'ابحث عن الأدلة')), out);
+  q.focus();
+  if (q.value) ask();
+}
+
+// ======================= الإدارة =======================
+export async function renderAdmin(view, tab) {
+  const tabs = [['users', 'المستخدمون', 'users'], ['settings', 'الإعدادات', 'sliders'], ['migrate', 'ترحيل النسخة السابقة', 'folder'], ['audit', 'سجل التدقيق', 'shield'], ['report', 'تقرير الصحة', 'report']]
+    .filter(([k]) => state.me.isAdmin || k === 'audit' && can('audit') || k === 'report' && can('export'));
+  if (!tabs.length) { mount(view, empty('shield', 'لا تملك صلاحيات إدارية.')); return; }
+  if (!tabs.some(t => t[0] === tab)) tab = tabs[0][0];
+  const body = h('div');
+  mount(view, pageHead('الإدارة', 'المستخدمون والإعدادات والترحيل والتدقيق.'),
+    h('div', { class: 'seg', style: 'margin-bottom:16px' }, tabs.map(([k, l, i]) => h('button', { type: 'button', 'aria-pressed': String(k === tab), onclick: () => location.hash = '#/admin/' + k }, icon(i), ' ', l))), body);
+  if (tab === 'users') await adminUsers(body);
+  else if (tab === 'settings') await adminSettings(body);
+  else if (tab === 'migrate') adminMigrate(body);
+  else if (tab === 'audit') await adminAudit(body);
+  else adminReport(body);
+}
+
+async function adminUsers(body) {
+  const users = await api('/admin/users');
+  const roles = state.meta?.roles || [];
+  const err = h('p', { class: 'error', role: 'alert' });
+  const f = { userName: h('input', { required: true, autocomplete: 'off' }), fullName: h('input', { required: true }), role: h('select', {}, roles.map(r => h('option', { value: r, text: r, selected: r === 'موظف أرشفة' }))), password: h('input', { type: 'password', autocomplete: 'new-password', required: true }) };
+  const form = h('form', { class: 'form' },
+    h('div', {}, h('label', { class: 'f', text: 'اسم المستخدم' }), f.userName), h('div', {}, h('label', { class: 'f', text: 'الاسم الكامل' }), f.fullName),
+    h('div', {}, h('label', { class: 'f', text: 'الدور' }), f.role), h('div', {}, h('label', { class: 'f', text: 'كلمة المرور الأولى' }), f.password, h('p', { class: 'hint', text: '10 أحرف فأكثر، غير شائعة، ولا تتضمن اسم المستخدم.' })),
+    h('div', { class: 'full row' }, h('button', { class: 'btn primary', type: 'submit' }, icon('plus'), 'إضافة مستخدم'), err));
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    try { await api('/admin/users', { method: 'POST', body: Object.fromEntries(Object.entries(f).map(([k, v]) => [k, v.value])) }); toast('أُضيف المستخدم'); adminUsers(body); }
+    catch (ex) { err.textContent = ex.message; }
+  });
+  const update = async (u, patch, msg) => { try { await api('/admin/users/' + u.id, { method: 'PUT', body: patch }); toast(msg); adminUsers(body); } catch (ex) { toast(ex.message, { error: true }); } };
+  mount(body, h('div', { class: 'grid cols-3' },
+    h('section', { class: 'card' }, h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['المستخدم', 'الدور', 'آخر دخول', 'الحالة', ''].map(x => h('th', { text: x })))),
+      h('tbody', {}, users.map(u => h('tr', {},
+        h('td', {}, h('b', { text: u.fullName }), h('div', { class: 'muted small ltr', text: u.userName })),
+        h('td', {}, h('select', { 'aria-label': 'الدور', onchange: e => update(u, { role: e.target.value }, 'تغيّر الدور') }, roles.map(r => h('option', { value: r, text: r, selected: r === u.role })))),
+        h('td', { class: 'small', text: u.lastLogin ? fmt.time(u.lastLogin) : '—' }),
+        h('td', {}, h('span', { class: 'chip ' + (u.active ? 'ok' : 'danger'), text: u.active ? 'نشط' : 'موقوف' })),
+        h('td', {}, h('div', { class: 'row' }, h('button', { class: 'btn sm', onclick: () => update(u, { active: !u.active }, u.active ? 'أُوقف الحساب' : 'فُعّل الحساب') }, u.active ? 'إيقاف' : 'تفعيل'),
+          h('button', { class: 'btn sm', onclick: () => { const p = prompt('كلمة المرور الجديدة لـ ' + u.fullName + ':'); if (p) update(u, { password: p }, 'تغيّرت كلمة المرور وأُنهيت جلساته'); } }, 'كلمة المرور'))))))))),
+    h('section', { class: 'card pad' }, h('h2', { style: 'margin-bottom:12px', text: 'مستخدم جديد' }), form)));
+}
+
+async function adminSettings(body) {
+  const r = await api('/admin/settings');
+  const s = r.settings;
+  const fields = [
+    ['organization', 'اسم الجهة', 'يظهر في الواجهة والتقارير'],
+    ['reply_days', 'مهلة الرد (أيام)', 'بعدها يُعد الوارد «بانتظار الرد» إن لم يصدر ما يشير إليه'],
+    ['default_direction', 'الاتجاه الافتراضي لمجلد الإدراج', 'وارد أو صادر أو داخلي'],
+    ['inbox_folder', 'مجلد الإدراج (السكانر)', r.detected.inboxExists ? 'المجلد موجود ويُراقَب كل بضع ثوانٍ' : 'اضبط السكانر ليحفظ هنا؛ تُدرج الملفات تلقائياً'],
+    ['tesseract_path', 'مسار Tesseract', r.detected.tesseract ? 'مكتشف: ' + r.detected.tesseract : 'غير مكتشف — مطلوب لقراءة الصور والملفات المصورة'],
+    ['pdftoppm_path', 'مسار pdftoppm (Poppler)', r.detected.pdftoppm ? 'مكتشف: ' + r.detected.pdftoppm : 'غير مكتشف — مطلوب لملفات PDF المصورة'],
+    ['ocr_languages', 'لغات OCR', 'مثل ara+eng'],
+  ];
+  const inputs = {};
+  const err = h('p', { class: 'error', role: 'alert' });
+  const form = h('form', { class: 'form card pad' }, fields.map(([k, label, hint]) => h('div', { class: k === 'organization' || k === 'inbox_folder' ? 'full' : '' }, h('label', { class: 'f', text: label }), inputs[k] = h('input', { value: s[k] || '', class: k.endsWith('path') || k === 'inbox_folder' ? 'ltr' : '' }), h('p', { class: 'hint', text: hint }))),
+    h('div', { class: 'full row' }, h('button', { class: 'btn primary', type: 'submit' }, icon('check'), 'حفظ الإعدادات'), err));
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    try { await api('/admin/settings', { method: 'PUT', body: Object.fromEntries(Object.entries(inputs).map(([k, v]) => [k, v.value])) }); toast('حُفظت الإعدادات'); state.org = inputs.organization.value; adminSettings(body); }
+    catch (ex) { err.textContent = ex.message; }
+  });
+  mount(body, form);
+}
+
+function adminMigrate(body) {
+  const folder = h('input', { class: 'ltr', placeholder: 'C:\\Users\\...\\AppData\\Roaming\\SaeedAIDocArchive' });
+  const out = h('div', { style: 'margin-top:12px' });
+  const run = h('button', { class: 'btn primary', onclick: async () => {
+    run.disabled = true; mount(out, h('div', { class: 'skeleton', style: 'min-height:40px' }));
+    try {
+      const r = await api('/admin/import-legacy', { method: 'POST', body: { folder: folder.value.trim() } });
+      mount(out, h('div', { class: 'card pad' }, h('h3', {}, icon('check'), ' اكتمل الترحيل'), h('p', { text: `مستندات: ${nf.format(r.documents)} (تخطي ${nf.format(r.skipped)} موجودة مسبقاً) • ملفات: ${nf.format(r.files)}${r.missingFiles ? ` (${nf.format(r.missingFiles)} مفقودة)` : ''} • مستخدمون: ${nf.format(r.users)}` })));
+    } catch (e) { mount(out, h('p', { class: 'error', text: e.message })); }
+    run.disabled = false;
+  } }, icon('folder'), 'ترحيل الآن');
+  mount(body, h('section', { class: 'card pad', style: 'max-width:760px' },
+    h('h2', { text: 'ترحيل أرشيف النسخة السابقة' }),
+    h('p', { class: 'muted', style: 'margin:6px 0 14px', text: 'ينسخ المستندات ونصوصها وملفاتها الأصلية والمستخدمين بكلمات مرورهم من مجلد بيانات التطبيق المكتبي (الذي يحوي archive-db.xml). لا يعدّل المصدر، ويمكن تكراره بأمان؛ ما رُحّل سابقاً يُتخطى.' }),
+    h('label', { class: 'f', text: 'مجلد بيانات النسخة السابقة' }), folder, h('div', { class: 'row', style: 'margin-top:12px' }, run), out));
+}
+
+async function adminAudit(body) {
+  const r = await api('/audit?take=200');
+  mount(body, h('section', { class: 'card pad', style: 'margin-bottom:14px' }, h('div', { class: 'row' }, h('span', { class: 'chip ' + (r.valid ? 'ok' : 'danger') }, icon(r.valid ? 'shield' : 'alert'), r.valid ? 'السلسلة سليمة' : 'السلسلة مكسورة'), h('span', { text: `${r.message} (${nf.format(r.count)} سجل)` })),
+    h('p', { class: 'muted small ltr', style: 'margin-top:8px;word-break:break-all;text-align:right', text: 'آخر تجزئة: ' + r.lastHash })),
+    h('section', { class: 'card' }, h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['#', 'الوقت', 'المستخدم', 'الإجراء', 'التفاصيل'].map(x => h('th', { text: x })))),
+      h('tbody', {}, r.entries.map(e => h('tr', {}, h('td', { class: 'num muted', text: e.seq }), h('td', { class: 'small', text: fmt.time(e.ts) }), h('td', { text: e.actor }), h('td', { text: e.action }), h('td', { class: 'muted', text: e.detail }))))))));
+}
+
+function adminReport(body) {
+  mount(body, h('section', { class: 'card pad', style: 'max-width:760px' }, h('h2', { text: 'تقرير صحة الأرشيف' }),
+    h('p', { class: 'muted', style: 'margin:6px 0 14px', text: 'تقرير HTML مستقل يُطبع ويُشارك: مؤشر الصحة، واكتمال النص والتصنيف، والمواعيد المتأخرة، والتوزيعات، والتنبيهات. يتضمن عناوين المستندات دون محتواها.' }),
+    h('a', { class: 'btn primary', href: '/api/report' }, icon('download'), 'تنزيل التقرير')));
+}
+
+// ======================= الدخول والإعداد =======================
+const heroList = [['thread', 'معاملات تتكوّن تلقائياً', 'كل خطاب يشير إلى آخر يقع معه في خيط واحد، مرتب زمنياً، ومعه ما غاب عن الأرشيف.'],
+  ['alert', 'لا وارد بلا رد', 'تنبيه بكل وارد لم يصدر ما يشير إليه خلال المهلة.'], ['clock', 'مهل تُقرأ من النص', '«خلال (15) يوماً من تاريخه» تصبح موعداً محسوباً بالهجري والميلادي.'],
+  ['shield', 'سجل لا يُزوَّر', 'كل دخول وتعديل واطلاع في سلسلة تجزئة تكشف أي تلاعب.']];
+
+export function renderAuth(root, mode, onDone) {
+  const err = h('p', { class: 'error', role: 'alert' });
+  const fields = mode === 'setup'
+    ? { organization: h('input', { placeholder: 'مثال: الإدارة العامة للشؤون الإدارية' }), fullName: h('input', { required: true, autocomplete: 'name' }), userName: h('input', { required: true, value: 'admin', autocomplete: 'username', class: 'ltr' }), password: h('input', { type: 'password', required: true, autocomplete: 'new-password' }), confirm: h('input', { type: 'password', required: true, autocomplete: 'new-password' }) }
+    : { userName: h('input', { required: true, autocomplete: 'username', autofocus: true, class: 'ltr' }), password: h('input', { type: 'password', required: true, autocomplete: 'current-password' }) };
+  const labels = { organization: 'اسم الجهة', fullName: 'اسمك الكامل', userName: 'اسم المستخدم', password: 'كلمة المرور', confirm: 'تأكيد كلمة المرور' };
+  const submit = h('button', { class: 'btn primary', type: 'submit', style: 'padding:11px' }, mode === 'setup' ? 'إنشاء حساب المدير والبدء' : 'دخول');
+  const form = h('form', {}, h('div', {}, h('h2', { text: mode === 'setup' ? 'إعداد المنصة' : 'تسجيل الدخول' }), h('p', { class: 'muted', text: mode === 'setup' ? 'أول تشغيل: أنشئ حساب مدير النظام. لا توجد كلمات مرور افتراضية.' : 'مرحباً بعودتك.' })),
+    Object.entries(fields).map(([k, el]) => h('div', {}, h('label', { class: 'f', text: labels[k] }), el, k === 'password' && mode === 'setup' ? h('p', { class: 'hint', text: '10 أحرف فأكثر، غير شائعة، ولا تتضمن اسم المستخدم.' }) : null)), err, submit);
+  form.addEventListener('submit', async e => {
+    e.preventDefault(); err.textContent = '';
+    if (mode === 'setup' && fields.password.value !== fields.confirm.value) { err.textContent = 'تأكيد كلمة المرور غير مطابق.'; return; }
+    submit.disabled = true;
+    try {
+      const body = Object.fromEntries(Object.entries(fields).filter(([k]) => k !== 'confirm').map(([k, v]) => [k, v.value]));
+      await api(mode === 'setup' ? '/setup' : '/login', { method: 'POST', body });
+      onDone();
+    } catch (ex) { err.textContent = ex.message; submit.disabled = false; }
+  });
+  mount(root, h('div', { class: 'auth' },
+    h('div', { class: 'hero' }, h('div', {}, h('div', { class: 'brand', style: 'padding:0' }, h('div', { class: 'logo', style: 'background:rgba(255,255,255,.12)' }, h('img', { src: '/favicon.svg', alt: '', width: 26, height: 26 })), h('b', { style: 'font-size:24px;color:#fff', text: 'بصيرة' })),
+      h('h1', { style: 'margin-top:48px', text: 'أرشيف يفهم المعاملة، لا الملف فقط.' }), h('p', { text: 'منصة أرشفة عربية تقرأ خطاباتك وتربطها ببعضها وتنبهك بما ينتظر الرد.' }),
+      h('ul', {}, heroList.map(([i, t, d]) => h('li', {}, icon(i), h('div', {}, h('b', { text: t }), h('div', { style: 'opacity:.8;font-size:14px', text: d })))))),
+      h('p', { style: 'opacity:.6;font-size:13px', text: 'تعمل على جهازك أو خادم جهتك. لا يُرسل أي مستند إلى خدمة خارجية.' })),
+    h('div', { class: 'panel' }, form)));
+  (fields.userName.value ? (fields.password || fields.fullName) : fields.userName).focus();
+}
+
+// ======================= لوحة الأوامر =======================
+const COMMANDS = [['لوحة القيادة', '#/', 'home'], ['المعاملات', '#/threads', 'thread'], ['المعاملات بانتظار رد', '#/threads?state=بانتظار رد', 'alert'], ['المستندات', '#/docs', 'docs'],
+  ['مستندات بانتظار الرد', '#/docs?filter=awaiting', 'alert'], ['مواعيد متأخرة', '#/docs?filter=overdue', 'clock'], ['إدراج ملفات', '#/inbox', 'upload'], ['اسأل بصيرة', '#/ask', 'spark'],
+  ['خطابات غير مؤرشفة', '#/threads?missing=1', 'ghost'], ['الإدارة', '#/admin', 'sliders'], ['سجل التدقيق', '#/admin/audit', 'shield'], ['تقرير صحة الأرشيف', '#/admin/report', 'report']];
+
+export function openPalette() {
+  if (document.querySelector('.overlay')) return;
+  const input = h('input', { placeholder: 'ابحث عن مستند أو اكتب أمراً…', 'aria-label': 'بحث سريع', autocomplete: 'off' });
+  const results = h('div', { class: 'results', role: 'listbox' });
+  let items = [], sel = 0, ctl;
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', keys, true); };
+  const go = it => { close(); location.hash = it.href; };
+  const draw = (cmds, docs, q) => {
+    items = [...cmds, ...docs];
+    sel = Math.min(sel, Math.max(0, items.length - 1));
+    mount(results, cmds.length ? h('div', { class: 'group', text: 'انتقال' }) : null, cmds.map((c, i) => item(c, i)),
+      docs.length ? h('div', { class: 'group', text: 'مستندات' }) : null, docs.map((d, i) => item(d, cmds.length + i, q)),
+      !items.length ? h('p', { class: 'empty', text: 'لا نتائج' }) : null);
+  };
+  const item = (it, i, q) => h('div', { class: 'item', role: 'option', 'aria-selected': String(i === sel), onmousemove: () => { if (sel !== i) { sel = i; results.querySelectorAll('.item').forEach((n, j) => n.setAttribute('aria-selected', String(j === sel))); } }, onclick: () => go(it) },
+    icon(it.icon), h('div', { class: 'grow' }, h('b', {}, q ? markTerms(it.title, it.matches) : it.title), it.sub ? h('span', { class: 'muted small', text: it.sub }) : null));
+  async function search() {
+    const q = input.value.trim();
+    const cmds = COMMANDS.filter(([t]) => !q || t.includes(q)).slice(0, q ? 4 : 12).map(([title, href, ic]) => ({ title, href, icon: ic }));
+    draw(cmds, [], q);
+    if (q.length < 2) return;
+    ctl?.abort(); ctl = new AbortController();
+    try {
+      const r = await api('/documents?' + new URLSearchParams({ q, pageSize: 8 }), { signal: ctl.signal });
+      draw(cmds, r.items.map(d => ({ title: d.title, matches: d.matches, href: '#/doc/' + encodeURIComponent(d.id), icon: 'docs', sub: [d.archiveNo, d.direction, d.sourceEntity].filter(Boolean).join(' • ') })), q);
+    } catch { /* أُلغي */ }
+  }
+  const keys = e => {
+    if (e.key === 'Escape') { e.preventDefault(); close(); }
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); sel = (sel + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % Math.max(1, items.length); results.querySelectorAll('.item').forEach((n, j) => { n.setAttribute('aria-selected', String(j === sel)); if (j === sel) n.scrollIntoView({ block: 'nearest' }); }); }
+    else if (e.key === 'Enter' && items[sel]) { e.preventDefault(); go(items[sel]); }
+  };
+  let t; input.addEventListener('input', () => { sel = 0; clearTimeout(t); t = setTimeout(search, 150); });
+  const overlay = h('div', { class: 'overlay', onclick: e => { if (e.target === overlay) close(); } }, h('div', { class: 'palette', role: 'dialog', 'aria-label': 'بحث سريع' }, h('div', { class: 'in' }, icon('search'), input, h('kbd', { text: 'Esc' })), results));
+  document.body.append(overlay);
+  document.addEventListener('keydown', keys, true);
+  input.focus();
+  search();
+}

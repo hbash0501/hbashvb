@@ -1,0 +1,9 @@
+Basira includes the following third-party components:
+
+- .NET runtime and ASP.NET Core (MIT License) - https://github.com/dotnet
+- Microsoft.Data.Sqlite and SQLitePCLRaw (MIT License); SQLite (public domain) - https://sqlite.org
+- PdfPig (Apache License 2.0) - https://github.com/UglyToad/PdfPig
+
+Optional external tools detected at runtime and not bundled:
+- Tesseract OCR (Apache License 2.0) - https://github.com/tesseract-ocr/tesseract
+- Poppler pdftoppm (GPL) - https://poppler.freedesktop.org

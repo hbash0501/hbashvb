@@ -10,9 +10,17 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
+      - name: OCR tools for end-to-end tests
+        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-ara tesseract-ocr-eng
+      - name: Core tests (engine, reference parser corpora, deadlines, audit chain)
+        run: dotnet run --project Tests -c Release
+      - name: Platform integration tests (real OCR and PDF included)
+        run: dotnet test tests/Basira.Platform.Tests -c Release
       - name: Desktop app compile check (net48 references, warnings as errors)
         run: dotnet build tools/CompileCheck/CompileCheck.vbproj -c Release
-      - name: Core tests
-        run: dotnet run --project Tests -c Release
-      - name: Web portal build and integration tests
-        run: dotnet test tests/Basira.Web.Tests -c Release
+      - name: Windows single-file package
+        run: tools/build-platform-package.sh dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: basira-windows
+          path: dist/*.zip

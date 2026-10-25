@@ -128,6 +128,7 @@ Module CoreTests
             TestServerAuth(folder)
             TestReferenceParser()
             TestCorrespondenceIndex()
+            TestDeadlines()
             TestProcesses()
             TestJobNotifications()
             Console.WriteLine("TOTAL " & count.ToString() & " checks passed")
@@ -409,6 +410,25 @@ Module CoreTests
         Check(matches(1).Documents.Count = 1 AndAlso matches(1).Documents(0).Id = "B", "Reference links through multi-valued outgoing numbers")
         Check(matches(2).Documents.Count = 0, "Unknown reference number has no link")
         Check(index.Resolve(original.TextContent, original.Id).Count = 0 AndAlso index.Find(New CorrespondenceReference With {.Number = "4567/12"}, "A").Count = 0, "Index excludes the document itself and numbers only cited in text")
+    End Sub
+
+    Private Sub TestDeadlines()
+        Dim baseDate As New DateTime(2026, 10, 1) ' خميس
+        Dim d1 = DeadlineExtractor.Extract("نأمل الإفادة خلال (15) يوماً من تاريخه.", baseDate)
+        Check(d1.Count = 1 AndAlso d1(0).Days = 15 AndAlso d1(0).Due.GetValueOrDefault() = New DateTime(2026, 10, 16) AndAlso d1(0).Evidence.StartsWith("خلال", StringComparison.Ordinal), "Relative deadline in days")
+        Dim d2 = DeadlineExtractor.Extract("على أن يتم ذلك خلال عشرة أيام عمل.", baseDate)
+        Check(d2.Count = 1 AndAlso d2(0).BusinessDays AndAlso d2(0).Due.GetValueOrDefault() = New DateTime(2026, 10, 15), "Business-day deadline skips Friday and Saturday")
+        Dim d3 = DeadlineExtractor.Extract("نأمل الرد خلال أسبوعين.", baseDate)
+        Check(d3.Count = 1 AndAlso d3(0).Due.GetValueOrDefault() = New DateTime(2026, 10, 15), "Deadline period in weeks")
+        Dim d4 = DeadlineExtractor.Extract("ونأمل تزويدنا بها في موعد أقصاه ١٤٤٨/٥/١هـ.", Nothing)
+        Check(d4.Count = 1 AndAlso Not d4(0).IsRelative AndAlso d4(0).Due.GetValueOrDefault() = New UmAlQuraCalendar().ToDateTime(1448, 5, 1, 0, 0, 0, 0), "Absolute Hijri deadline")
+        Dim d5 = DeadlineExtractor.Extract("خلال 15 يوماً من تاريخه", Nothing)
+        Check(d5.Count = 1 AndAlso Not d5(0).Due.HasValue, "Relative deadline without document date keeps days only")
+        Check(DeadlineExtractor.Extract("تم ذلك خلال اجتماع اللجنة وخلال 2025 بلغ العدد 15.", baseDate).Count = 0, "No deadline from unrelated 'during' phrases")
+        Dim d6 = DeadlineExtractor.Extract("نأمل تزويدنا بالبيانات خلال (15) leg, من تاريخه، مع بيان الأسباب.", baseDate)
+        Check(d6.Count = 1 AndAlso d6(0).Days = 15 AndAlso d6(0).Due.GetValueOrDefault() = New DateTime(2026, 10, 16), "OCR-garbled unit before 'from its date' read as days")
+        Check(DeadlineExtractor.Extract("خلال (15) يوماً من تاريخه", baseDate).Count = 1, "No double count when unit is readable")
+        Check(DeadlineExtractor.EarliestDue("خلال 30 يوماً، أو في موعد أقصاه 2026/10/05م", baseDate).GetValueOrDefault() = New DateTime(2026, 10, 5), "Earliest due date wins")
     End Sub
 
     Private Sub TestProcesses()
