@@ -14,6 +14,8 @@ public static class ProcessRunner
             StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8,
         };
         foreach (var a in args) psi.ArgumentList.Add(a);
+        // التوازي يأتي من معالجة عدة مستندات معاً؛ خيوط OpenMP داخل كل قراءة تتزاحم حينها وتبطئ Tesseract بشدة.
+        psi.Environment["OMP_THREAD_LIMIT"] = "1";
         using var p = new Process { StartInfo = psi };
         p.Start();
         var outTask = p.StandardOutput.ReadToEndAsync(ct);

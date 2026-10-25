@@ -1,5 +1,6 @@
 // بصيرة — الصفحات الرئيسية: لوحة القيادة، المعاملات، المستندات.
 import { h, s, icon, api, fmt, nf, mount, highlight, markTerms, toast, can, state, dirClass, dirIcon, docChips, statusChip, dueChip, onEvent } from './core.js';
+import { checkCard } from './review.js';
 
 export const pageHead = (title, sub, ...actions) => h('div', { class: 'page-head' }, h('div', {}, h('h1', { text: title }), sub ? h('p', { text: sub }) : null), h('div', { class: 'actions' }, actions));
 export const empty = (iconName, text, action) => h('div', { class: 'empty' }, icon(iconName), h('p', { text }), action ? h('div', { style: 'margin-top:12px' }, action) : null);
@@ -182,10 +183,11 @@ export async function renderDocs(view, params) {
 }
 
 // ======================= صفحة المستند =======================
-export async function renderDoc(view, id) {
+export async function renderDoc(view, id, onCount) {
   const d = await api('/documents/' + encodeURIComponent(id));
   const doc = d.document;
   let version = doc.version;
+  const pendingChecks = (d.checks || []).filter(k => k.state === 'pending');
   const tabsBody = h('div');
   const tabs = h('div', { class: 'tabs', role: 'tablist' });
   const tabDefs = [['text', 'النص'], ...(d.can.file ? [['original', 'الأصل']] : []), ...(d.can.edit && !d.restricted ? [['edit', 'البيانات']] : []), ['history', `السجل (${nf.format(d.revisions.length)})`]];
@@ -196,11 +198,18 @@ export async function renderDoc(view, id) {
     if (d.restricted) return empty('shield', 'نص هذا المستند الحساس متاح للمراجعين ومديري الأرشيف فقط.');
     if (!d.text) return empty('docs', doc.processing === 'queued' ? 'المستند قيد المعالجة؛ يظهر النص هنا عند اكتمالها.' : 'لا يوجد نص مستخرج. يمكن إعادة المعالجة أو إدخال النص من «البيانات».');
     const ranges = [
-      ...d.references.map((r, i) => ({ offset: r.offset, length: r.length, cls: 'ref', id: 'ref-' + i, title: `${r.kindLabel} ${r.documentType} رقم ${r.rawNumber}${r.target ? ' ← ' + r.target.archiveNo : ' (غير مؤرشف)'}`, onclick: r.target ? () => location.hash = docLink(r.target.id) : null })),
+      ...d.references.map((r, i) => ({ offset: r.offset, length: r.length, cls: 'ref', id: 'ref-' + i, title: `${r.kindLabel} ${r.documentType} رقم ${r.rawNumber}${r.target ? ' ← ' + r.target.archiveNo : r.pending ? ' (بانتظار التحقق)' : ' (غير مؤرشف)'}`, onclick: r.target ? () => location.hash = docLink(r.target.id) : null })),
       ...d.deadlines.map(x => ({ offset: x.offset, length: x.length, cls: 'due', title: x.due ? `مهلة: ${fmt.both(x.due)}` : 'مهلة' })),
     ];
+    // الحقول غير المؤكدة: تُميَّز في موضعها (أو يُضاف التمييز إلى الإشارة أو المهلة المتداخلة معها).
+    for (const k of pendingChecks) {
+      if (k.offset < 0 || !k.length) continue;
+      const hit = ranges.find(r => r.offset < k.offset + k.length && k.offset < r.offset + r.length);
+      if (hit) { hit.cls += ' pending'; hit.title = 'بانتظار التحقق • ' + hit.title; }
+      else ranges.push({ offset: k.offset, length: k.length, cls: 'check pending', title: `${k.fieldLabel}: بانتظار التحقق (${k.reason})` });
+    }
     return h('div', {},
-      ranges.length ? h('div', { class: 'legend', style: 'padding:12px 22px 0' }, d.references.length ? h('span', {}, h('i', { style: 'background:var(--brand)' }), 'إشارة إلى مستند (انقر للانتقال)') : null, d.deadlines.length ? h('span', {}, h('i', { style: 'background:var(--accent)' }), 'مهلة مطلوبة') : null) : null,
+      ranges.length ? h('div', { class: 'legend', style: 'padding:12px 22px 0' }, d.references.length ? h('span', {}, h('i', { style: 'background:var(--brand)' }), 'إشارة إلى مستند (انقر للانتقال)') : null, d.deadlines.length ? h('span', {}, h('i', { style: 'background:var(--accent)' }), 'مهلة مطلوبة') : null, pendingChecks.length ? h('span', {}, h('i', { class: 'pending-swatch' }), 'قراءة بانتظار التحقق') : null) : null,
       h('div', { class: 'textview' }, highlight(d.text, ranges)));
   }
   function originalTab() {
@@ -267,18 +276,35 @@ export async function renderDoc(view, id) {
   const tabContent = k => k === 'text' ? textTab() : k === 'original' ? originalTab() : k === 'edit' ? editTab() : historyTab();
 
   // ===== اللوحة الجانبية =====
-  const refItems = d.references.map((r, i) => h('div', { class: 'ref-item' + (r.target ? '' : ' missing') },
+  const refItems = d.references.map((r, i) => h('div', { class: 'ref-item' + (r.target ? '' : r.pending ? ' pending' : ' missing') },
     h('div', { class: 'row' }, h('span', { class: 'chip ' + (r.target ? 'ok' : ''), text: r.kindLabel }), h('b', { text: `${r.documentType || 'مستند'} رقم ${r.rawNumber}` })),
     h('div', { class: 'muted small', style: 'margin-top:4px', text: [r.dateText && (r.calendar === 'هجري' && r.date ? `${r.dateText} (${fmt.greg(r.date)})` : r.dateText), r.ownerLabel].filter(Boolean).join(' • ') }),
     r.target ? h('a', { href: docLink(r.target.id), style: 'display:block;margin-top:6px;font-weight:600' }, icon('link'), ` ${r.target.archiveNo} — ${r.target.title}`)
+      : r.pending ? h('div', { class: 'small', style: 'margin-top:6px;color:var(--accent);font-weight:600' }, icon('eye'), ' قراءتها بانتظار التحقق؛ لا تُربط حتى تُؤكد')
       : h('div', { class: 'muted small', style: 'margin-top:6px' }, icon('ghost'), ' غير موجود في الأرشيف'),
+    r.suggestion ? h('a', { href: docLink(r.suggestion.id), class: 'small', style: 'display:block;margin-top:4px' }, icon('search'), ` ربما: ${r.suggestion.archiveNo} — ${r.suggestion.title} (${r.suggestion.reason})`) : null,
     h('button', { class: 'btn ghost sm', style: 'margin-top:4px', onclick: () => { showTab('text'); setTimeout(() => document.getElementById('ref-' + i)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50); } }, 'موضعها في النص')));
   const cited = d.citedBy.map(c => h('a', { class: 'ref-item', style: 'display:block', href: docLink(c.id) }, h('span', { class: 'chip ok', text: c.kind }), ' ', h('b', { class: 'num', text: c.archiveNo }), h('div', { text: c.title })));
-  const deadlines = d.deadlines.map(x => h('div', { class: 'ref-item' }, h('div', { class: 'row' }, h('span', { class: 'chip warn' }, icon('clock'), x.label), x.due ? h('b', { text: fmt.both(x.due) }) : h('span', { class: 'muted small', text: 'حدد تاريخ المستند لحساب الاستحقاق' })), h('div', { class: 'q', text: '«' + x.evidence + '»' })));
+  const deadlines = d.deadlines.map(x => h('div', { class: 'ref-item' }, h('div', { class: 'row' }, h('span', { class: 'chip warn' }, icon('clock'), x.label), x.due ? h('b', { text: fmt.both(x.due) }) : h('span', { class: 'muted small', text: pendingChecks.some(k => k.field === 'date') ? 'يُحسب الاستحقاق بعد التحقق من تاريخ الخطاب' : 'حدد تاريخ المستند لحساب الاستحقاق' })), h('div', { class: 'q', text: '«' + x.evidence + '»' })));
   const comments = h('div', {}, d.comments.length ? d.comments.map(c => h('div', { class: 'comment' }, h('b', { text: c.author }), h('span', { class: 'muted small', text: ' • ' + fmt.time(c.createdAt) }), h('p', { text: c.body }))) : h('p', { class: 'muted small', text: 'لا ملاحظات بعد.' }));
   const cbox = h('textarea', { placeholder: 'أضف ملاحظة للفريق…', style: 'min-height:70px;margin-top:10px', 'aria-label': 'ملاحظة' });
   const addComment = h('button', { class: 'btn sm', style: 'margin-top:8px', onclick: async () => { if (!cbox.value.trim()) return; await api(`/documents/${encodeURIComponent(id)}/comments`, { method: 'POST', body: { body: cbox.value } }); renderDoc(view, id); } }, icon('message'), 'إضافة');
 
+  // ===== التحقق من القراءة الآلية =====
+  let verifyPanel = null;
+  if ((d.checks || []).length) {
+    const autoCount = d.checks.filter(k => k.state === 'auto').length;
+    const reviewed = d.checks.filter(k => k.state === 'confirmed' || k.state === 'corrected');
+    const cards = d.can.edit ? pendingChecks.map(k => checkCard({ check: k, document: { id, archiveNo: doc.archiveNo, title: doc.title } }, { showDoc: false, onDone: n => { onCount?.(n); setTimeout(() => renderDoc(view, id, onCount), 700); } }))
+      : pendingChecks.map(k => h('div', { class: 'ref-item pending' }, h('b', { text: k.fieldLabel }), h('div', { class: 'small', text: k.spanText }), h('div', { class: 'muted small', text: k.reason })));
+    verifyPanel = h('section', { class: 'card pad panel verify' },
+      h('h3', {}, icon('eye'), 'التحقق من القراءة الآلية'),
+      h('p', { class: 'small', text: pendingChecks.length
+        ? `${nf.format(pendingChecks.length)} من الحقول الحرجة بانتظار التحقق؛ لا تُبنى عليها روابط ولا مهل حتى تُحسم.`
+        : 'كل الحقول الحرجة مؤكدة.' }),
+      h('p', { class: 'muted small', text: [autoCount ? `${nf.format(autoCount)} أُكدت آلياً (اتفاق قراءتين مستقلتين بثقة عالية)` : '', reviewed.length ? `${nf.format(reviewed.length)} حسمها مراجع` : ''].filter(Boolean).join(' • ') }),
+      cards);
+  }
   const threadPanel = h('section', { class: 'card pad panel', hidden: !doc.thread });
   if (doc.thread) renderThread(null, doc.thread, id).then(node => { node.querySelector('.page-head')?.remove(); mount(threadPanel, h('h3', {}, icon('thread'), 'خيط المعاملة', h('a', { href: '#/thread/' + encodeURIComponent(doc.thread), class: 'small', style: 'margin-inline-start:auto;font-weight:600', text: 'فتح المعاملة' })), node); }).catch(() => {});
 
@@ -303,17 +329,19 @@ export async function renderDoc(view, id) {
         d.can.edit && doc.hasFile ? h('button', { class: 'btn', onclick: async () => { await api(`/documents/${encodeURIComponent(id)}/reprocess`, { method: 'POST' }); toast('أُرسل المستند لإعادة المعالجة'); } }, icon('refresh'), 'إعادة المعالجة') : null,
         d.can.file ? h('a', { class: 'btn', href: `/api/documents/${encodeURIComponent(id)}/file?download=true` }, icon('download'), 'الأصل') : null)),
     doc.processing === 'failed' || d.processingError ? h('div', { class: 'card pad', style: 'margin-bottom:14px;border-color:var(--accent)' }, h('div', { class: 'row' }, icon('alert'), h('span', { text: d.processingError || 'تعذرت المعالجة.' }))) : null,
+    d.scanQuality && !d.processingError ? h('div', { class: 'card pad', style: 'margin-bottom:14px;border-color:var(--accent)' }, h('div', { class: 'row' }, icon('alert'), h('span', { text: 'جودة المسح دون الحد المقبول: ' + d.scanQuality + '. يُنصح بإعادة المسح بدقة 300 نقطة/بوصة.' }))) : null,
     h('div', { class: 'doc-layout' },
       h('section', { class: 'card' }, tabs, tabsBody),
       h('aside', { class: 'stack' },
         h('section', { class: 'card pad panel' }, h('h3', {}, icon('docs'), 'البطاقة'), h('dl', { class: 'kv' },
           [['الاتجاه', doc.direction], ['من', doc.sourceEntity], ['إلى', doc.destinationEntity], ['رقم الجهة', doc.externalNo], ['رقم الصادر', doc.outgoingNo], ['القيد الوارد', doc.incomingNo], ['التصنيف', [doc.category, doc.subCategory].filter(Boolean).join(' / ')], ['الموعد', doc.due ? fmt.both(doc.due) : ''], ['أُدرج', `${fmt.time(doc.createdAt)} • ${d.createdBy}`]]
             .filter(x => x[1]).flatMap(([k, v]) => [h('dt', { text: k }), h('dd', { text: v })])), doc.summary ? h('p', { class: 'small', style: 'margin-top:10px', text: doc.summary }) : null),
+        verifyPanel,
         threadPanel,
         refItems.length ? h('section', { class: 'card pad panel' }, h('h3', {}, icon('link'), `يشير إلى (${nf.format(refItems.length)})`), refItems) : null,
         cited.length ? h('section', { class: 'card pad panel' }, h('h3', {}, icon('arrow'), `أشار إليه (${nf.format(cited.length)})`), cited) : null,
         deadlines.length ? h('section', { class: 'card pad panel' }, h('h3', {}, icon('clock'), 'المهل في النص'), deadlines) : null,
         h('section', { class: 'card pad panel' }, h('h3', {}, icon('message'), 'ملاحظات الفريق'), comments, cbox, addComment))));
   showTab(current);
-  const off = onEvent(msg => { if (msg.type === 'job' && msg.payload.documentId === id && (msg.payload.state === 'done' || msg.payload.state === 'failed') && document.body.contains(view.firstChild)) { off(); renderDoc(view, id); } });
+  const off = onEvent(msg => { if (msg.type === 'job' && msg.payload.documentId === id && (msg.payload.state === 'done' || msg.payload.state === 'failed') && document.body.contains(view.firstChild)) { off(); renderDoc(view, id, onCount); } });
 }

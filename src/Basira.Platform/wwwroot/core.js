@@ -209,5 +209,7 @@ export function docChips(doc) {
     doc.processing === 'queued' || doc.processing === 'processing' ? h('span', { class: 'chip' }, icon('refresh'), 'قيد المعالجة') : null,
     doc.processing === 'failed' ? h('span', { class: 'chip danger' }, 'تعذرت المعالجة') : null,
     doc.processing === 'needs_text' ? h('span', { class: 'chip warn' }, 'بلا نص') : null,
+    doc.pendingChecks ? h('span', { class: 'chip warn', title: 'حقول قرأها التعرف الضوئي بانتظار تأكيد مراجع' }, icon('eye'), `${nf.format(doc.pendingChecks)} بانتظار التحقق`) : null,
+    doc.scanIssues ? h('span', { class: 'chip danger', title: 'جودة المسح دون الحد المقبول' }, icon('alert'), 'مسح ضعيف') : null,
   ];
 }

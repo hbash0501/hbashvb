@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Threading.Channels;
 using Basira.Platform.Data;
 using Basira.Platform.Infrastructure;
+using Basira.Platform.Processing.Ocr;
 
 namespace Basira.Platform.Processing;
 
@@ -16,13 +17,14 @@ public sealed class ProcessingQueue : BackgroundService
     private readonly FileStore _files;
     private readonly SettingsStore _settings;
     private readonly EventHub _events;
+    private readonly ReviewStore _review;
     private readonly TextExtractor _extractor = new();
     private readonly PlatformOptions _options;
     private readonly ILogger<ProcessingQueue> _log;
 
-    public ProcessingQueue(Db db, DocumentStore docs, FileStore files, SettingsStore settings, EventHub events, PlatformOptions options, ILogger<ProcessingQueue> log)
+    public ProcessingQueue(Db db, DocumentStore docs, FileStore files, SettingsStore settings, EventHub events, ReviewStore review, PlatformOptions options, ILogger<ProcessingQueue> log)
     {
-        _db = db; _docs = docs; _files = files; _settings = settings; _events = events; _options = options; _log = log;
+        _db = db; _docs = docs; _files = files; _settings = settings; _events = events; _review = review; _options = options; _log = log;
     }
 
     public void Enqueue(Doc d)
@@ -104,6 +106,17 @@ public sealed class ProcessingQueue : BackgroundService
         Report(current with { Stage = "قراءة الترويسة والإشارات", Progress = 92 });
         var header = LetterFields.Parse(extraction.Text);
         var stem = Path.GetFileNameWithoutExtension(doc.FileName);
+        var rows = new List<FieldCheckRow>();
+        foreach (var x in extraction.Checks)
+        {
+            var cropId = "";
+            if (x.Crop is not null) { using var ms = new MemoryStream(x.Crop); cropId = (await _files.SaveAsync(ms, ct)).Sha; }
+            var k = x.Check;
+            var target = k.Field switch { "number" => doc.Direction == "صادر" ? "outgoing_no" : "external_no", "date" => "document_date", "subject" => "title", _ => "" };
+            rows.Add(new FieldCheckRow(0, doc.Id, k.Field, target, k.Value, k.Candidates, k.Confident ? CheckStates.Auto : CheckStates.Pending, k.Reason, k.Page,
+                k.Box.IsEmpty ? "" : $"{k.Box.Left},{k.Box.Top},{k.Box.Right},{k.Box.Bottom}", k.Offset, k.Length, x.SpanText, cropId, "", "", "", ""));
+        }
+        var pending = rows.Count(r => r.Pending);
         _docs.Update(doc.Id, null, d =>
         {
             d.Text = extraction.Text;
@@ -111,6 +124,7 @@ public sealed class ProcessingQueue : BackgroundService
             d.OcrQuality = extraction.Quality;
             d.Processing = extraction.Text.Length > 0 ? "done" : "needs_text";
             d.ProcessingError = extraction.Warning;
+            d.ScanQuality = string.Join("؛ ", extraction.ScanIssues);
             if ((d.Title == "" || d.Title == stem) && header.Subject != "") d.Title = header.Subject;
             if (d.DocumentDate == "" && header.DateIso != "") d.DocumentDate = header.DateIso;
             if (header.Number != "")
@@ -127,7 +141,10 @@ public sealed class ProcessingQueue : BackgroundService
                 if (d.SourceEntity == "") d.SourceEntity = header.Sender;
             }
             else if (d.SourceEntity == "") d.SourceEntity = header.Sender;
-        }, SystemActor, $"استخراج النص ({extraction.Engine}، {extraction.Text.Length} حرفاً)", "معالجة مستند");
-        Report(current with { State = "done", Stage = extraction.Text.Length > 0 ? "اكتملت المعالجة" : "اكتمل الحفظ دون نص", Progress = 100, Message = extraction.Warning, FinishedAt = Clock.Now() });
+        }, SystemActor, $"استخراج النص ({extraction.Engine}، {extraction.Text.Length} حرفاً)", "معالجة مستند",
+            (c, tx, _) => ReviewStore.Replace(c, tx, doc.Id, rows));
+        _review.NotifyChanged();
+        var message = string.Join(" ", new[] { pending > 0 ? $"{pending} من الحقول الحرجة بانتظار التحقق." : "", extraction.Warning }.Where(m => m != ""));
+        Report(current with { State = "done", Stage = extraction.Text.Length > 0 ? "اكتملت المعالجة" : "اكتمل الحفظ دون نص", Progress = 100, Message = message, FinishedAt = Clock.Now() });
     }
 }

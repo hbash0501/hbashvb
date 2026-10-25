@@ -4,7 +4,14 @@ using Basira.Platform.Data;
 
 namespace Basira.Platform.Intelligence;
 
-public sealed record RefInfo(CorrespondenceReference Reference, string? TargetId, string GhostKey);
+public sealed record RefInfo(CorrespondenceReference Reference, string? TargetId, string GhostKey)
+{
+    /// <summary>قراءة الإشارة غير مؤكدة: لا رابط ولا خطاب غائب حتى يتحقق منها مراجع.</summary>
+    public bool Pending { get; init; }
+    /// <summary>مستند في الأرشيف قد يكون المقصود (رقمه مطابق لكنه غير مؤكد، أو يختلف بحرف واحد).</summary>
+    public string? SuggestedId { get; init; }
+    public string SuggestionReason { get; init; } = "";
+}
 public sealed record Edge(string From, string To, string Kind);
 public sealed record Ghost(string Key, string Number, string DateText, string Kind, string Owner, string Issuer, List<string> CitedBy);
 public sealed record AwaitingItem(string DocumentId, int DaysWaiting, string Since);
@@ -40,6 +47,8 @@ public sealed class Snapshot
     public HealthMetrics Metrics { get; init; } = new();
     public DateTime BuiltAt { get; init; } = DateTime.MinValue;
     public int ReplyDays { get; init; } = 7;
+    /// <summary>عدد الحقول الحرجة غير المؤكدة لكل مستند.</summary>
+    public IReadOnlyDictionary<string, int> PendingChecks { get; init; } = new Dictionary<string, int>();
 
     public static DateTime? ParseIso(string v) =>
         DateTime.TryParseExact(v, new[] { "yyyy-MM-dd", "yyyy-MM-ddTHH:mm:ss.fffZ", "yyyy-MM-ddTHH:mm:ssZ", "o" }, CultureInfo.InvariantCulture,
@@ -54,16 +63,19 @@ public sealed class ArchiveIndex
 {
     private readonly DocumentStore _docs;
     private readonly SettingsStore _settings;
+    private readonly ReviewStore _review;
     private readonly object _lock = new();
     private Snapshot _current = new();
     private bool _dirty = true;
     private Task? _building;
 
-    public ArchiveIndex(DocumentStore docs, SettingsStore settings)
+    public ArchiveIndex(DocumentStore docs, SettingsStore settings, ReviewStore review)
     {
         _docs = docs;
         _settings = settings;
+        _review = review;
         docs.Changed += () => { lock (_lock) _dirty = true; };
+        review.Changed += () => { lock (_lock) _dirty = true; };
     }
 
     public Snapshot Current => _current;
@@ -78,7 +90,7 @@ public sealed class ArchiveIndex
                 _dirty = false;
                 _building = Task.Run(() =>
                 {
-                    try { _current = Build(_docs.All(), _settings.GetInt("reply_days", 7, 1, 120), DateTime.Today); }
+                    try { _current = Build(_docs.All(), _settings.GetInt("reply_days", 7, 1, 120), DateTime.Today, _review.PendingByDocument()); }
                     finally { lock (_lock) _building = null; }
                 });
             }
@@ -103,11 +115,32 @@ public sealed class ArchiveIndex
         CreatedAt = Snapshot.ParseIso(d.CreatedAt) ?? DateTime.MinValue, UpdatedAt = Snapshot.ParseIso(d.UpdatedAt) ?? DateTime.MinValue,
     };
 
-    public static Snapshot Build(List<Doc> docs, int replyDays, DateTime today)
+    /// <summary>
+    /// يبني اللقطة. الحقول المقروءة آلياً وغير المؤكدة (pending) تُعلِّق القرارات المبنية عليها:
+    /// الإشارة غير المؤكدة لا تربط ولا تنشئ خطاباً غائباً، والتاريخ غير المؤكد لا تُحسب منه مهلة،
+    /// والرقم غير المؤكد لا يُعتمد هوية للمستند (فلا تُربط به إشارات المستندات الأخرى إلا اقتراحاً).
+    /// </summary>
+    public static Snapshot Build(List<Doc> docs, int replyDays, DateTime today, IReadOnlyDictionary<string, List<FieldCheckRow>>? pending = null)
     {
+        pending ??= new Dictionary<string, List<FieldCheckRow>>();
+        bool PendingField(string id, string field) => pending.TryGetValue(id, out var l) && l.Any(k => k.Field == field);
+        bool PendingSpan(string id, string field, int off, int len) =>
+            pending.TryGetValue(id, out var l) && l.Any(k => k.Field == field && k.Offset >= 0 && k.Offset < off + len && off < k.Offset + Math.Max(1, k.Length));
+        Doc Gate(Doc d)
+        {
+            if (!pending.TryGetValue(d.Id, out var l) || !l.Any(k => k.Field == "number")) return d;
+            var g = d.Clone();
+            foreach (var k in l.Where(k => k.Field == "number"))
+                if (k.Target == "outgoing_no") g.OutgoingNo = ""; else if (k.Target == "external_no") g.ExternalNo = "";
+            return g;
+        }
         var byId = docs.ToDictionary(d => d.Id);
         // فهرس الأرقام لا يعتمد على المواعيد؛ يُبنى أولاً لاستخراج الروابط.
-        var refIndex = new CorrespondenceIndex(docs.Select(d => ToRecord(d, "")).ToList());
+        var refIndex = new CorrespondenceIndex(docs.Select(d => ToRecord(Gate(d), "")).ToList());
+        // أرقام الأرشيف للاقتراح: المؤكدة، وغير المؤكدة (رقم الترويسة المعلق).
+        var pendingNumbers = pending.Values.SelectMany(l => l).Where(k => k.Field == "number" && k.Value != "" && byId.ContainsKey(k.DocumentId))
+            .Select(k => (k.DocumentId, Key: CorrespondenceReferenceParser.NumberKey(k.Value))).ToList();
+        var knownNumbers = docs.Select(Gate).SelectMany(d => new[] { d.OutgoingNo, d.IncomingNo, d.ExternalNo }.Where(n => n != "").Select(n => (DocumentId: d.Id, Key: CorrespondenceReferenceParser.NumberKey(n)))).ToList();
 
         // الإشارات وروابطها، والخطابات المشار إليها غير الموجودة في الأرشيف («أشباح»).
         var references = new Dictionary<string, List<RefInfo>>();
@@ -120,16 +153,30 @@ public sealed class ArchiveIndex
             {
                 var r = m.Reference;
                 var target = m.Documents.FirstOrDefault()?.Id;
+                // الاقتراح: رقم مطابق لرقم معلق التحقق، أو رقم يختلف بحرف واحد عن رقم في الأرشيف (خطأ قراءة محتمل في أحدهما).
+                string? suggested = null; var why = "";
+                if (target is null)
+                {
+                    if (pendingNumbers.FirstOrDefault(p => p.DocumentId != d.Id && CorrespondenceReferenceParser.NumbersMatch(p.Key, r.Number)) is { DocumentId: not null } p1)
+                    { suggested = p1.DocumentId; why = "رقمه مطابق لكنه بانتظار التحقق"; }
+                    else if (knownNumbers.Concat(pendingNumbers).FirstOrDefault(p => p.DocumentId != d.Id && OneEditApart(p.Key, r.Number)) is { DocumentId: not null } p2)
+                    { suggested = p2.DocumentId; why = "رقمه يختلف بحرف واحد"; }
+                }
+                if (PendingSpan(d.Id, "reference", r.Offset, r.Length))
+                {
+                    list.Add(new RefInfo(r, null, "") { Pending = true, SuggestedId = suggested ?? target, SuggestionReason = target is not null ? "يطابق بعد التحقق من القراءة" : why });
+                    continue;
+                }
                 var ghostKey = "";
                 if (target is not null) edges.Add(new Edge(d.Id, target, r.KindLabel));
-                else if (r.Kind != ReferenceKind.LegalBasis && r.Kind != ReferenceKind.Registration)
+                else if (r.Kind != ReferenceKind.LegalBasis && r.Kind != ReferenceKind.Registration && !(suggested is not null && why.StartsWith("رقمه مطابق", StringComparison.Ordinal)))
                 {
                     ghostKey = "ghost:" + r.Number;
                     if (!ghosts.TryGetValue(ghostKey, out var g))
                         ghosts[ghostKey] = g = new Ghost(ghostKey, r.RawNumber, r.DateText, (r.DocumentType == "" ? "مستند" : r.DocumentType), r.OwnerLabel, r.Issuer, new List<string>());
                     if (!g.CitedBy.Contains(d.Id)) g.CitedBy.Add(d.Id);
                 }
-                list.Add(new RefInfo(r, target, ghostKey));
+                list.Add(new RefInfo(r, target, ghostKey) { SuggestedId = suggested, SuggestionReason = why });
             }
             references[d.Id] = list;
         }
@@ -140,13 +187,16 @@ public sealed class ArchiveIndex
         var due = new Dictionary<string, (string, string)>();
         foreach (var d in docs)
         {
-            var hints = DeadlineExtractor.Extract(d.Text, Snapshot.DateOf(d) == DateTime.MinValue ? null : Snapshot.DateOf(d));
+            // تاريخ الخطاب غير المؤكد لا يصلح أساساً للمهل النسبية («خلال 15 يوماً من تاريخه»).
+            var baseDate = PendingField(d.Id, "date") || Snapshot.DateOf(d) == DateTime.MinValue ? (DateTime?)null : Snapshot.DateOf(d);
+            var hints = DeadlineExtractor.Extract(d.Text, baseDate);
             deadlines[d.Id] = hints;
+            var usable = hints.Where(h => h.Due.HasValue && !PendingSpan(d.Id, "deadline", h.Offset, h.Length) && !PendingSpan(d.Id, "date", h.Offset, h.Length)).ToList();
             if (d.DueDate != "") due[d.Id] = (d.DueDate, "محدد يدوياً");
-            else if (!answered.Contains(d.Id) && hints.FirstOrDefault(h => h.Due.HasValue) is { } first)
+            else if (!answered.Contains(d.Id) && usable.Count > 0)
             {
-                var earliest = hints.Where(h => h.Due.HasValue).Min(h => h.Due!.Value);
-                due[d.Id] = (earliest.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), "مستخرج من النص: " + first.Evidence);
+                var earliest = usable.Min(h => h.Due!.Value);
+                due[d.Id] = (earliest.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), "مستخرج من النص: " + usable.First(h => h.Due == earliest).Evidence);
             }
         }
         var records = docs.Select(d => ToRecord(d, due.TryGetValue(d.Id, out var x) ? x.Item1 : "")).ToList();
@@ -165,7 +215,8 @@ public sealed class ArchiveIndex
         foreach (var d in docs)
         {
             if (d.Direction != "وارد" || BasiraEngine.IsClosed(ToRecord(d, "")) || cited.Contains(d.Id)) continue;
-            var since = Snapshot.DateOf(d);
+            // تاريخ غير مؤكد: يُحسب الانتظار من تاريخ الإدراج (حد أدنى مضمون) لا من التاريخ المقروء.
+            var since = PendingField(d.Id, "date") ? (Snapshot.ParseIso(d.CreatedAt)?.Date ?? DateTime.MinValue) : Snapshot.DateOf(d);
             if (since == DateTime.MinValue) continue;
             var days = (int)(today - since).TotalDays;
             if (days >= replyDays) awaiting.Add(new AwaitingItem(d.Id, days, since.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
@@ -206,6 +257,21 @@ public sealed class ArchiveIndex
             Docs = docs, ById = byId, Engine = engine, References = references, Deadlines = deadlines, EffectiveDue = due,
             Edges = edges, ThreadOf = threadOf, Threads = threads, Awaiting = awaiting, Ghosts = ghosts.Values.ToList(),
             Findings = findings, Metrics = ArchiveHealthReportService.Compute(records, findings), BuiltAt = DateTime.Now, ReplyDays = replyDays,
+            PendingChecks = pending.Where(p => byId.ContainsKey(p.Key)).ToDictionary(p => p.Key, p => p.Value.Count),
         };
+    }
+
+    /// <summary>رقمان (بعد التوحيد) يختلفان بإبدال حرف أو حذفه أو إضافته، بطول 4 فأكثر (الأرقام القصيرة تتشابه صدفة).</summary>
+    public static bool OneEditApart(string a, string b)
+    {
+        if (a.Length < 4 || b.Length < 4 || a == b || Math.Abs(a.Length - b.Length) > 1) return false;
+        int i = 0, j = 0, edits = 0;
+        while (i < a.Length && j < b.Length)
+        {
+            if (a[i] == b[j]) { i++; j++; continue; }
+            if (++edits > 1) return false;
+            if (a.Length > b.Length) i++; else if (b.Length > a.Length) j++; else { i++; j++; }
+        }
+        return edits + (a.Length - i) + (b.Length - j) <= 1;
     }
 }

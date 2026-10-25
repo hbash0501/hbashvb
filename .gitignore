@@ -3,3 +3,6 @@
 bin/
 dist/
 obj/
+
+# نماذج Tesseract الدقيقة: تُجلب بـ tools/fetch-tessdata.sh
+src/Basira.Platform/tessdata/*.traineddata

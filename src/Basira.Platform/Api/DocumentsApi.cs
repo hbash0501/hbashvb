@@ -86,7 +86,7 @@ public static class DocumentsApi
             return Results.Ok(new { total = rows.Count, page = p, pageSize = size, items = rows.Skip((p - 1) * size).Take(size).Select(r => Summary(r.Doc, s, u, r.Excerpt, r.Matches)) });
         });
 
-        g.MapGet("/documents/{id}", async (string id, HttpContext c, ArchiveIndex index, DocumentStore docs, AuditStore audit) =>
+        g.MapGet("/documents/{id}", async (string id, HttpContext c, ArchiveIndex index, DocumentStore docs, AuditStore audit, ReviewStore review) =>
         {
             var u = U(c);
             var d = docs.Get(id);
@@ -103,6 +103,8 @@ public static class DocumentsApi
                 text = restricted ? "" : d.Text,
                 restricted,
                 tags = d.Tags, fileName = d.FileName, fileSize = d.FileSize, pageCount = d.PageCount, ocrQuality = d.OcrQuality, processingError = d.ProcessingError,
+                scanQuality = d.ScanQuality,
+                checks = restricted ? new List<object>() : review.ForDocument(id).Select(ReviewApi.Describe).ToList(),
                 createdBy = d.CreatedBy, updatedBy = d.UpdatedBy, dueDateManual = d.DueDate,
                 references = restricted ? new List<object>() : refs.Select(x => (object)new
                 {
@@ -111,7 +113,8 @@ public static class DocumentsApi
                     date = x.Reference.Date?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), calendar = x.Reference.Calendar,
                     evidence = x.Reference.Evidence, offset = x.Reference.Offset, length = x.Reference.Length, confidence = x.Reference.Confidence,
                     target = x.TargetId is null ? null : new { id = x.TargetId, archiveNo = s.ById[x.TargetId].ArchiveNo, title = s.ById[x.TargetId].Title },
-                    missing = x.GhostKey != "",
+                    missing = x.GhostKey != "", pending = x.Pending,
+                    suggestion = x.SuggestedId is null || !s.ById.ContainsKey(x.SuggestedId) ? null : new { id = x.SuggestedId, archiveNo = s.ById[x.SuggestedId].ArchiveNo, title = s.ById[x.SuggestedId].Title, reason = x.SuggestionReason },
                 }).ToList(),
                 deadlines = restricted ? new List<object>() : (s.Deadlines.TryGetValue(id, out var dl) ? dl : new()).Select(h => (object)new
                 {

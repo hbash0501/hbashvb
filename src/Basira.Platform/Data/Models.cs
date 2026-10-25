@@ -31,6 +31,8 @@ public sealed class Doc
     public int OcrQuality { get; set; }
     public string Processing { get; set; } = "none";
     public string ProcessingError { get; set; } = "";
+    /// <summary>عيوب المسح التي رصدتها بوابة الجودة (مفصولة بـ «؛»)، فارغة إن كان المسح مقبولاً.</summary>
+    public string ScanQuality { get; set; } = "";
     public string CreatedAt { get; set; } = "";
     public string CreatedBy { get; set; } = "";
     public string UpdatedAt { get; set; } = "";

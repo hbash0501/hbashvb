@@ -31,6 +31,7 @@ builder.Services.AddSingleton<FileStore>();
 builder.Services.AddSingleton<AuditStore>();
 builder.Services.AddSingleton<UserStore>();
 builder.Services.AddSingleton<DocumentStore>();
+builder.Services.AddSingleton<ReviewStore>();
 builder.Services.AddSingleton<SettingsStore>();
 builder.Services.AddSingleton<ArchiveIndex>();
 builder.Services.AddSingleton<EventHub>();
@@ -100,6 +101,7 @@ DocumentsApi.Map(secured);
 IntelligenceApi.Map(secured);
 InboxApi.Map(secured);
 AdminApi.Map(secured);
+ReviewApi.Map(secured);
 app.MapGet("/healthz", () => Results.Text("ok"));
 app.MapFallback(async ctx =>
 {

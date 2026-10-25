@@ -3,7 +3,8 @@ FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 COPY AIDocumentArchiveVB ./AIDocumentArchiveVB
 COPY src ./src
-RUN dotnet publish src/Basira.Platform/Basira.Platform.csproj -c Release -o /app -p:DebugType=none
+COPY tools/fetch-tessdata.sh ./tools/
+RUN tools/fetch-tessdata.sh && dotnet publish src/Basira.Platform/Basira.Platform.csproj -c Release -o /app -p:DebugType=none
 
 FROM mcr.microsoft.com/dotnet/aspnet:8.0
 RUN apt-get update && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-ara tesseract-ocr-eng poppler-utils && rm -rf /var/lib/apt/lists/*

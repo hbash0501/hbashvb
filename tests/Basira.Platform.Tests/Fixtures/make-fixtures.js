@@ -18,10 +18,18 @@ const reply = page(`<div class="head"><h1>الإدارة العامة للشؤو
 <p>السلام عليكم ورحمة الله وبركاته</p>
 <p>إشارة إلى خطاب سعادتكم رقم 4521 وتاريخ 1447/03/12هـ بشأن طلب بيانات المشاريع المتعثرة، نرفق لكم البيان المطلوب متضمناً أسباب التعثر والإجراءات المتخذة.</p>
 <p>وتقبلوا تحياتنا</p>`);
+// خطاب بأرقام هندية (٠-٩): نماذج Tesseract العربية تقرؤها حروفاً لاتينية، ويصلحها قارئ الأرقام في المنصة.
+const indic = page(`<div class="head"><h1>ديوان المراقبة العامة</h1><div>الرقم: ٢٢٠٥٢<br>التاريخ: ١٤٤٨/٠٩/١٢هـ</div></div>
+<p>الموضوع: ملاحظات المراجعة المالية</p>
+<p>المكرم رئيس الهيئة المحترم</p>
+<p>السلام عليكم ورحمة الله وبركاته</p>
+<p>بالإشارة إلى خطاب سعادتكم رقم ٩٨٢٢٤ وتاريخ ١٤٤٨/٠٥/٠٢هـ بشأن ملاحظات المراجعة المالية، نفيدكم بأنه تمت دراسة الموضوع، ونأمل الإفادة خلال (٣٠) يوماً من تاريخه.</p>
+<p>وتقبلوا تحياتنا</p>`);
 (async () => {
   const b = await chromium.launch({ executablePath: process.env.CHROMIUM || '/opt/pw-browsers/chromium', args: ['--no-sandbox'] });
   const p = await b.newPage({ viewport: { width: 1100, height: 900 } });
   await p.setContent(incoming); await p.screenshot({ path: out + '/incoming-letter.png', fullPage: true });
+  await p.setContent(indic); await p.screenshot({ path: out + '/indic-letter.png', fullPage: true });
   await p.setContent(reply); await p.pdf({ path: out + '/reply-letter.pdf', format: 'A4', printBackground: true });
   await b.close();
 })();

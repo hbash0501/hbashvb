@@ -25,7 +25,7 @@ public static class LetterFields
         return sb.ToString();
     }
 
-    private static readonly Regex NumberRx = new(@"(?m)^[^\n]{0,40}?(?:الرقم|رقم\s+الصادر|رقم\s+الخطاب|رقم\s+القيد|الصادر\s+رقم|رقم\s+الوارد)\s*[:：]\s*(?<v>[A-Za-z0-9]+(?:\s*[/\-]\s*(?:[A-Za-z0-9]+|\p{L}{1,3}(?!\p{L})))*)", RegexOptions.Compiled);
+    private static readonly Regex NumberRx = new(@"(?m)^[^\n]{0,90}?(?:الرقم|رقم\s+الصادر|رقم\s+الخطاب|رقم\s+القيد|الصادر\s+رقم|رقم\s+الوارد)\s*[:：]\s*(?<v>[A-Za-z0-9]+(?:\s*[/\-]\s*(?:[A-Za-z0-9]+|\p{L}{1,3}(?!\p{L})))*)", RegexOptions.Compiled);
     private static readonly Regex DateRx = new(@"(?m)(?:^|\s{2,}|\b)التاريخ\s*[:：]\s*(?<v>[0-9]{1,4}\s*[/\-.]\s*[0-9]{1,2}\s*[/\-.]\s*[0-9]{1,4}\s*(?:ه|هـ|م)?|[0-9]{1,2}\s+\p{L}+(?:\s+\p{L}+)?\s+[0-9]{3,4}\s*(?:ه|م)?)", RegexOptions.Compiled);
     private static readonly Regex SubjectRx = new(@"(?m)^\s*الموضوع\s*[:：]\s*(?<v>[^\n]{3,160})$", RegexOptions.Compiled);
 

@@ -3,6 +3,13 @@ Basira includes the following third-party components:
 - .NET runtime and ASP.NET Core (MIT License) - https://github.com/dotnet
 - Microsoft.Data.Sqlite and SQLitePCLRaw (MIT License); SQLite (public domain) - https://sqlite.org
 - PdfPig (Apache License 2.0) - https://github.com/UglyToad/PdfPig
+- SkiaSharp (MIT License); Skia (BSD 3-Clause) - https://github.com/mono/SkiaSharp
+- Tesseract trained models, tessdata_best "ara" and "eng" (Apache License 2.0), in the tessdata folder
+  - https://github.com/tesseract-ocr/tessdata_best (license text: tessdata/LICENSE)
+- The digit reader's shape templates are feature vectors derived from glyph renderings of fonts licensed under the
+  SIL Open Font License 1.1 (no font software is included): Alexandria, Almarai, Amiri, Baloo Bhaijaan 2, Cairo, Changa,
+  El Messiri, Harmattan, IBM Plex Sans Arabic, Kufam, Lateef, Mada, Markazi Text, Mirza, Readex Pro, Reem Kufi,
+  Scheherazade New, Tajawal - https://github.com/google/fonts
 
 Optional external tools detected at runtime and not bundled:
 - Tesseract OCR (Apache License 2.0) - https://github.com/tesseract-ocr/tesseract

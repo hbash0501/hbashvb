@@ -2,9 +2,10 @@
 import { h, icon, api, mount, state, connectEvents, disconnectEvents, onEvent, nf, toast, can } from './core.js';
 import { renderDashboard, renderThreads, renderThread, renderDocs, renderDoc, empty } from './views.js';
 import { renderInbox, renderAsk, renderAdmin, renderAuth, openPalette } from './views2.js';
+import { renderReview } from './review.js';
 
 const root = document.getElementById('root');
-let view, navEls = {}, procBox, awaitingBadge;
+let view, navEls = {}, procBox, awaitingBadge, reviewBadge;
 
 function theme(set) {
   let t = null;
@@ -14,13 +15,14 @@ function theme(set) {
 theme();
 const isDark = () => document.documentElement.dataset.theme === 'dark' || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
 
-const SHORT = { '': 'الرئيسية', threads: 'المعاملات', docs: 'المستندات', inbox: 'إدراج', ask: 'اسأل', admin: 'الإدارة' };
-const NAV = [['', 'لوحة القيادة', 'home'], ['threads', 'المعاملات', 'thread'], ['docs', 'المستندات', 'docs'], ['inbox', 'الإدراج', 'upload'], ['ask', 'اسأل بصيرة', 'spark'], ['admin', 'الإدارة', 'sliders']];
+const SHORT = { '': 'الرئيسية', threads: 'المعاملات', docs: 'المستندات', review: 'التحقق', inbox: 'إدراج', ask: 'اسأل', admin: 'الإدارة' };
+const NAV = [['', 'لوحة القيادة', 'home'], ['threads', 'المعاملات', 'thread'], ['docs', 'المستندات', 'docs'], ['review', 'التحقق من القراءة', 'eye'], ['inbox', 'الإدراج', 'upload'], ['ask', 'اسأل بصيرة', 'spark'], ['admin', 'الإدارة', 'sliders']];
+const setReviewCount = n => { if (reviewBadge) { reviewBadge.textContent = nf.format(n); reviewBadge.hidden = !n; reviewBadge.title = 'حقول بانتظار التحقق'; } };
 
 function shell() {
   view = h('main', { class: 'content', id: 'view', tabindex: -1 });
-  const nav = h('nav', { class: 'nav', 'aria-label': 'التنقل الرئيسي' }, NAV.filter(([k]) => k !== 'inbox' || can('import')).filter(([k]) => k !== 'admin' || state.me.isAdmin || can('audit') || can('export'))
-    .map(([k, label, ic]) => navEls[k] = h('a', { href: '#/' + k }, icon(ic), h('span', { class: 'label-long', text: label }), h('span', { class: 'label-short', text: SHORT[k] }), k === 'threads' ? (awaitingBadge = h('span', { class: 'count', hidden: true })) : null)));
+  const nav = h('nav', { class: 'nav', 'aria-label': 'التنقل الرئيسي' }, NAV.filter(([k]) => k !== 'inbox' || can('import')).filter(([k]) => k !== 'review' || can('edit')).filter(([k]) => k !== 'admin' || state.me.isAdmin || can('audit') || can('export'))
+    .map(([k, label, ic]) => navEls[k] = h('a', { href: '#/' + k }, icon(ic), h('span', { class: 'label-long', text: label }), h('span', { class: 'label-short', text: SHORT[k] }), k === 'threads' ? (awaitingBadge = h('span', { class: 'count', hidden: true })) : k === 'review' ? (reviewBadge = h('span', { class: 'count warn', hidden: true })) : null)));
   procBox = h('div', { class: 'proc', hidden: true });
   const initials = (state.me.fullName || '؟').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('');
   const themeBtn = h('button', { class: 'btn ghost icon-btn', title: 'تبديل المظهر', 'aria-label': 'تبديل المظهر', onclick: () => { theme(isDark() ? 'light' : 'dark'); mount(themeBtn, icon(isDark() ? 'sun' : 'moon')); } }, icon(isDark() ? 'sun' : 'moon'));
@@ -52,14 +54,15 @@ async function route() {
   const key = section === 'doc' ? 'docs' : section === 'thread' ? 'threads' : section || '';
   for (const [k, el] of Object.entries(navEls)) el.setAttribute('aria-current', k === key ? 'page' : 'false');
   mount(view, h('div', { class: 'grid' }, h('div', { class: 'skeleton' }), h('div', { class: 'skeleton', style: 'min-height:240px' })));
-  const titles = { '': 'لوحة القيادة', threads: 'المعاملات', thread: 'معاملة', docs: 'المستندات', doc: 'مستند', inbox: 'الإدراج', ask: 'اسأل بصيرة', admin: 'الإدارة' };
+  const titles = { '': 'لوحة القيادة', threads: 'المعاملات', thread: 'معاملة', docs: 'المستندات', doc: 'مستند', review: 'التحقق من القراءة', inbox: 'الإدراج', ask: 'اسأل بصيرة', admin: 'الإدارة' };
   document.title = (titles[section || ''] || 'بصيرة') + ' | بصيرة';
   try {
     if (!section) await renderDashboard(view);
     else if (section === 'threads') await renderThreads(view, params);
     else if (section === 'thread') await renderThread(view, arg);
     else if (section === 'docs') await renderDocs(view, params);
-    else if (section === 'doc') await renderDoc(view, arg);
+    else if (section === 'doc') await renderDoc(view, arg, setReviewCount);
+    else if (section === 'review') await renderReview(view, setReviewCount);
     else if (section === 'inbox') await renderInbox(view);
     else if (section === 'ask') await renderAsk(view, params);
     else if (section === 'admin') await renderAdmin(view, arg);
@@ -79,6 +82,7 @@ function refreshBadges() {
     try {
       const d = await api('/dashboard');
       if (awaitingBadge) { awaitingBadge.textContent = nf.format(d.awaitingTotal); awaitingBadge.hidden = !d.awaitingTotal; awaitingBadge.title = 'وارد بانتظار الرد'; }
+      if (reviewBadge) setReviewCount((await api('/review/count')).pending);
     } catch { /* غير حرج */ }
   }, 600);
 }

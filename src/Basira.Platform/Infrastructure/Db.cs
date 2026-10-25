@@ -60,6 +60,19 @@ public sealed class Db
         CREATE TABLE settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
         CREATE TABLE counters(name TEXT PRIMARY KEY, value INTEGER NOT NULL);
         """,
+        // التحقق من القراءة الآلية: كل حقل حرج قرأه OCR (الرقم، التاريخ، الموضوع، الإشارة، المهلة) مع مقتطع صورته وحالته.
+        """
+        ALTER TABLE documents ADD COLUMN scan_quality TEXT NOT NULL DEFAULT '';
+        CREATE TABLE field_checks(
+          id INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+          field TEXT NOT NULL, target TEXT NOT NULL DEFAULT '', value TEXT NOT NULL, candidates TEXT NOT NULL DEFAULT '[]',
+          state TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', page INTEGER NOT NULL DEFAULT 0, box TEXT NOT NULL DEFAULT '',
+          text_offset INTEGER NOT NULL DEFAULT -1, text_length INTEGER NOT NULL DEFAULT 0, span_text TEXT NOT NULL DEFAULT '',
+          crop_id TEXT NOT NULL DEFAULT '', final_value TEXT NOT NULL DEFAULT '', reviewed_by TEXT NOT NULL DEFAULT '',
+          reviewed_at TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);
+        CREATE INDEX ix_checks_doc ON field_checks(document_id);
+        CREATE INDEX ix_checks_state ON field_checks(state);
+        """,
     };
 
     private void Migrate()

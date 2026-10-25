@@ -1,0 +1,322 @@
+# نتائج قياس OCR (tools/OcrBench). المجموعة المستقلة: البذرة 52219. مجموعة التطوير: البذرة 20261025. 160 صورة لكل مجموعة.
+# الأعمدة: المستوى | الحقل | صحيح | خاطئ | مفقود | خطأ صامت | معلَّم للتحقق
+
+## المجموعة المستقلة — baseline
+mode=baseline images=160 time=32s (0.8s/image/core)
+level     | field    | correct | wrong | missing | silent-wrong | flagged
+clean     | number   |   77.5% | 17.5% |    5.0% |        17.5% |    0.0%
+clean     | date     |   67.5% |  0.0% |   32.5% |         0.0% |    0.0%
+clean     | subject  |   97.5% |  0.0% |    2.5% |         0.0% |    0.0%
+clean     | refs     |   73.0% | 24.3% |    2.7% |        24.3% |    0.0%
+clean     | deadline |   91.3% |  0.0% |    8.7% |         0.0% |    0.0%
+mild      | number   |   77.5% | 17.5% |    5.0% |        17.5% |    0.0%
+mild      | date     |   70.0% |  2.5% |   27.5% |         2.5% |    0.0%
+mild      | subject  |   95.0% |  0.0% |    5.0% |         0.0% |    0.0%
+mild      | refs     |   35.1% | 54.1% |   10.8% |        54.1% |    0.0%
+mild      | deadline |   91.3% |  0.0% |    8.7% |         0.0% |    0.0%
+moderate  | number   |   55.0% | 12.5% |   32.5% |        12.5% |    0.0%
+moderate  | date     |   45.0% |  2.5% |   52.5% |         2.5% |    0.0%
+moderate  | subject  |    7.5% |  0.0% |   92.5% |         0.0% |    0.0%
+moderate  | refs     |    8.1% |  5.4% |   86.5% |         5.4% |    0.0%
+moderate  | deadline |   21.7% |  0.0% |   78.3% |         0.0% |    0.0%
+severe    | number   |    0.0% |  5.0% |   95.0% |         5.0% |    0.0%
+severe    | date     |    0.0% |  0.0% |  100.0% |         0.0% |    0.0%
+severe    | subject  |    0.0% |  0.0% |  100.0% |         0.0% |    0.0%
+severe    | refs     |    0.0% |  0.0% |  100.0% |         0.0% |    0.0%
+severe    | deadline |    0.0% |  0.0% |  100.0% |         0.0% |    0.0%
+ALL       | number   |   52.5% | 13.1% |   34.4% |        13.1% |    0.0%
+ALL       | date     |   45.6% |  1.3% |   53.1% |         1.3% |    0.0%
+ALL       | subject  |   50.0% |  0.0% |   50.0% |         0.0% |    0.0%
+ALL       | refs     |   29.1% | 20.9% |   50.0% |        20.9% |    0.0%
+ALL       | deadline |   51.1% |  0.0% |   48.9% |         0.0% |    0.0%
+
+## المجموعة المستقلة — best
+mode=best images=160 time=68s (1.7s/image/core)
+level     | field    | correct | wrong | missing | silent-wrong | flagged
+clean     | number   |   85.0% |  7.5% |    7.5% |         7.5% |    0.0%
+clean     | date     |   70.0% |  2.5% |   27.5% |         2.5% |    0.0%
+clean     | subject  |   97.5% |  0.0% |    2.5% |         0.0% |    0.0%
+clean     | refs     |   70.3% | 24.3% |    5.4% |        24.3% |    0.0%
+clean     | deadline |   95.7% |  0.0% |    4.3% |         0.0% |    0.0%
+mild      | number   |   80.0% | 17.5% |    2.5% |        17.5% |    0.0%
+mild      | date     |   72.5% |  0.0% |   27.5% |         0.0% |    0.0%
+mild      | subject  |   97.5% |  0.0% |    2.5% |         0.0% |    0.0%
+mild      | refs     |   32.4% | 54.1% |   13.5% |        54.1% |    0.0%
+mild      | deadline |   87.0% |  0.0% |   13.0% |         0.0% |    0.0%
+moderate  | number   |   55.0% | 10.0% |   35.0% |        10.0% |    0.0%
+moderate  | date     |   40.0% |  0.0% |   60.0% |         0.0% |    0.0%
+moderate  | subject  |    5.0% |  0.0% |   95.0% |         0.0% |    0.0%
+moderate  | refs     |    5.4% |  5.4% |   89.2% |         5.4% |    0.0%
+moderate  | deadline |   30.4% |  0.0% |   69.6% |         0.0% |    0.0%
+severe    | number   |    0.0% |  2.5% |   97.5% |         2.5% |    0.0%
+severe    | date     |    0.0% |  0.0% |  100.0% |         0.0% |    0.0%
+severe    | subject  |    0.0% |  0.0% |  100.0% |         0.0% |    0.0%
+severe    | refs     |    0.0% |  0.0% |  100.0% |         0.0% |    0.0%
+severe    | deadline |    0.0% |  0.0% |  100.0% |         0.0% |    0.0%
+ALL       | number   |   55.0% |  9.4% |   35.6% |         9.4% |    0.0%
+ALL       | date     |   45.6% |  0.6% |   53.8% |         0.6% |    0.0%
+ALL       | subject  |   50.0% |  0.0% |   50.0% |         0.0% |    0.0%
+ALL       | refs     |   27.0% | 20.9% |   52.0% |        20.9% |    0.0%
+ALL       | deadline |   53.3% |  0.0% |   46.7% |         0.0% |    0.0%
+
+## المجموعة المستقلة — prep
+mode=prep images=160 time=125s (3.1s/image/core)
+level     | field    | correct | wrong | missing | silent-wrong | flagged
+clean     | number   |   85.0% |  7.5% |    7.5% |         7.5% |    0.0%
+clean     | date     |   70.0% |  2.5% |   27.5% |         2.5% |    0.0%
+clean     | subject  |   97.5% |  0.0% |    2.5% |         0.0% |    0.0%
+clean     | refs     |   70.3% | 21.6% |    8.1% |        21.6% |    0.0%
+clean     | deadline |   95.7% |  0.0% |    4.3% |         0.0% |    0.0%
+mild      | number   |   87.5% | 12.5% |    0.0% |        12.5% |    0.0%
+mild      | date     |   70.0% |  0.0% |   30.0% |         0.0% |    0.0%
+mild      | subject  |  100.0% |  0.0% |    0.0% |         0.0% |    0.0%
+mild      | refs     |   78.4% | 21.6% |    0.0% |        21.6% |    0.0%
+mild      | deadline |  100.0% |  0.0% |    0.0% |         0.0% |    0.0%
+moderate  | number   |   75.0% | 15.0% |   10.0% |        15.0% |    0.0%
+moderate  | date     |   77.5% |  0.0% |   22.5% |         0.0% |    0.0%
+moderate  | subject  |   95.0% |  5.0% |    0.0% |         5.0% |    0.0%
+moderate  | refs     |   75.7% | 24.3% |    0.0% |        24.3% |    0.0%
+moderate  | deadline |   95.7% |  0.0% |    4.3% |         0.0% |    0.0%
+severe    | number   |   22.5% |  5.0% |   72.5% |         5.0% |    0.0%
+severe    | date     |   15.0% |  0.0% |   85.0% |         0.0% |    0.0%
+severe    | subject  |    7.5% | 17.5% |   75.0% |        17.5% |    0.0%
+severe    | refs     |    5.4% |  8.1% |   86.5% |         8.1% |    0.0%
+severe    | deadline |   21.7% |  0.0% |   78.3% |         0.0% |    0.0%
+ALL       | number   |   67.5% | 10.0% |   22.5% |        10.0% |    0.0%
+ALL       | date     |   58.1% |  0.6% |   41.3% |         0.6% |    0.0%
+ALL       | subject  |   75.0% |  5.6% |   19.4% |         5.6% |    0.0%
+ALL       | refs     |   57.4% | 18.9% |   23.6% |        18.9% |    0.0%
+ALL       | deadline |   78.3% |  0.0% |   21.7% |         0.0% |    0.0%
+quality gate (rejected for rescan) by level:
+  clean     0/40  
+  mild      0/40  
+  moderate  0/40  
+  severe    40/40  الحروف غير حادة ×40 | التباين ضعيف بين الحبر والورق ×40 | دقة المسح منخفضة ×25
+
+## المجموعة المستقلة — digits
+mode=digits images=160 time=144s (3.6s/image/core)
+level     | field    | correct | wrong | missing | silent-wrong | flagged
+clean     | number   |   95.0% |  0.0% |    5.0% |         0.0% |    0.0%
+clean     | date     |   85.0% |  0.0% |   15.0% |         0.0% |    0.0%
+clean     | subject  |   97.5% |  0.0% |    2.5% |         0.0% |    0.0%
+clean     | refs     |   86.5% |  5.4% |    8.1% |         5.4% |    0.0%
+clean     | deadline |   95.7% |  0.0% |    4.3% |         0.0% |    0.0%
+mild      | number   |  100.0% |  0.0% |    0.0% |         0.0% |    0.0%
+mild      | date     |   90.0% |  0.0% |   10.0% |         0.0% |    0.0%
+mild      | subject  |  100.0% |  0.0% |    0.0% |         0.0% |    0.0%
+mild      | refs     |   91.9% |  8.1% |    0.0% |         8.1% |    0.0%
+mild      | deadline |  100.0% |  0.0% |    0.0% |         0.0% |    0.0%
+moderate  | number   |   87.5% |  5.0% |    7.5% |         5.0% |    0.0%
+moderate  | date     |   77.5% |  0.0% |   22.5% |         0.0% |    0.0%
+moderate  | subject  |   95.0% |  5.0% |    0.0% |         5.0% |    0.0%
+moderate  | refs     |   73.0% | 27.0% |    0.0% |        27.0% |    0.0%
+moderate  | deadline |   95.7% |  0.0% |    4.3% |         0.0% |    0.0%
+severe    | number   |   20.0% |  7.5% |   72.5% |         7.5% |    0.0%
+severe    | date     |   12.5% |  0.0% |   87.5% |         0.0% |    0.0%
+severe    | subject  |    7.5% | 17.5% |   75.0% |        17.5% |    0.0%
+severe    | refs     |    5.4% |  8.1% |   86.5% |         8.1% |    0.0%
+severe    | deadline |   21.7% |  0.0% |   78.3% |         0.0% |    0.0%
+ALL       | number   |   75.6% |  3.1% |   21.3% |         3.1% |    0.0%
+ALL       | date     |   66.3% |  0.0% |   33.8% |         0.0% |    0.0%
+ALL       | subject  |   75.0% |  5.6% |   19.4% |         5.6% |    0.0%
+ALL       | refs     |   64.2% | 12.2% |   23.6% |        12.2% |    0.0%
+ALL       | deadline |   78.3% |  0.0% |   21.7% |         0.0% |    0.0%
+quality gate (rejected for rescan) by level:
+  clean     0/40  
+  mild      0/40  
+  moderate  0/40  
+  severe    40/40  دقة المسح منخفضة ×25 | الحروف غير حادة ×40 | التباين ضعيف بين الحبر والورق ×40
+
+## المجموعة المستقلة — pipeline
+mode=pipeline images=160 time=180s (4.5s/image/core)
+level     | field    | correct | wrong | missing | silent-wrong | flagged
+clean     | number   |   97.5% |  0.0% |    2.5% |         0.0% |   25.0%
+clean     | date     |   90.0% |  2.5% |    7.5% |         0.0% |   25.0%
+clean     | subject  |   97.5% |  0.0% |    2.5% |         0.0% |    5.0%
+clean     | refs     |   86.5% |  5.4% |    8.1% |         0.0% |   18.9%
+clean     | deadline |   95.7% |  0.0% |    4.3% |         0.0% |    8.7%
+mild      | number   |  100.0% |  0.0% |    0.0% |         0.0% |   12.5%
+mild      | date     |   92.5% |  7.5% |    0.0% |         0.0% |   17.5%
+mild      | subject  |  100.0% |  0.0% |    0.0% |         0.0% |    2.5%
+mild      | refs     |   91.9% |  8.1% |    0.0% |         0.0% |   18.9%
+mild      | deadline |  100.0% |  0.0% |    0.0% |         0.0% |    0.0%
+moderate  | number   |   90.0% |  5.0% |    5.0% |         0.0% |   42.5%
+moderate  | date     |   77.5% |  0.0% |   22.5% |         0.0% |   55.0%
+moderate  | subject  |   95.0% |  5.0% |    0.0% |         0.0% |   15.0%
+moderate  | refs     |   73.0% | 27.0% |    0.0% |         0.0% |   48.6%
+moderate  | deadline |   95.7% |  0.0% |    4.3% |         0.0% |    0.0%
+severe    | number   |   20.0% | 10.0% |   70.0% |         0.0% |  100.0%
+severe    | date     |   12.5% |  0.0% |   87.5% |         0.0% |  100.0%
+severe    | subject  |    7.5% | 17.5% |   75.0% |         0.0% |  100.0%
+severe    | refs     |    5.4% |  8.1% |   86.5% |         0.0% |   13.5%
+severe    | deadline |   21.7% |  0.0% |   78.3% |         0.0% |   21.7%
+ALL       | number   |   76.9% |  3.8% |   19.4% |         0.0% |   45.0%
+ALL       | date     |   68.1% |  2.5% |   29.4% |         0.0% |   49.4%
+ALL       | subject  |   75.0% |  5.6% |   19.4% |         0.0% |   30.6%
+ALL       | refs     |   64.2% | 12.2% |   23.6% |         0.0% |   25.0%
+ALL       | deadline |   78.3% |  0.0% |   21.7% |         0.0% |    7.6%
+quality gate (rejected for rescan) by level:
+  clean     0/40  
+  mild      0/40  
+  moderate  0/40  
+  severe    40/40  الحروف غير حادة ×40 | التباين ضعيف بين الحبر والورق ×40 | دقة المسح منخفضة ×25
+
+## مجموعة التطوير — baseline
+mode=baseline images=160 time=27s (0.7s/image/core)
+level     | field    | correct | wrong | missing | silent-wrong | flagged
+clean     | number   |   85.0% | 10.0% |    5.0% |        10.0% |    0.0%
+clean     | date     |   77.5% |  0.0% |   22.5% |         0.0% |    0.0%
+clean     | subject  |   95.0% |  5.0% |    0.0% |         5.0% |    0.0%
+clean     | refs     |   68.2% | 27.3% |    4.5% |        27.3% |    0.0%
+clean     | deadline |   95.0% |  0.0% |    5.0% |         0.0% |    0.0%
+mild      | number   |   80.0% | 15.0% |    5.0% |        15.0% |    0.0%
+mild      | date     |   65.0% |  2.5% |   32.5% |         2.5% |    0.0%
+mild      | subject  |   95.0% |  2.5% |    2.5% |         2.5% |    0.0%
+mild      | refs     |   36.4% | 38.6% |   25.0% |        38.6% |    0.0%
+mild      | deadline |   90.0% |  0.0% |   10.0% |         0.0% |    0.0%
+moderate  | number   |   50.0% |  5.0% |   45.0% |         5.0% |    0.0%
+moderate  | date     |   40.0% |  7.5% |   52.5% |         7.5% |    0.0%
+moderate  | subject  |    2.5% |  0.0% |   97.5% |         0.0% |    0.0%
+moderate  | refs     |    0.0% |  2.3% |   97.7% |         2.3% |    0.0%
+moderate  | deadline |   20.0% |  0.0% |   80.0% |         0.0% |    0.0%
+severe    | number   |    2.5% |  0.0% |   97.5% |         0.0% |    0.0%
+severe    | date     |    0.0% |  0.0% |  100.0% |         0.0% |    0.0%
+severe    | subject  |    0.0% |  0.0% |  100.0% |         0.0% |    0.0%
+severe    | refs     |    0.0% |  0.0% |  100.0% |         0.0% |    0.0%
+severe    | deadline |    0.0% |  0.0% |  100.0% |         0.0% |    0.0%
+ALL       | number   |   54.4% |  7.5% |   38.1% |         7.5% |    0.0%
+ALL       | date     |   45.6% |  2.5% |   51.9% |         2.5% |    0.0%
+ALL       | subject  |   48.1% |  1.9% |   50.0% |         1.9% |    0.0%
+ALL       | refs     |   26.1% | 17.0% |   56.8% |        17.0% |    0.0%
+ALL       | deadline |   51.3% |  0.0% |   48.8% |         0.0% |    0.0%
+
+## مجموعة التطوير — best
+mode=best images=160 time=49s (1.2s/image/core)
+level     | field    | correct | wrong | missing | silent-wrong | flagged
+clean     | number   |   85.0% | 12.5% |    2.5% |        12.5% |    0.0%
+clean     | date     |   80.0% |  0.0% |   20.0% |         0.0% |    0.0%
+clean     | subject  |  100.0% |  0.0% |    0.0% |         0.0% |    0.0%
+clean     | refs     |   75.0% | 18.2% |    6.8% |        18.2% |    0.0%
+clean     | deadline |  100.0% |  0.0% |    0.0% |         0.0% |    0.0%
+mild      | number   |   87.5% | 10.0% |    2.5% |        10.0% |    0.0%
+mild      | date     |   67.5% |  2.5% |   30.0% |         2.5% |    0.0%
+mild      | subject  |   97.5% |  2.5% |    0.0% |         2.5% |    0.0%
+mild      | refs     |   43.2% | 34.1% |   22.7% |        34.1% |    0.0%
+mild      | deadline |  100.0% |  0.0% |    0.0% |         0.0% |    0.0%
+moderate  | number   |   65.0% |  2.5% |   32.5% |         2.5% |    0.0%
+moderate  | date     |   47.5% |  7.5% |   45.0% |         7.5% |    0.0%
+moderate  | subject  |    2.5% |  0.0% |   97.5% |         0.0% |    0.0%
+moderate  | refs     |    6.8% |  9.1% |   84.1% |         9.1% |    0.0%
+moderate  | deadline |   30.0% |  0.0% |   70.0% |         0.0% |    0.0%
+severe    | number   |    2.5% |  5.0% |   92.5% |         5.0% |    0.0%
+severe    | date     |    0.0% |  0.0% |  100.0% |         0.0% |    0.0%
+severe    | subject  |    0.0% |  0.0% |  100.0% |         0.0% |    0.0%
+severe    | refs     |    0.0% |  0.0% |  100.0% |         0.0% |    0.0%
+severe    | deadline |    0.0% |  0.0% |  100.0% |         0.0% |    0.0%
+ALL       | number   |   60.0% |  7.5% |   32.5% |         7.5% |    0.0%
+ALL       | date     |   48.8% |  2.5% |   48.8% |         2.5% |    0.0%
+ALL       | subject  |   50.0% |  0.6% |   49.4% |         0.6% |    0.0%
+ALL       | refs     |   31.3% | 15.3% |   53.4% |        15.3% |    0.0%
+ALL       | deadline |   57.5% |  0.0% |   42.5% |         0.0% |    0.0%
+
+## مجموعة التطوير — prep
+mode=prep images=160 time=122s (3.0s/image/core)
+level     | field    | correct | wrong | missing | silent-wrong | flagged
+clean     | number   |   90.0% | 10.0% |    0.0% |        10.0% |    0.0%
+clean     | date     |   77.5% |  0.0% |   22.5% |         0.0% |    0.0%
+clean     | subject  |  100.0% |  0.0% |    0.0% |         0.0% |    0.0%
+clean     | refs     |   65.9% | 22.7% |   11.4% |        22.7% |    0.0%
+clean     | deadline |  100.0% |  0.0% |    0.0% |         0.0% |    0.0%
+mild      | number   |   85.0% |  7.5% |    7.5% |         7.5% |    0.0%
+mild      | date     |   75.0% |  0.0% |   25.0% |         0.0% |    0.0%
+mild      | subject  |  100.0% |  0.0% |    0.0% |         0.0% |    0.0%
+mild      | refs     |   79.5% | 20.5% |    0.0% |        20.5% |    0.0%
+mild      | deadline |  100.0% |  0.0% |    0.0% |         0.0% |    0.0%
+moderate  | number   |   90.0% |  7.5% |    2.5% |         7.5% |    0.0%
+moderate  | date     |   77.5% |  0.0% |   22.5% |         0.0% |    0.0%
+moderate  | subject  |   92.5% |  5.0% |    2.5% |         5.0% |    0.0%
+moderate  | refs     |   75.0% | 22.7% |    2.3% |        22.7% |    0.0%
+moderate  | deadline |  100.0% |  0.0% |    0.0% |         0.0% |    0.0%
+severe    | number   |   22.5% |  5.0% |   72.5% |         5.0% |    0.0%
+severe    | date     |   15.0% |  2.5% |   82.5% |         2.5% |    0.0%
+severe    | subject  |    7.5% | 20.0% |   72.5% |        20.0% |    0.0%
+severe    | refs     |   11.4% |  9.1% |   79.5% |         9.1% |    0.0%
+severe    | deadline |   40.0% |  0.0% |   60.0% |         0.0% |    0.0%
+ALL       | number   |   71.9% |  7.5% |   20.6% |         7.5% |    0.0%
+ALL       | date     |   61.3% |  0.6% |   38.1% |         0.6% |    0.0%
+ALL       | subject  |   75.0% |  6.3% |   18.8% |         6.3% |    0.0%
+ALL       | refs     |   58.0% | 18.8% |   23.3% |        18.8% |    0.0%
+ALL       | deadline |   85.0% |  0.0% |   15.0% |         0.0% |    0.0%
+quality gate (rejected for rescan) by level:
+  clean     0/40  
+  mild      0/40  
+  moderate  0/40  
+  severe    40/40  دقة المسح منخفضة ×29 | الحروف غير حادة ×40 | التباين ضعيف بين الحبر والورق ×40
+
+## مجموعة التطوير — digits
+mode=digits images=160 time=149s (3.7s/image/core)
+level     | field    | correct | wrong | missing | silent-wrong | flagged
+clean     | number   |  100.0% |  0.0% |    0.0% |         0.0% |    0.0%
+clean     | date     |   92.5% |  0.0% |    7.5% |         0.0% |    0.0%
+clean     | subject  |  100.0% |  0.0% |    0.0% |         0.0% |    0.0%
+clean     | refs     |   88.6% |  0.0% |   11.4% |         0.0% |    0.0%
+clean     | deadline |  100.0% |  0.0% |    0.0% |         0.0% |    0.0%
+mild      | number   |   92.5% |  0.0% |    7.5% |         0.0% |    0.0%
+mild      | date     |   85.0% |  0.0% |   15.0% |         0.0% |    0.0%
+mild      | subject  |  100.0% |  0.0% |    0.0% |         0.0% |    0.0%
+mild      | refs     |  100.0% |  0.0% |    0.0% |         0.0% |    0.0%
+mild      | deadline |  100.0% |  0.0% |    0.0% |         0.0% |    0.0%
+moderate  | number   |   97.5% |  2.5% |    0.0% |         2.5% |    0.0%
+moderate  | date     |   82.5% |  0.0% |   17.5% |         0.0% |    0.0%
+moderate  | subject  |   92.5% |  5.0% |    2.5% |         5.0% |    0.0%
+moderate  | refs     |   70.5% | 27.3% |    2.3% |        27.3% |    0.0%
+moderate  | deadline |   95.0% |  5.0% |    0.0% |         5.0% |    0.0%
+severe    | number   |   22.5% |  5.0% |   72.5% |         5.0% |    0.0%
+severe    | date     |   12.5% |  2.5% |   85.0% |         2.5% |    0.0%
+severe    | subject  |    7.5% | 20.0% |   72.5% |        20.0% |    0.0%
+severe    | refs     |    9.1% | 11.4% |   79.5% |        11.4% |    0.0%
+severe    | deadline |   25.0% | 15.0% |   60.0% |        15.0% |    0.0%
+ALL       | number   |   78.1% |  1.9% |   20.0% |         1.9% |    0.0%
+ALL       | date     |   68.1% |  0.6% |   31.3% |         0.6% |    0.0%
+ALL       | subject  |   75.0% |  6.3% |   18.8% |         6.3% |    0.0%
+ALL       | refs     |   67.0% |  9.7% |   23.3% |         9.7% |    0.0%
+ALL       | deadline |   80.0% |  5.0% |   15.0% |         5.0% |    0.0%
+quality gate (rejected for rescan) by level:
+  clean     0/40  
+  mild      0/40  
+  moderate  0/40  
+  severe    40/40  دقة المسح منخفضة ×29 | الحروف غير حادة ×40 | التباين ضعيف بين الحبر والورق ×40
+
+## مجموعة التطوير — pipeline
+mode=pipeline images=160 time=195s (4.9s/image/core)
+level     | field    | correct | wrong | missing | silent-wrong | flagged
+clean     | number   |  100.0% |  0.0% |    0.0% |         0.0% |   12.5%
+clean     | date     |   97.5% |  0.0% |    2.5% |         0.0% |   10.0%
+clean     | subject  |  100.0% |  0.0% |    0.0% |         0.0% |    5.0%
+clean     | refs     |   88.6% |  0.0% |   11.4% |         0.0% |    2.3%
+clean     | deadline |  100.0% |  0.0% |    0.0% |         0.0% |    5.0%
+mild      | number   |   92.5% |  0.0% |    7.5% |         0.0% |   22.5%
+mild      | date     |   95.0% |  0.0% |    5.0% |         0.0% |   17.5%
+mild      | subject  |  100.0% |  0.0% |    0.0% |         0.0% |    5.0%
+mild      | refs     |  100.0% |  0.0% |    0.0% |         0.0% |   11.4%
+mild      | deadline |  100.0% |  0.0% |    0.0% |         0.0% |   15.0%
+moderate  | number   |   97.5% |  2.5% |    0.0% |         0.0% |   35.0%
+moderate  | date     |   82.5% |  0.0% |   17.5% |         0.0% |   57.5%
+moderate  | subject  |   92.5% |  5.0% |    2.5% |         0.0% |   15.0%
+moderate  | refs     |   70.5% | 27.3% |    2.3% |         0.0% |   47.7%
+moderate  | deadline |   95.0% |  5.0% |    0.0% |         0.0% |    5.0%
+severe    | number   |   20.0% |  7.5% |   72.5% |         0.0% |  100.0%
+severe    | date     |   15.0% |  2.5% |   82.5% |         0.0% |  100.0%
+severe    | subject  |    7.5% | 20.0% |   72.5% |         0.0% |  100.0%
+severe    | refs     |    9.1% | 11.4% |   79.5% |         0.0% |   20.5%
+severe    | deadline |   25.0% | 15.0% |   60.0% |         0.0% |   40.0%
+ALL       | number   |   77.5% |  2.5% |   20.0% |         0.0% |   42.5%
+ALL       | date     |   72.5% |  0.6% |   26.9% |         0.0% |   46.3%
+ALL       | subject  |   75.0% |  6.3% |   18.8% |         0.0% |   31.3%
+ALL       | refs     |   67.0% |  9.7% |   23.3% |         0.0% |   20.5%
+ALL       | deadline |   80.0% |  5.0% |   15.0% |         0.0% |   16.3%
+quality gate (rejected for rescan) by level:
+  clean     0/40  
+  mild      0/40  
+  moderate  0/40  
+  severe    40/40  دقة المسح منخفضة ×29 | الحروف غير حادة ×40 | التباين ضعيف بين الحبر والورق ×40

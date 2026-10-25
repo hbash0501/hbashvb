@@ -281,3 +281,21 @@ img.preview { object-fit: contain; height: auto; max-height: 72vh; display: bloc
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 @media print { .side, .top, .tabs, .btn { display: none !important; } .shell { display: block; } .card { box-shadow: none; } }
+
+/* ===== التحقق من القراءة الآلية ===== */
+mark.pending, mark.check { background: color-mix(in srgb, var(--accent) 18%, transparent); outline: 2px dashed var(--accent); outline-offset: 1px; border-radius: 3px; }
+.legend i.pending-swatch { background: transparent; outline: 2px dashed var(--accent); }
+.ref-item.pending { border-style: dashed; border-color: var(--accent); }
+.nav a .count.warn { background: var(--accent); }
+.review-card { overflow: hidden; }
+.review-card.done { opacity: .75; }
+.review-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 18px 8px; }
+.crop-wrap { margin: 0 18px; border: 1px solid var(--line); border-radius: var(--r); background: #fff; overflow-x: auto; text-align: center; }
+.crop { display: block; max-width: 100%; height: auto; margin: 0 auto; image-rendering: auto; }
+.review-body { padding: 10px 18px 16px; }
+.review-input { width: 100%; font-size: 17px; font-variant-numeric: tabular-nums; }
+textarea.review-input { min-height: 64px; }
+.suggest { margin-top: 10px; display: grid; gap: 6px; }
+.panel.verify .review-card { box-shadow: none; margin-top: 10px; }
+.panel.verify .review-head, .panel.verify .review-body { padding-inline: 4px; }
+.panel.verify .crop-wrap { margin-inline: 0; }

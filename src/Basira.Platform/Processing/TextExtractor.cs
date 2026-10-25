@@ -3,12 +3,22 @@ using System.IO.Compression;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
+using Basira.Platform.Processing.Ocr;
 using UglyToad.PdfPig;
 using UglyToad.PdfPig.DocumentLayoutAnalysis.TextExtractor;
 
 namespace Basira.Platform.Processing;
 
-public sealed record Extraction(string Text, int Pages, int Quality, string Engine, string Warning);
+public sealed record Extraction(string Text, int Pages, int Quality, string Engine, string Warning)
+{
+    /// <summary>فحوص الحقول الحرجة (للمستندات المقروءة بـ OCR) مع مقتطع صورة كل حقل ونصه كما ورد.</summary>
+    public List<ExtractedCheck> Checks { get; init; } = new();
+    /// <summary>عيوب المسح التي رصدتها بوابة الجودة، لكل الصفحات.</summary>
+    public List<string> ScanIssues { get; init; } = new();
+    public bool UsedOcr { get; init; }
+}
+
+public sealed record ExtractedCheck(FieldCheck Check, byte[]? Crop, string SpanText);
 
 /// <summary>استخراج النص: ملفات نصية وWord وPDF (طبقة النص أو OCR للصفحات المصورة) والصور عبر Tesseract.</summary>
 public sealed class TextExtractor
@@ -32,8 +42,9 @@ public sealed class TextExtractor
         if (ImageTypes.Contains(ext))
         {
             if (tools.Tesseract is null) return new Extraction("", 1, 0, "", "لم يُعثر على Tesseract؛ حدّد مساره من الإعدادات لاستخراج النص من الصور.");
-            progress(30, "التعرف الضوئي على الحروف");
-            return Finish(await OcrAsync(tools, path, ct), 1, "Tesseract", "");
+            var dir = Directory.CreateTempSubdirectory("basira-ocr-").FullName;
+            try { return await OcrPagesAsync(tools, new[] { path }, dir, progress, "Tesseract", ct); }
+            finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
         }
         return new Extraction("", 0, 0, "", "نوع الملف غير مدعوم لاستخراج النص؛ حُفظ الأصل ويمكن إدخال النص يدوياً.");
     }
@@ -120,31 +131,52 @@ public sealed class TextExtractor
         // PDF مصوّر: تحويل الصفحات إلى صور ثم OCR.
         if (tools.Tesseract is null || tools.PdfToPpm is null)
             return new Extraction(text, pages, Quality(text), "طبقة نص PDF", "الملف مصوّر ويحتاج OCR؛ حدّد مساري Tesseract وpdftoppm من الإعدادات.");
-        var dir = Path.Combine(Path.GetTempPath(), "basira-pdf-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dir);
+        var dir = Directory.CreateTempSubdirectory("basira-pdf-").FullName;
         try
         {
-            var ocr = new StringBuilder();
+            var images = new List<string>();
             for (var i = 1; i <= pages; i++)
             {
-                progress(10 + 85 * (i - 1) / pages, $"التعرف الضوئي: صفحة {i} من {pages}");
+                progress(10 + 15 * (i - 1) / pages, $"تحويل صفحة {i} من {pages} إلى صورة");
                 var prefix = Path.Combine(dir, "p" + i);
                 var r = await ProcessRunner.RunAsync(tools.PdfToPpm, new[] { "-r", "300", "-gray", "-png", "-f", i.ToString(CultureInfo.InvariantCulture), "-l", i.ToString(CultureInfo.InvariantCulture), "-singlefile", path, prefix }, TimeSpan.FromMinutes(2), ct);
                 if (r.Exit != 0 || !File.Exists(prefix + ".png")) throw new InvalidOperationException("تعذر تحويل صفحة PDF إلى صورة: " + r.Err.Trim());
-                ocr.AppendLine(await OcrAsync(tools, prefix + ".png", ct));
-                File.Delete(prefix + ".png");
+                images.Add(prefix + ".png");
             }
-            var t = Clean(ocr.ToString());
-            return new Extraction(t, pages, Quality(t), "Tesseract (PDF مصوّر)", "");
+            return await OcrPagesAsync(tools, images, dir, progress, "Tesseract (PDF مصوّر)", ct);
         }
         finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
     }
 
-    private static async Task<string> OcrAsync(Tools tools, string image, CancellationToken ct)
+    /// <summary>
+    /// خط القراءة الكامل للصفحات المصورة: بوابة الجودة، وتحسين الصورة، والنموذج الدقيق، وقارئ الأرقام، وفحص الحقول الحرجة.
+    /// المقتطعات تُقص هنا قبل حذف الصور المؤقتة.
+    /// </summary>
+    private static async Task<Extraction> OcrPagesAsync(Tools tools, IReadOnlyList<string> images, string workDir, Action<int, string> progress, string engine, CancellationToken ct)
     {
-        var r = await ProcessRunner.RunAsync(tools.Tesseract!, new[] { image, "stdout", "-l", tools.Languages, "--psm", "3" }, TimeSpan.FromMinutes(3), ct);
-        if (r.Exit != 0) throw new InvalidOperationException("فشل Tesseract: " + r.Err.Trim());
-        return r.Out;
+        var options = new OcrOptions(tools.Tesseract!, tools.Languages, Tessdata(tools.Languages));
+        var doc = await OcrPipeline.ReadImagesAsync(images, options, workDir, progress, ct);
+        var checks = new List<ExtractedCheck>();
+        foreach (var k in doc.Checks)
+        {
+            byte[]? crop = null;
+            if (!k.Box.IsEmpty && k.Page < doc.PreparedImages.Count)
+                try { crop = ImagePrep.Crop(doc.PreparedImages[k.Page], k.Box, Math.Max(8, k.Box.Height / 3)); }
+                catch (Exception ex) when (ex is ArgumentException or InvalidDataException) { }
+            var span = k.Offset >= 0 && k.Offset + k.Length <= doc.Text.Length ? doc.Text.Substring(k.Offset, k.Length) : "";
+            checks.Add(new ExtractedCheck(k, crop, span));
+        }
+        var issues = doc.Quality.SelectMany((q, i) => q.Issues.Select(x => doc.Quality.Count > 1 ? $"صفحة {i + 1}: {x}" : x)).ToList();
+        var warning = issues.Count == 0 ? "" : "جودة المسح دون الحد المقبول: " + string.Join("؛ ", issues) + ". يُنصح بإعادة المسح.";
+        // نص خط القراءة نظيف أصلاً، ولا يمر بـ Clean حتى تبقى مواضع الفحوص فيه صحيحة.
+        return new Extraction(doc.Text, images.Count, Quality(doc.Text), engine, warning) { Checks = checks, ScanIssues = issues, UsedOcr = true };
+    }
+
+    /// <summary>النماذج الدقيقة المرفقة إن غطت كل اللغات المطلوبة، وإلا نماذج Tesseract المثبتة.</summary>
+    private static string? Tessdata(string languages)
+    {
+        var dir = TesseractOcr.BundledTessdata();
+        return dir is not null && languages.Split('+').All(l => File.Exists(Path.Combine(dir, l + ".traineddata"))) ? dir : null;
     }
 
     private static readonly HashSet<string> CommonArabic = new(new[]

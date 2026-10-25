@@ -11,7 +11,7 @@ jobs:
         with:
           dotnet-version: 8.0.x
       - name: OCR tools for end-to-end tests
-        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-ara tesseract-ocr-eng
+        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-ara tesseract-ocr-eng && tools/fetch-tessdata.sh
       - name: Core tests (engine, reference parser corpora, deadlines, audit chain)
         run: dotnet run --project Tests -c Release
       - name: Platform integration tests (real OCR and PDF included)
