@@ -57,6 +57,7 @@ public static class ApiCommon
             references = s.References.TryGetValue(d.Id, out var refs) ? refs.Count : 0,
             awaitingDays = awaiting?.DaysWaiting, createdAt = d.CreatedAt, updatedAt = d.UpdatedAt, version = d.Version,
             pendingChecks = s.PendingChecks.TryGetValue(d.Id, out var pc) ? pc : 0, scanIssues = d.ScanQuality != "",
+            categoryAuto = d.IsAuto("category"), categoryConfident = ClassificationService.ReadConfidence(d).Confident, titleAuto = d.IsAuto("title"),
         };
     }
 }

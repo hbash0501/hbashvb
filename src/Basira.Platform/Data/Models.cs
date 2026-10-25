@@ -33,6 +33,18 @@ public sealed class Doc
     public string ProcessingError { get; set; } = "";
     /// <summary>عيوب المسح التي رصدتها بوابة الجودة (مفصولة بـ «؛»)، فارغة إن كان المسح مقبولاً.</summary>
     public string ScanQuality { get; set; } = "";
+    /// <summary>الحقول التي ملأتها المنصة آلياً ولم يعدّلها مستخدم (title، category، sub_category)؛ تُحدَّث عند إعادة المعالجة.</summary>
+    public string AutoFields { get; set; } = "";
+    /// <summary>تفاصيل التصنيف الآلي (JSON): الثقة والبدائل والأسباب.</summary>
+    public string Classification { get; set; } = "";
+
+    public bool IsAuto(string field) => AutoFields.Split(',').Contains(field);
+    public void SetAuto(string field, bool on)
+    {
+        var set = AutoFields.Split(',', StringSplitOptions.RemoveEmptyEntries).ToHashSet();
+        if (on) set.Add(field); else set.Remove(field);
+        AutoFields = string.Join(',', set.OrderBy(x => x, StringComparer.Ordinal));
+    }
     public string CreatedAt { get; set; } = "";
     public string CreatedBy { get; set; } = "";
     public string UpdatedAt { get; set; } = "";

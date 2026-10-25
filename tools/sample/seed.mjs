@@ -49,7 +49,8 @@ const L = [
   ['training.txt', 'وارد', 'موارد بشرية', { org: 'معهد الإدارة العامة', no: '3301', date: ago(6), subject: 'ترشيح موظفين لبرنامج القيادة', to: 'سعادة مدير عام الشؤون الإدارية', body: 'نأمل ترشيح ثلاثة من موظفيكم لبرنامج القيادة الإدارية خلال (5) أيام عمل من تاريخه.' }],
   ['secret.txt', 'وارد', 'سري', { org: 'ديوان المراقبة العامة', no: 'س/221', date: ago(25), subject: 'ملاحظات المراجعة المالية', to: 'سعادة مدير عام الشؤون الإدارية', body: 'نرفق لكم ملاحظات المراجعة المالية للعام الماضي، ونأمل الرد عليها خلال ثلاثين يوماً.' }, 'سري'],
 ];
-for (const [name, dir, cat, l, conf] of L) await upload(name, letter(l), dir, cat, conf);
+// بلا تصنيف: تصنّفها المنصة آلياً من محتواها كما يحدث عند الإدراج الفعلي.
+for (const [name, dir, , l, conf] of L) await upload(name, letter(l), dir, '', conf);
 if (fixtures) {
   for (const [f, dir] of [['incoming-letter.png', 'وارد'], ['reply-letter.pdf', 'صادر']]) {
     const form = new FormData();

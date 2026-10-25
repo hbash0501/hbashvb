@@ -67,7 +67,7 @@ public sealed class PlatformFactory : WebApplicationFactory<Program>
 
     public static async Task<JsonElement> Get(HttpClient c, string url) => await Json(await c.GetAsync(url));
 
-    public static async Task<JsonElement> Upload(HttpClient c, string fileName, byte[] content, string direction = "وارد", string confidentiality = "عادي")
+    public static async Task<JsonElement> Upload(HttpClient c, string fileName, byte[] content, string direction = "وارد", string confidentiality = "عادي", string category = "")
     {
         using var form = new MultipartFormDataContent();
         var file = new ByteArrayContent(content);
@@ -75,6 +75,7 @@ public sealed class PlatformFactory : WebApplicationFactory<Program>
         form.Add(file, "files", fileName);
         form.Add(new StringContent(direction), "direction");
         form.Add(new StringContent(confidentiality), "confidentiality");
+        if (category != "") form.Add(new StringContent(category), "category");
         var req = new HttpRequestMessage(HttpMethod.Post, "/api/inbox") { Content = form };
         req.Headers.Add("X-Requested-With", "basira");
         return (await Json(await c.SendAsync(req)))[0];

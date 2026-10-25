@@ -121,13 +121,15 @@ public static class IntelligenceApi
             return Results.Text(html, "text/html", Encoding.UTF8);
         });
 
-        g.MapGet("/meta", async (ArchiveIndex index) =>
+        g.MapGet("/meta", async (ArchiveIndex index, ClassificationService classifier) =>
         {
             var s = await index.GetAsync();
+            var tax = classifier.Taxonomy;
             return Results.Ok(new
             {
                 statuses = Roles.Statuses, directions = Roles.Directions, confidentialities = Roles.Confidentialities, roles = Roles.All,
-                categories = s.Docs.Select(d => d.Category).Where(x => x != "").Distinct().OrderBy(x => x),
+                categories = tax.Categories.Select(c => c.Name).Concat(s.Docs.Select(d => d.Category).Where(x => x != "" && tax.Find(x) is null).Distinct().OrderBy(x => x)),
+                taxonomy = tax.Categories.Select(c => new { name = c.Name, subs = c.Subs.Select(x => x.Name) }),
                 entities = s.Docs.SelectMany(d => new[] { d.SourceEntity, d.DestinationEntity }).Where(x => x != "").GroupBy(x => x).OrderByDescending(x => x.Count()).Take(60).Select(x => x.Key),
             });
         });

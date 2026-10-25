@@ -12,8 +12,8 @@ public sealed class DocumentStore
 
     public DocumentStore(Db db) => _db = db;
 
-    private const string Columns = "id, archive_no, title, category, sub_category, status, direction, confidentiality, priority, source_entity, destination_entity, outgoing_no, incoming_no, external_no, document_date, due_date, tags, summary, text, file_id, file_name, file_type, file_size, page_count, ocr_quality, processing, processing_error, scan_quality, created_at, created_by, updated_at, updated_by, version";
-    private const string Values = "@Id,@ArchiveNo,@Title,@Category,@SubCategory,@Status,@Direction,@Confidentiality,@Priority,@SourceEntity,@DestinationEntity,@OutgoingNo,@IncomingNo,@ExternalNo,@DocumentDate,@DueDate,@Tags,@Summary,@Text,@FileId,@FileName,@FileType,@FileSize,@PageCount,@OcrQuality,@Processing,@ProcessingError,@ScanQuality,@CreatedAt,@CreatedBy,@UpdatedAt,@UpdatedBy,@Version";
+    private const string Columns = "id, archive_no, title, category, sub_category, status, direction, confidentiality, priority, source_entity, destination_entity, outgoing_no, incoming_no, external_no, document_date, due_date, tags, summary, text, file_id, file_name, file_type, file_size, page_count, ocr_quality, processing, processing_error, scan_quality, auto_fields, classification, created_at, created_by, updated_at, updated_by, version";
+    private const string Values = "@Id,@ArchiveNo,@Title,@Category,@SubCategory,@Status,@Direction,@Confidentiality,@Priority,@SourceEntity,@DestinationEntity,@OutgoingNo,@IncomingNo,@ExternalNo,@DocumentDate,@DueDate,@Tags,@Summary,@Text,@FileId,@FileName,@FileType,@FileSize,@PageCount,@OcrQuality,@Processing,@ProcessingError,@ScanQuality,@AutoFields,@Classification,@CreatedAt,@CreatedBy,@UpdatedAt,@UpdatedBy,@Version";
 
     private static Doc Map(SqliteDataReader r) => new()
     {
@@ -23,7 +23,7 @@ public sealed class DocumentStore
         IncomingNo = r.Str("incoming_no"), ExternalNo = r.Str("external_no"), DocumentDate = r.Str("document_date"), DueDate = r.Str("due_date"),
         Tags = r.Str("tags"), Summary = r.Str("summary"), Text = r.Str("text"), FileId = r.Str("file_id"), FileName = r.Str("file_name"),
         FileType = r.Str("file_type"), FileSize = r.Long("file_size"), PageCount = (int)r.Long("page_count"), OcrQuality = (int)r.Long("ocr_quality"),
-        Processing = r.Str("processing"), ProcessingError = r.Str("processing_error"), ScanQuality = r.Str("scan_quality"), CreatedAt = r.Str("created_at"), CreatedBy = r.Str("created_by"),
+        Processing = r.Str("processing"), ProcessingError = r.Str("processing_error"), ScanQuality = r.Str("scan_quality"), AutoFields = r.Str("auto_fields"), Classification = r.Str("classification"), CreatedAt = r.Str("created_at"), CreatedBy = r.Str("created_by"),
         UpdatedAt = r.Str("updated_at"), UpdatedBy = r.Str("updated_by"), Version = (int)r.Long("version"),
     };
 

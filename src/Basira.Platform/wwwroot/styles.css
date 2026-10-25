@@ -299,3 +299,10 @@ textarea.review-input { min-height: 64px; }
 .panel.verify .review-card { box-shadow: none; margin-top: 10px; }
 .panel.verify .review-head, .panel.verify .review-body { padding-inline: 4px; }
 .panel.verify .crop-wrap { margin-inline: 0; }
+
+/* ===== التصنيف ===== */
+.class-box { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.tax-cat input { width: 100%; }
+.tax-subs { display: grid; gap: 6px; margin: 10px 0; }
+.tax-sub { display: grid; grid-template-columns: minmax(120px, 1fr) 2fr auto; gap: 6px; align-items: center; }
+@media (max-width: 700px) { .tax-sub { grid-template-columns: 1fr auto; } .tax-sub input:nth-child(2) { grid-column: 1 / -1; grid-row: 2; } }

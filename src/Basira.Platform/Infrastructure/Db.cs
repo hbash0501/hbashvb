@@ -73,6 +73,15 @@ public sealed class Db
         CREATE INDEX ix_checks_doc ON field_checks(document_id);
         CREATE INDEX ix_checks_state ON field_checks(state);
         """,
+        // التصنيف الآلي والعنوان من المحتوى: الحقول المملوءة آلياً، وتفاصيل التصنيف، وقرارات المستخدمين عليه (لقياس الدقة الفعلية).
+        """
+        ALTER TABLE documents ADD COLUMN auto_fields TEXT NOT NULL DEFAULT '';
+        ALTER TABLE documents ADD COLUMN classification TEXT NOT NULL DEFAULT '';
+        CREATE TABLE classification_feedback(
+          id INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT NOT NULL, predicted_category TEXT NOT NULL, predicted_sub TEXT NOT NULL,
+          final_category TEXT NOT NULL, final_sub TEXT NOT NULL, confidence REAL NOT NULL, confident INTEGER NOT NULL,
+          action TEXT NOT NULL, actor TEXT NOT NULL, at TEXT NOT NULL);
+        """,
     };
 
     private void Migrate()

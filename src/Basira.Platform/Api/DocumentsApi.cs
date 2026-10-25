@@ -69,6 +69,8 @@ public static class DocumentsApi
                         rows.Add((d, 0, "", ""));
             }
             if (filter == "awaiting") { var ids = s.Awaiting.Select(a => a.DocumentId).ToHashSet(); rows = rows.Where(r => ids.Contains(r.Doc.Id)).ToList(); }
+            if (filter == "autocat") rows = rows.Where(r => r.Doc.IsAuto("category") && !ClassificationService.ReadConfidence(r.Doc).Confident).ToList();
+            if (filter == "unclassified") rows = rows.Where(r => r.Doc.Category == "").ToList();
             if (!string.IsNullOrEmpty(status)) rows = rows.Where(r => r.Doc.Status == status).ToList();
             if (!string.IsNullOrEmpty(direction)) rows = rows.Where(r => r.Doc.Direction == direction).ToList();
             var fromD = Snapshot.ParseIso(from ?? ""); var toD = Snapshot.ParseIso(to ?? "");
@@ -104,6 +106,8 @@ public static class DocumentsApi
                 restricted,
                 tags = d.Tags, fileName = d.FileName, fileSize = d.FileSize, pageCount = d.PageCount, ocrQuality = d.OcrQuality, processingError = d.ProcessingError,
                 scanQuality = d.ScanQuality,
+                classification = d.Classification == "" ? (System.Text.Json.JsonElement?)null : System.Text.Json.JsonDocument.Parse(d.Classification).RootElement.Clone(),
+                autoFields = d.AutoFields.Split(',', StringSplitOptions.RemoveEmptyEntries),
                 checks = restricted ? new List<object>() : review.ForDocument(id).Select(ReviewApi.Describe).ToList(),
                 createdBy = d.CreatedBy, updatedBy = d.UpdatedBy, dueDateManual = d.DueDate,
                 references = restricted ? new List<object>() : refs.Select(x => (object)new
@@ -130,7 +134,7 @@ public static class DocumentsApi
             });
         });
 
-        g.MapPost("/documents", (DocBody b, HttpContext c, DocumentStore docs) =>
+        g.MapPost("/documents", (DocBody b, HttpContext c, DocumentStore docs, ClassificationService classifier) =>
         {
             var u = U(c);
             if (!UserStore.Can(u, "import")) return Forbidden("إضافة المستندات");
@@ -138,14 +142,21 @@ public static class DocumentsApi
             {
                 var d = new Doc { Processing = "done" };
                 Apply(d, b);
+                // مستند بنص دون عنوان أو تصنيف: يُستخرجان من المحتوى.
+                if (d.Title == "" && d.Text != "")
+                {
+                    d.Title = TitleBuilder.Build(d.Text, LetterFields.Parse(d.Text).Subject);
+                    d.SetAuto("title", d.Title != "");
+                }
                 if (d.Title == "") return Error("اكتب عنوان المستند.");
+                if (d.Category == "" && d.Text != "") classifier.Apply(d, classifier.Classify(d.Text, d.Title));
                 d = docs.Create(d, u.UserName, "إنشاء مستند");
                 return Results.Ok(new { id = d.Id, archiveNo = d.ArchiveNo });
             }
             catch (ArgumentException ex) { return Error(ex.Message); }
         });
 
-        g.MapPut("/documents/{id}", (string id, DocBody b, HttpContext c, DocumentStore docs) =>
+        g.MapPut("/documents/{id}", (string id, DocBody b, HttpContext c, DocumentStore docs, ClassificationService classifier) =>
         {
             var u = U(c);
             if (!UserStore.Can(u, "edit")) return Forbidden("التعديل");
@@ -161,7 +172,15 @@ public static class DocumentsApi
                 Apply(preview, b);
                 var changed = typeof(Doc).GetProperties().Where(p => p.PropertyType == typeof(string) && !Equals(p.GetValue(existing), p.GetValue(preview))).Select(p => FieldLabel(p.Name)).ToList();
                 if (changed.Count == 0) return Results.Ok(new { version = existing.Version, changed });
-                var d = docs.Update(id, b.Version, doc => Apply(doc, b), u.UserName, "تعديل: " + string.Join("، ", changed));
+                // ما عدّله المستخدم لم يعد آلياً: لا تكتب فوقه إعادة المعالجة، ويصبح التصنيف مثالاً يتعلم منه المصنِّف.
+                var catChanged = preview.Category != existing.Category || preview.SubCategory != existing.SubCategory;
+                var d = docs.Update(id, b.Version, doc =>
+                {
+                    Apply(doc, b);
+                    if (doc.Title != existing.Title) doc.SetAuto("title", false);
+                    if (catChanged) { doc.SetAuto("category", false); doc.SetAuto("sub_category", false); }
+                }, u.UserName, "تعديل: " + string.Join("، ", changed));
+                if (catChanged) { classifier.RecordFeedback(existing, d.Category, d.SubCategory, "changed", u.UserName); classifier.Invalidate(); }
                 return Results.Ok(new { version = d.Version, changed });
             }
             catch (ConcurrencyException ex) { return Error(ex.Message, 409); }

@@ -19,7 +19,7 @@ export async function renderInbox(view) {
   const dirSeg = h('div', { class: 'seg', role: 'group', 'aria-label': 'الاتجاه' });
   const drawDir = () => mount(dirSeg, (meta.directions || ['وارد', 'صادر', 'داخلي']).map(d => h('button', { type: 'button', 'aria-pressed': String(d === direction), text: d, onclick: () => { direction = d; drawDir(); } })));
   drawDir();
-  const category = h('input', { list: 'inbox-cats', placeholder: 'اختياري', 'aria-label': 'التصنيف' });
+  const category = h('input', { list: 'inbox-cats', placeholder: 'تلقائي من المحتوى', 'aria-label': 'التصنيف' });
   const conf = h('select', { 'aria-label': 'السرية' }, (meta.confidentialities || ['عادي']).map(c => h('option', { value: c, text: c })));
   const fileInput = h('input', { type: 'file', multiple: true, hidden: true, accept: '.pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.gif,.webp,.docx,.txt' });
   const results = h('div');
@@ -116,8 +116,8 @@ export async function renderAsk(view, params) {
 
 // ======================= الإدارة =======================
 export async function renderAdmin(view, tab) {
-  const tabs = [['users', 'المستخدمون', 'users'], ['settings', 'الإعدادات', 'sliders'], ['migrate', 'ترحيل النسخة السابقة', 'folder'], ['audit', 'سجل التدقيق', 'shield'], ['report', 'تقرير الصحة', 'report']]
-    .filter(([k]) => state.me.isAdmin || k === 'audit' && can('audit') || k === 'report' && can('export'));
+  const tabs = [['users', 'المستخدمون', 'users'], ['settings', 'الإعدادات', 'sliders'], ['taxonomy', 'التصنيفات', 'folder'], ['migrate', 'ترحيل النسخة السابقة', 'folder'], ['audit', 'سجل التدقيق', 'shield'], ['report', 'تقرير الصحة', 'report']]
+    .filter(([k]) => state.me.isAdmin || k === 'audit' && can('audit') || k === 'report' && can('export') || k === 'taxonomy' && can('manage_categories'));
   if (!tabs.length) { mount(view, empty('shield', 'لا تملك صلاحيات إدارية.')); return; }
   if (!tabs.some(t => t[0] === tab)) tab = tabs[0][0];
   const body = h('div');
@@ -126,8 +126,61 @@ export async function renderAdmin(view, tab) {
   if (tab === 'users') await adminUsers(body);
   else if (tab === 'settings') await adminSettings(body);
   else if (tab === 'migrate') adminMigrate(body);
+  else if (tab === 'taxonomy') await adminTaxonomy(body);
   else if (tab === 'audit') await adminAudit(body);
   else adminReport(body);
+}
+
+// ===== التصنيفات: الشجرة، والدقة الفعلية من قرارات المستخدمين، وتصنيف الأرشيف =====
+async function adminTaxonomy(body) {
+  const o = await api('/classification/overview');
+  const tax = o.taxonomy.map(c => ({ name: c.name, keywords: c.keywords.join('، '), subs: c.subs.map(s => ({ name: s.name, keywords: s.keywords.join('، ') })) }));
+  const split = v => v.split(/[،,;\n]/).map(x => x.trim()).filter(Boolean);
+  const editor = h('div', { class: 'stack' });
+  const err = h('p', { class: 'error', role: 'alert' });
+  const draw = () => mount(editor, tax.map((c, ci) => h('div', { class: 'card pad tax-cat' },
+    h('div', { class: 'row', style: 'gap:8px' }, h('input', { value: c.name, 'aria-label': 'اسم التصنيف العام', style: 'font-weight:700;flex:1', oninput: e => { c.name = e.target.value; } }),
+      h('button', { class: 'btn sm ghost', type: 'button', title: 'حذف التصنيف', onclick: () => { if (confirm(`حذف «${c.name}» من الشجرة؟ لا يمس المستندات المصنفة به.`)) { tax.splice(ci, 1); draw(); } } }, icon('x'))),
+    h('label', { class: 'f', text: 'كلمات عامة دالة' }), h('input', { value: c.keywords, placeholder: 'كلمات أو عبارات مفصولة بفاصلة', oninput: e => { c.keywords = e.target.value; } }),
+    h('div', { class: 'tax-subs' }, c.subs.map((s, si) => h('div', { class: 'tax-sub' },
+      h('input', { value: s.name, 'aria-label': 'اسم التصنيف الفرعي', oninput: e => { s.name = e.target.value; } }),
+      h('input', { value: s.keywords, placeholder: 'الكلمات الدالة؛ «!» قبل الكلمة القوية', 'aria-label': 'كلمات التصنيف الفرعي', oninput: e => { s.keywords = e.target.value; } }),
+      h('button', { class: 'btn sm ghost', type: 'button', title: 'حذف', onclick: () => { c.subs.splice(si, 1); draw(); } }, icon('x'))))),
+    h('button', { class: 'btn sm', type: 'button', onclick: () => { c.subs.push({ name: '', keywords: '' }); draw(); } }, icon('plus'), 'تصنيف فرعي'))));
+  draw();
+  const save = async () => {
+    err.textContent = '';
+    try {
+      await api('/taxonomy', { method: 'PUT', body: { categories: tax.map(c => ({ name: c.name, keywords: split(c.keywords), subs: c.subs.map(s => ({ name: s.name, keywords: split(s.keywords) })) })) } });
+      state.meta = await api('/meta').catch(() => state.meta);
+      toast('حُفظت شجرة التصنيف');
+    } catch (e) { err.textContent = e.message; }
+  };
+  const run = async scope => {
+    try { const r = await api('/classification/reclassify', { method: 'POST', body: { scope } }); toast(`صُنّف ${nf.format(r.changed)} مستنداً`); renderAdmin(body.parentElement, 'taxonomy'); }
+    catch (e) { toast(e.message, { error: true }); }
+  };
+  const fb = o.feedback;
+  const stat = (n, label) => h('div', { class: 'card kpi' }, h('span', { class: 'label', text: label }), h('div', { class: 'value', text: n == null ? '—' : typeof n === 'number' ? nf.format(n) : n }));
+  mount(body,
+    h('div', { class: 'card pad', style: 'margin-bottom:14px' },
+      h('h3', {}, icon('spark'), 'التصنيف الآلي'),
+      h('p', { class: 'muted small', text: 'تُصنَّف المستندات عند إدراجها بالكلمات الدالة في هذه الشجرة، وبما تتعلمه المنصة من المستندات التي صنّفتموها أو أكدتم تصنيفها. التصنيف غير الواثق يظهر «مقترحاً» حتى يُؤكد.' }),
+      h('div', { class: 'kpis', style: 'margin-top:10px' },
+        stat(o.counts.total, 'مستند'), stat(o.counts.unclassified, 'غير مصنّف'), stat(o.counts.auto, 'تصنيف آلي لم يُراجع'), stat(o.counts.training, 'مثال يتعلم منه'),
+        stat(fb.accuracy == null ? null : fb.accuracy + '%', `دقة التصنيف الآلي حسب مراجعاتكم (${nf.format(fb.reviewed)})`),
+        stat(fb.confidentAccuracy == null ? null : fb.confidentAccuracy + '%', `دقة التصنيف الواثق (${nf.format(fb.confidentReviewed)})`)),
+      h('div', { class: 'row', style: 'gap:8px;margin-top:12px;flex-wrap:wrap' },
+        h('button', { class: 'btn primary', onclick: () => run('unclassified') }, icon('spark'), 'صنّف المستندات غير المصنفة'),
+        h('button', { class: 'btn', onclick: () => run('auto') }, icon('refresh'), 'أعد التصنيف الآلي غير المؤكد'),
+        h('a', { class: 'btn ghost', href: '#/docs?filter=autocat' }, icon('eye'), 'مراجعة التصنيفات المقترحة'))),
+    o.unmapped.length ? h('div', { class: 'card pad', style: 'margin-bottom:14px' },
+      h('h3', {}, icon('alert'), 'تصنيفات في الأرشيف خارج الشجرة'),
+      h('p', { class: 'muted small', text: 'لا يتعلم منها المصنِّف حتى تُضاف إلى الشجرة (أو تُوحَّد مع تصنيف قائم بتعديل المستندات).' }),
+      h('div', { class: 'chips' }, o.unmapped.map(u => h('button', { class: 'chip', title: 'إضافة إلى الشجرة', onclick: () => { tax.push({ name: u.name, keywords: '', subs: [] }); draw(); toast(`أُضيف «${u.name}»؛ احفظ الشجرة`); } }, icon('plus'), `${u.name} (${nf.format(u.count)})`)))) : null,
+    h('div', { class: 'row', style: 'justify-content:space-between;margin-bottom:10px' }, h('h3', { text: 'شجرة التصنيف' }),
+      h('div', { class: 'row', style: 'gap:8px' }, h('button', { class: 'btn', onclick: () => { tax.push({ name: 'تصنيف جديد', keywords: '', subs: [] }); draw(); } }, icon('plus'), 'تصنيف عام'), h('button', { class: 'btn primary', onclick: save }, icon('check'), 'حفظ الشجرة'))),
+    err, editor);
 }
 
 async function adminUsers(body) {

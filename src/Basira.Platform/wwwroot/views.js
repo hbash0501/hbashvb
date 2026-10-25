@@ -139,14 +139,14 @@ export async function renderThread(view, id, currentDoc) {
 }
 
 // ======================= المستندات =======================
-const FILTERS = [['all', 'الكل'], ['awaiting', 'بانتظار رد'], ['overdue', 'متأخرة'], ['week', 'هذا الأسبوع'], ['review', 'للمراجعة'], ['ocr', 'بلا نص'], ['sensitive', 'حساسة']];
+const FILTERS = [['all', 'الكل'], ['awaiting', 'بانتظار رد'], ['overdue', 'متأخرة'], ['week', 'هذا الأسبوع'], ['review', 'للمراجعة'], ['autocat', 'تصنيف مقترح'], ['unclassified', 'غير مصنّف'], ['ocr', 'بلا نص'], ['sensitive', 'حساسة']];
 
 export function docRow(d) {
   return h('a', { class: 'doc-row', href: docLink(d.id) },
     h('div', { class: 'doc-ico ' + dirClass(d.direction), title: d.direction }, dirIcon(d.direction)),
     h('div', { style: 'min-width:0' },
       h('div', { class: 't' }, d.matches ? markTerms(d.title, d.matches) : d.title),
-      h('div', { class: 'm' }, h('span', { class: 'num', text: d.archiveNo }), d.documentDate ? h('span', { text: fmt.hijri(d.documentDate) }) : null, d.sourceEntity ? h('span', { text: d.sourceEntity }) : null, d.category ? h('span', { text: d.category }) : null,
+      h('div', { class: 'm' }, h('span', { class: 'num', text: d.archiveNo }), d.documentDate ? h('span', { text: fmt.hijri(d.documentDate) }) : null, d.sourceEntity ? h('span', { text: d.sourceEntity }) : null, d.category ? h('span', { title: d.categoryAuto ? (d.categoryConfident ? 'تصنيف آلي' : 'تصنيف مقترح يحتاج تأكيداً') : 'التصنيف' }, (d.subCategory ? d.category + ' / ' + d.subCategory : d.category) + (d.categoryAuto && !d.categoryConfident ? ' (مقترح)' : '')) : null,
         d.references ? h('span', {}, icon('link'), ` ${nf.format(d.references)} إشارة`) : null),
       d.excerpt ? h('div', { class: 'x' }, markTerms(d.excerpt, d.matches)) : d.summary ? h('div', { class: 'x', text: d.summary }) : null),
     h('div', { class: 'side-info' }, docChips(d).filter(Boolean).slice(0, 4)));
@@ -224,12 +224,16 @@ export async function renderDoc(view, id, onCount) {
     const inp = (key, val, attrs = {}) => h('input', { value: val || '', ...attrs });
     const select = (key, val, values) => h('select', {}, values.map(v => h('option', { value: v, text: v, selected: v === val })));
     const err = h('p', { class: 'error', role: 'alert' });
+    // التصنيفات الفرعية تتبع التصنيف العام المختار من شجرة التصنيف.
+    const subsList = h('datalist', { id: 'subs' });
+    const fillSubs = name => mount(subsList, ((meta.taxonomy || []).find(t => t.name === name)?.subs || []).map(x => h('option', { value: x })));
+    fillSubs(doc.category);
     const form = h('form', { class: 'form', style: 'padding:18px 20px' },
       f('title', 'العنوان', inp('title', doc.title, { required: true }), true),
       f('direction', 'الاتجاه', select('direction', doc.direction, meta.directions || [])),
       f('confidentiality', 'السرية', select('confidentiality', doc.confidentiality, meta.confidentialities || [])),
       f('category', 'التصنيف', inp('category', doc.category, { list: 'cats' })),
-      f('subCategory', 'التصنيف الفرعي', inp('subCategory', doc.subCategory)),
+      f('subCategory', 'التصنيف الفرعي', inp('subCategory', doc.subCategory, { list: 'subs' })),
       f('sourceEntity', 'الجهة المرسلة', inp('sourceEntity', doc.sourceEntity, { list: 'ents' })),
       f('destinationEntity', 'الجهة المستقبلة', inp('destinationEntity', doc.destinationEntity, { list: 'ents' })),
       f('externalNo', 'رقم الجهة المرسلة', inp('externalNo', doc.externalNo)),
@@ -241,8 +245,10 @@ export async function renderDoc(view, id, onCount) {
       f('summary', 'الملخص', h('textarea', { value: doc.summary }), true),
       f('text', 'النص', h('textarea', { value: d.text, style: 'min-height:220px' }), true),
       h('datalist', { id: 'cats' }, (meta.categories || []).map(c => h('option', { value: c }))),
+      subsList,
       h('datalist', { id: 'ents' }, (meta.entities || []).map(c => h('option', { value: c }))),
       h('div', { class: 'full row' }, h('button', { class: 'btn primary', type: 'submit' }, icon('check'), 'حفظ التعديلات'), err));
+    form.elements.category?.addEventListener('input', e => fillSubs(e.target.value));
     form.addEventListener('submit', async e => {
       e.preventDefault();
       const body = { version };
@@ -290,6 +296,27 @@ export async function renderDoc(view, id, onCount) {
   const cbox = h('textarea', { placeholder: 'أضف ملاحظة للفريق…', style: 'min-height:70px;margin-top:10px', 'aria-label': 'ملاحظة' });
   const addComment = h('button', { class: 'btn sm', style: 'margin-top:8px', onclick: async () => { if (!cbox.value.trim()) return; await api(`/documents/${encodeURIComponent(id)}/comments`, { method: 'POST', body: { body: cbox.value } }); renderDoc(view, id); } }, icon('message'), 'إضافة');
 
+  // ===== التصنيف =====
+  function classBox() {
+    const c = d.classification;
+    const setClass = async (action, category, subCategory) => {
+      try { await api(`/documents/${encodeURIComponent(id)}/classification`, { method: 'POST', body: { action, category, subCategory, version } }); toast(action === 'confirm' ? 'أُكِّد التصنيف' : `التصنيف: ${category}`); renderDoc(view, id, onCount); }
+      catch (ex) { toast(ex.message, { error: true }); }
+    };
+    const label = doc.category ? [doc.category, doc.subCategory].filter(Boolean).join(' / ') : 'غير مصنّف';
+    const chip = !doc.categoryAuto ? null : doc.categoryConfident ? h('span', { class: 'chip ok', title: 'صنّفته المنصة آلياً بثقة عالية' }, icon('spark'), 'آلي') : h('span', { class: 'chip warn', title: 'تصنيف مقترح؛ أكده أو غيّره' }, icon('spark'), 'مقترح');
+    const alts = doc.categoryAuto && c?.alternatives ? c.alternatives.filter(a => a.category !== doc.category) : [];
+    return h('div', { class: 'class-box' },
+      h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' }, h('span', { class: 'muted small', text: 'التصنيف' }), h('b', { text: label }), chip,
+        doc.categoryAuto && c ? h('span', { class: 'muted small', text: `ثقة ${Math.round(c.confidence * 100)}%` }) : null),
+      doc.categoryAuto && c?.evidence?.length ? h('div', { class: 'muted small', style: 'margin-top:4px', text: 'لماذا: ' + c.evidence.join('، ') }) : null,
+      d.can.edit && doc.categoryAuto ? h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap;margin-top:8px' },
+        h('button', { class: 'btn sm primary', onclick: () => setClass('confirm') }, icon('check'), 'تأكيد التصنيف'),
+        alts.map(a => h('button', { class: 'btn sm', title: 'اختيار هذا التصنيف', onclick: () => setClass('set', a.category, a.sub) }, [a.category, a.sub].filter(Boolean).join(' / '))),
+        h('button', { class: 'btn sm ghost', onclick: () => showTab('edit') }, icon('edit'), 'تغيير')) : null,
+      d.can.edit && !doc.category ? h('button', { class: 'btn sm', style: 'margin-top:8px', onclick: () => showTab('edit') }, icon('edit'), 'تصنيف') : null);
+  }
+
   // ===== التحقق من القراءة الآلية =====
   let verifyPanel = null;
   if ((d.checks || []).length) {
@@ -323,7 +350,7 @@ export async function renderDoc(view, id, onCount) {
   mount(view,
     h('div', { class: 'page-head' },
       h('div', { class: 'doc-title' }, h('div', { class: 'doc-ico ' + dirClass(doc.direction), style: 'width:48px;height:48px' }, dirIcon(doc.direction)),
-        h('div', {}, h('div', { class: 'muted small num', text: `${doc.archiveNo}${doc.documentDate ? ' • ' + fmt.both(doc.documentDate) : ''}` }), h('h1', { text: doc.title }), h('div', { class: 'chips' }, docChips(doc)))),
+        h('div', {}, h('div', { class: 'muted small num', text: `${doc.archiveNo}${doc.documentDate ? ' • ' + fmt.both(doc.documentDate) : ''}` }), h('h1', { text: doc.title }), doc.titleAuto ? h('div', { class: 'muted small', title: 'استُخرج العنوان من محتوى المستند؛ عدّله من «البيانات» إن لزم', text: 'عنوان مستخرج من المحتوى' }) : null, h('div', { class: 'chips' }, docChips(doc)))),
       h('div', { class: 'actions' },
         d.can.workflow ? statusBtn : null,
         d.can.edit && doc.hasFile ? h('button', { class: 'btn', onclick: async () => { await api(`/documents/${encodeURIComponent(id)}/reprocess`, { method: 'POST' }); toast('أُرسل المستند لإعادة المعالجة'); } }, icon('refresh'), 'إعادة المعالجة') : null,
@@ -334,8 +361,8 @@ export async function renderDoc(view, id, onCount) {
       h('section', { class: 'card' }, tabs, tabsBody),
       h('aside', { class: 'stack' },
         h('section', { class: 'card pad panel' }, h('h3', {}, icon('docs'), 'البطاقة'), h('dl', { class: 'kv' },
-          [['الاتجاه', doc.direction], ['من', doc.sourceEntity], ['إلى', doc.destinationEntity], ['رقم الجهة', doc.externalNo], ['رقم الصادر', doc.outgoingNo], ['القيد الوارد', doc.incomingNo], ['التصنيف', [doc.category, doc.subCategory].filter(Boolean).join(' / ')], ['الموعد', doc.due ? fmt.both(doc.due) : ''], ['أُدرج', `${fmt.time(doc.createdAt)} • ${d.createdBy}`]]
-            .filter(x => x[1]).flatMap(([k, v]) => [h('dt', { text: k }), h('dd', { text: v })])), doc.summary ? h('p', { class: 'small', style: 'margin-top:10px', text: doc.summary }) : null),
+          [['الاتجاه', doc.direction], ['من', doc.sourceEntity], ['إلى', doc.destinationEntity], ['رقم الجهة', doc.externalNo], ['رقم الصادر', doc.outgoingNo], ['القيد الوارد', doc.incomingNo], ['الموعد', doc.due ? fmt.both(doc.due) : ''], ['أُدرج', `${fmt.time(doc.createdAt)} • ${d.createdBy}`]]
+            .filter(x => x[1]).flatMap(([k, v]) => [h('dt', { text: k }), h('dd', { text: v })])), classBox(), doc.summary ? h('p', { class: 'small', style: 'margin-top:10px', text: doc.summary }) : null),
         verifyPanel,
         threadPanel,
         refItems.length ? h('section', { class: 'card pad panel' }, h('h3', {}, icon('link'), `يشير إلى (${nf.format(refItems.length)})`), refItems) : null,

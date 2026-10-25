@@ -39,4 +39,20 @@ public sealed class SettingsStore
         AuditStore.Append(c, tx, actor, "تعديل الإعدادات", string.Join("، ", values.Keys.Where(Defaults.ContainsKey)));
         tx.Commit();
     }
+
+    /// <summary>قيمة مخزنة خارج الإعدادات المعروضة (مثل شجرة التصنيف).</summary>
+    public string GetRaw(string key)
+    {
+        using var c = _db.Open();
+        return c.Scalar("SELECT value FROM settings WHERE key=@key", new { key }) as string ?? "";
+    }
+
+    public void SetRaw(string key, string value, string actor, string auditAction)
+    {
+        using var c = _db.Open();
+        using var tx = c.BeginTransaction();
+        c.Exec("INSERT INTO settings(key, value) VALUES(@key,@value) ON CONFLICT(key) DO UPDATE SET value=@value", new { key, value }, tx);
+        AuditStore.Append(c, tx, actor, auditAction, key);
+        tx.Commit();
+    }
 }

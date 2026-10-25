@@ -45,6 +45,8 @@ public sealed class InboxService
             FileId = sha, FileName = fileName, FileType = Path.GetExtension(fileName).ToLowerInvariant(), FileSize = size,
             Processing = "queued",
         };
+        // عنوان من اسم الملف مؤقتاً؛ يُستبدل بعنوان من المحتوى عند المعالجة.
+        if (string.IsNullOrWhiteSpace(options.Title)) doc.SetAuto("title", true);
         doc = _docs.Create(doc, actor, "إدراج مستند");
         _queue.Enqueue(doc);
         return new ImportResult(doc, false);

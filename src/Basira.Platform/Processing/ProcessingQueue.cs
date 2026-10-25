@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Threading.Channels;
 using Basira.Platform.Data;
 using Basira.Platform.Infrastructure;
+using Basira.Platform.Intelligence;
 using Basira.Platform.Processing.Ocr;
 
 namespace Basira.Platform.Processing;
@@ -18,13 +19,14 @@ public sealed class ProcessingQueue : BackgroundService
     private readonly SettingsStore _settings;
     private readonly EventHub _events;
     private readonly ReviewStore _review;
+    private readonly ClassificationService _classifier;
     private readonly TextExtractor _extractor = new();
     private readonly PlatformOptions _options;
     private readonly ILogger<ProcessingQueue> _log;
 
-    public ProcessingQueue(Db db, DocumentStore docs, FileStore files, SettingsStore settings, EventHub events, ReviewStore review, PlatformOptions options, ILogger<ProcessingQueue> log)
+    public ProcessingQueue(Db db, DocumentStore docs, FileStore files, SettingsStore settings, EventHub events, ReviewStore review, ClassificationService classifier, PlatformOptions options, ILogger<ProcessingQueue> log)
     {
-        _db = db; _docs = docs; _files = files; _settings = settings; _events = events; _review = review; _options = options; _log = log;
+        _db = db; _docs = docs; _files = files; _settings = settings; _events = events; _review = review; _classifier = classifier; _options = options; _log = log;
     }
 
     public void Enqueue(Doc d)
@@ -117,15 +119,22 @@ public sealed class ProcessingQueue : BackgroundService
                 k.Box.IsEmpty ? "" : $"{k.Box.Left},{k.Box.Top},{k.Box.Right},{k.Box.Bottom}", k.Offset, k.Length, x.SpanText, cropId, "", "", "", ""));
         }
         var pending = rows.Count(r => r.Pending);
+        // العنوان من المحتوى، ثم التصنيف بالعنوان والنص (للحقول التي لم يحددها المستخدم).
+        var titleAuto = doc.Title == "" || doc.Title == stem || doc.IsAuto("title");
+        var title = titleAuto ? TitleBuilder.Build(extraction.Text, header.Subject) : doc.Title;
+        if (title == "") title = doc.Title;
+        Report(current with { Stage = "التصنيف", Progress = 95 });
+        var classification = extraction.Text.Length > 0 && (doc.Category == "" || doc.IsAuto("category")) ? _classifier.Classify(extraction.Text, title) : ClassificationResult.None;
         _docs.Update(doc.Id, null, d =>
         {
+            if (titleAuto && title != "") { d.Title = title; d.SetAuto("title", true); }
+            _classifier.Apply(d, classification);
             d.Text = extraction.Text;
             d.PageCount = extraction.Pages;
             d.OcrQuality = extraction.Quality;
             d.Processing = extraction.Text.Length > 0 ? "done" : "needs_text";
             d.ProcessingError = extraction.Warning;
             d.ScanQuality = string.Join("؛ ", extraction.ScanIssues);
-            if ((d.Title == "" || d.Title == stem) && header.Subject != "") d.Title = header.Subject;
             if (d.DocumentDate == "" && header.DateIso != "") d.DocumentDate = header.DateIso;
             if (header.Number != "")
             {
