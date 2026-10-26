@@ -291,7 +291,83 @@ async function adminSettings(body) {
     try { await api('/admin/settings', { method: 'PUT', body: Object.fromEntries(Object.entries(inputs).map(([k, v]) => [k, v.value])) }); toast('حُفظت الإعدادات'); state.org = inputs.organization.value; adminSettings(body); }
     catch (ex) { err.textContent = ex.message; }
   });
-  mount(body, form);
+  mount(body, form, ocrPanel());
+}
+
+// ===== محرك القراءة: Tesseract، والمحرك المرئي المحلي، وقياسهما على العينات المضمّنة =====
+function ocrPanel() {
+  const box = h('section', { class: 'card pad', style: 'margin-top:16px' });
+  let timer = null;
+  const load = () => api('/admin/ocr').then(draw).catch(e => mount(box, h('p', { class: 'error', text: e.message })));
+  function draw(st) {
+    clearTimeout(timer);
+    const f = {
+      mode: h('select', {}, [['auto', 'تلقائي: المحرك المرئي إن توفر، مع Tesseract للتحقق'], ['tesseract', 'Tesseract وحده']].map(([v, l]) => h('option', { value: v, text: l, selected: v === st.mode }))),
+      url: h('input', { class: 'ltr', value: st.url || '', placeholder: 'http://127.0.0.1:11434/v1' }),
+      model: h('input', { class: 'ltr', value: st.model || '', placeholder: 'qwen3-vl:4b', list: 'ocr-models' }),
+      prompt: h('textarea', { class: 'ltr', rows: 3, placeholder: st.defaultPrompt, value: st.prompt || '' }),
+    };
+    const models = h('datalist', { id: 'ocr-models' });
+    const probeOut = h('span', { class: 'small' });
+    const err = h('p', { class: 'error', role: 'alert' });
+    const probe = async () => {
+      mount(probeOut, 'جارٍ الفحص…');
+      try {
+        const r = await api('/admin/ocr/probe', { method: 'POST', body: { url: f.url.value } });
+        mount(models, r.models.map(m => h('option', { value: m })));
+        mount(probeOut, r.ok ? h('span', { class: 'chip ok' }, icon('check'), `الخادم متاح — ${nf.format(r.models.length)} نموذج`) : h('span', { class: 'chip danger', text: r.message }));
+      } catch (e) { mount(probeOut, h('span', { class: 'chip danger', text: e.message })); }
+    };
+    const save = async () => {
+      err.textContent = '';
+      try { await api('/admin/settings', { method: 'PUT', body: { ocr_engine: f.mode.value, vision_ocr_url: f.url.value.trim(), vision_ocr_model: f.model.value.trim(), vision_ocr_prompt: f.prompt.value.trim() } }); toast('حُفظت إعدادات القراءة'); load(); }
+      catch (e) { err.textContent = e.message; }
+    };
+    const bench = async () => { try { await api('/admin/ocr/benchmark', { method: 'POST' }); toast('بدأ القياس'); load(); } catch (e) { toast(e.message, { error: true }); } };
+    const b = st.benchmark;
+    const pct = x => x == null ? '—' : nf.format(x) + '%';
+    const levels = { clean: 'نظيف', mild: 'خفيف', moderate: 'متوسط', severe: 'شديد' };
+    mount(box,
+      h('h3', {}, icon('eye'), 'محرك القراءة (OCR)'),
+      h('p', { class: 'muted small', text: 'Tesseract ضعيف في المسح الرديء. نماذج الرؤية الحديثة أدق بكثير في قراءة العربية، وتعمل على هذا الجهاز أو خادم داخلي في المؤسسة عبر Ollama أو llama.cpp. في الوضع التلقائي يُقرأ النص بالنموذج المرئي، ويقرأ Tesseract الصفحة قراءةً ثانية: ما اتفقا عليه من رقم وتاريخ وموضوع وإشارات ومهل يُعتمد آلياً، وما اختلفا فيه يُعرض للتحقق. لا يُقبل عنوان خادم على الإنترنت.' }),
+      h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;margin:8px 0' },
+        h('span', { class: 'chip ' + (st.tesseract ? 'ok' : 'warn'), text: st.tesseract ? 'Tesseract: مثبت' : 'Tesseract: غير مثبت' }),
+        h('span', { class: 'chip ' + (st.vision ? 'ok' : st.url ? 'danger' : ''), text: st.vision ? `المحرك المرئي: ${st.vision.model}` : st.url ? 'المحرك المرئي: غير متاح' : 'المحرك المرئي: لم يُضبط' }),
+        st.visionNote ? h('span', { class: 'small muted', text: st.visionNote }) : null),
+      h('div', { class: 'form' },
+        h('div', { class: 'full' }, h('label', { class: 'f', text: 'الوضع' }), f.mode),
+        h('div', {}, h('label', { class: 'f', text: 'عنوان الخادم المحلي' }), f.url, h('p', { class: 'hint', text: 'Ollama: http://127.0.0.1:11434/v1 — llama.cpp: http://127.0.0.1:8080/v1' })),
+        h('div', {}, h('label', { class: 'f', text: 'النموذج' }), f.model, models, h('p', { class: 'hint', text: 'اسمه في الخادم، مثل qwen3-vl:4b. «فحص الخادم» يعرض المتوفر.' })),
+        h('details', { class: 'full' }, h('summary', { class: 'small', text: 'موجّه القراءة (متقدم)' }), f.prompt, h('p', { class: 'hint', text: 'اتركه فارغاً للموجّه الافتراضي. نماذج PaddleOCR-VL تستخدم «OCR:» تلقائياً.' }))),
+      h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center' },
+        h('button', { class: 'btn primary', type: 'button', onclick: save }, icon('check'), 'حفظ'),
+        h('button', { class: 'btn', type: 'button', onclick: probe }, icon('search'), 'فحص الخادم'), probeOut,
+        h('button', { class: 'btn', type: 'button', disabled: st.running || !st.tesseract && !st.vision, onclick: bench, style: 'margin-inline-start:auto' }, icon('report'), 'قياس المحركات على العينات')),
+      err,
+      st.running ? h('p', { class: 'small' }, icon('refresh'), ' ', st.progress || 'جارٍ القياس…', ' — قد يستغرق دقائق مع نموذج على المعالج') : null,
+      st.error ? h('p', { class: 'error', text: st.error }) : null,
+      b ? h('div', { style: 'margin-top:12px' },
+        h('div', { class: 'table-wrap' }, h('table', {},
+          h('thead', {}, h('tr', {}, ['المحرك', 'خطأ الحروف', ...Object.values(levels), 'حقول اعتُمدت صحيحة', 'خطأ صامت', 'للتحقق', 'لم تُقرأ', 'ثانية/صفحة'].map(x => h('th', { text: x })))),
+          h('tbody', {}, b.engines.map(e => h('tr', {},
+            h('td', {}, h('b', { text: e.mode === 'auto' ? 'تلقائي' : 'Tesseract وحده' }), h('div', { class: 'muted small ltr', text: e.engine }), e.note ? h('div', { class: 'small error', text: e.note }) : null),
+            h('td', {}, h('b', { text: pct(e.cer) })),
+            ...Object.keys(levels).map(k => h('td', { text: pct(e.cerByLevel[k]) })),
+            h('td', { text: `${nf.format(e.autoCorrect)} من ${nf.format(e.fields)}` }),
+            h('td', {}, h('span', { class: 'chip ' + (e.silentWrong ? 'danger' : 'ok'), text: nf.format(e.silentWrong) })),
+            h('td', { text: nf.format(e.review) }), h('td', { text: nf.format(e.missing) }), h('td', { text: nf.format(e.secondsPerPage) })))))),
+        h('p', { class: 'muted small', style: 'margin-top:6px', text: `قيس ${fmt.time(b.at)} على ${nf.format(b.pages)} صفحات اصطناعية بعيوب مسح متدرجة. «خطأ صامت»: حقل اعتُمد آلياً وهو خطأ، وهو الأخطر. العينات مؤشر للمقارنة على هذا الجهاز؛ الحكم النهائي على مراسلاتكم.` })) : null,
+      h('details', { style: 'margin-top:12px' }, h('summary', { class: 'small', text: 'كيف أشغّل نموذجاً محلياً؟' }),
+        h('ol', { class: 'small' },
+          h('li', {}, 'Ollama (الأسهل): ثبّته من ollama.com، ثم في سطر الأوامر: ', h('code', { class: 'ltr', text: 'ollama pull qwen3-vl:4b' }), '، والعنوان http://127.0.0.1:11434/v1 والنموذج qwen3-vl:4b.'),
+          h('li', {}, 'llama.cpp مع PaddleOCR-VL (نموذج قراءة متخصص صغير يدعم العربية): ', h('code', { class: 'ltr', text: 'llama-server -m PaddleOCR-VL-1.5.gguf --mmproj PaddleOCR-VL-1.5-mmproj.gguf --temp 0' }), '، والعنوان http://127.0.0.1:8080/v1.'),
+          h('li', {}, 'ثم «فحص الخادم» و«حفظ»، ثم «قياس المحركات على العينات» لمقارنته بـ Tesseract على هذا الجهاز. جرّب أكثر من نموذج واعتمد الأدق.'),
+          h('li', {}, 'بطاقة رسومية تسرّع القراءة كثيراً؛ على المعالج وحده قد تستغرق الصفحة دقيقة أو أكثر.'))));
+    if (st.running) timer = setTimeout(() => box.isConnected && load(), 2000);
+  }
+  mount(box, h('p', { class: 'muted small', text: 'جارٍ فحص محركات القراءة…' }));
+  load();
+  return box;
 }
 
 function adminMigrate(body) {

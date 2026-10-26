@@ -26,7 +26,8 @@ public sealed class TextExtractor
     public static readonly string[] ImageTypes = { ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".gif", ".webp" };
     public static readonly string[] TextTypes = { ".txt", ".csv", ".md", ".text" };
 
-    public sealed record Tools(string? Tesseract, string? PdfToPpm, string Languages);
+    /// <summary>أدوات القراءة. Vision: محرك القراءة المرئي إن ضُبط وكان خادمه متاحاً؛ VisionNote: سبب عدم استخدامه.</summary>
+    public sealed record Tools(string? Tesseract, string? PdfToPpm, string Languages, VisionOptions? Vision = null, string VisionNote = "");
 
     public static Tools Find(string tesseractPath, string pdftoppmPath, string languages) => new(
         ProcessRunner.Locate(tesseractPath, "tesseract", @"%ProgramFiles%\Tesseract-OCR\tesseract.exe", @"%ProgramFiles(x86)%\Tesseract-OCR\tesseract.exe", @"%LocalAppData%\Programs\Tesseract-OCR\tesseract.exe"),
@@ -41,9 +42,10 @@ public sealed class TextExtractor
         if (ext == ".pdf") return await ReadPdfAsync(path, tools, progress, ct);
         if (ImageTypes.Contains(ext))
         {
-            if (tools.Tesseract is null) return new Extraction("", 1, 0, "", "لم يُعثر على Tesseract؛ حدّد مساره من الإعدادات لاستخراج النص من الصور.");
+            if (tools.Tesseract is null && tools.Vision is null)
+                return new Extraction("", 1, 0, "", "لم يُعثر على محرك قراءة؛ ثبّت Tesseract أو اضبط محرك القراءة المرئي من الإعدادات لاستخراج النص من الصور." + Note(tools));
             var dir = Directory.CreateTempSubdirectory("basira-ocr-").FullName;
-            try { return await OcrPagesAsync(tools, new[] { path }, dir, progress, "Tesseract", ct); }
+            try { return await PagesAsync(tools, new[] { path }, dir, progress, "", ct); }
             finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
         }
         return new Extraction("", 0, 0, "", "نوع الملف غير مدعوم لاستخراج النص؛ حُفظ الأصل ويمكن إدخال النص يدوياً.");
@@ -129,8 +131,8 @@ public sealed class TextExtractor
         if (letters >= 25 * pages) return new Extraction(text, pages, Quality(text), "طبقة نص PDF", "");
 
         // PDF مصوّر: تحويل الصفحات إلى صور ثم OCR.
-        if (tools.Tesseract is null || tools.PdfToPpm is null)
-            return new Extraction(text, pages, Quality(text), "طبقة نص PDF", "الملف مصوّر ويحتاج OCR؛ حدّد مساري Tesseract وpdftoppm من الإعدادات.");
+        if (tools.Tesseract is null && tools.Vision is null || tools.PdfToPpm is null)
+            return new Extraction(text, pages, Quality(text), "طبقة نص PDF", "الملف مصوّر ويحتاج قراءة ضوئية؛ حدّد مسار pdftoppm ومحرك قراءة (Tesseract أو المحرك المرئي) من الإعدادات." + Note(tools));
         var dir = Directory.CreateTempSubdirectory("basira-pdf-").FullName;
         try
         {
@@ -143,33 +145,78 @@ public sealed class TextExtractor
                 if (r.Exit != 0 || !File.Exists(prefix + ".png")) throw new InvalidOperationException("تعذر تحويل صفحة PDF إلى صورة: " + r.Err.Trim());
                 images.Add(prefix + ".png");
             }
-            return await OcrPagesAsync(tools, images, dir, progress, "Tesseract (PDF مصوّر)", ct);
+            return await PagesAsync(tools, images, dir, progress, " (PDF مصوّر)", ct);
         }
         finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
     }
 
+    private static string Note(Tools tools) => tools.VisionNote == "" ? "" : " (" + tools.VisionNote + ")";
+
     /// <summary>
-    /// خط القراءة الكامل للصفحات المصورة: بوابة الجودة، وتحسين الصورة، والنموذج الدقيق، وقارئ الأرقام، وفحص الحقول الحرجة.
-    /// المقتطعات تُقص هنا قبل حذف الصور المؤقتة.
+    /// قراءة الصفحات المصورة: بالمحرك المرئي إن ضُبط (ومعه Tesseract قراءةً ثانية تتحقق من الحقول الحرجة)، وإلا خط Tesseract الكامل:
+    /// بوابة الجودة، وتحسين الصورة، والنموذج الدقيق، وقارئ الأرقام، وفحص الحقول الحرجة. المقتطعات تُقص هنا قبل حذف الصور المؤقتة.
     /// </summary>
-    private static async Task<Extraction> OcrPagesAsync(Tools tools, IReadOnlyList<string> images, string workDir, Action<int, string> progress, string engine, CancellationToken ct)
+    /// <summary>متوسط ثقة Tesseract في كلماته الذي يؤهل قراءته للحكم على قراءة المحرك المرئي.</summary>
+    public const int TrustedTesseract = 75;
+
+    /// <summary>قراءة صور صفحات بخط القراءة نفسه المستخدم في الإدراج (لقياس المحركات).</summary>
+    public static Task<Extraction> ReadImagesAsync(Tools tools, IReadOnlyList<string> images, string workDir, Action<int, string> progress, CancellationToken ct) =>
+        PagesAsync(tools, images, workDir, progress, "", ct);
+
+    private static async Task<Extraction> PagesAsync(Tools tools, IReadOnlyList<string> images, string workDir, Action<int, string> progress, string suffix, CancellationToken ct)
     {
-        var options = new OcrOptions(tools.Tesseract!, tools.Languages, Tessdata(tools.Languages));
-        var doc = await OcrPipeline.ReadImagesAsync(images, options, workDir, progress, ct);
+        OcrDocument? tess = null;
+        if (tools.Tesseract is not null)
+        {
+            var options = new OcrOptions(tools.Tesseract, tools.Languages, Tessdata(tools.Languages));
+            Action<int, string> p = tools.Vision is null ? progress : (v, s) => progress(10 + v * 35 / 100, s + " (Tesseract)");
+            tess = await OcrPipeline.ReadImagesAsync(images, options, workDir, p, ct);
+        }
+        if (tools.Vision is null) return Package(tess!.Text, tess.Checks, tess.PreparedImages, tess.Quality, images.Count, "Tesseract" + suffix, Note(tools));
+
+        var vision = tools.Vision;
+        var pages = new List<string>();
+        try
+        {
+            for (var i = 0; i < images.Count; i++)
+            {
+                progress(45 + 40 * i / images.Count, images.Count > 1 ? $"القراءة بالنموذج المرئي: صفحة {i + 1} من {images.Count}" : "القراءة بالنموذج المرئي");
+                pages.Add(await VisionOcr.ReadAsync(images[i], vision, ct));
+            }
+        }
+        catch (InvalidOperationException ex)
+        {
+            if (tess is null) return new Extraction("", images.Count, 0, "", "تعذرت القراءة بالمحرك المرئي: " + ex.Message) { UsedOcr = true };
+            return Package(tess.Text, tess.Checks, tess.PreparedImages, tess.Quality, images.Count, "Tesseract" + suffix, "تعذرت القراءة بالمحرك المرئي فاعتُمدت قراءة Tesseract: " + ex.Message);
+        }
+        var primary = Clean(string.Join("\n\n", pages));
+        // قراءة لا تشبه الصفحة (هلوسة) أو ناقصة جداً مقابل قراءة Tesseract واثقة: تُعتمد قراءة Tesseract. ويُحكَم بثقة Tesseract في كلماته
+        // لا بشكل نصه، فقراءته الرديئة لمسح تالف قد تبدو نصاً عربياً سليماً، ولا يصح أن تُسقط بها قراءة مرئية صحيحة.
+        if (tess is not null && tess.MeanConfidence >= TrustedTesseract && (primary.Length < tess.Text.Length * 0.3 || VisionOcr.Agreement(primary, tess.Text) < 0.35))
+            return Package(tess.Text, tess.Checks, tess.PreparedImages, tess.Quality, images.Count, "Tesseract" + suffix,
+                "قراءة النموذج المرئي لا تطابق الصفحة (تشابهها مع قراءة Tesseract ضعيف)، فاعتُمدت قراءة Tesseract.");
+        var quality = tess?.Quality ?? images.Select(img => ImagePrep.Load(img) is { } g ? ImagePrep.Analyze(g).Quality : null).Where(q => q is not null).Select(q => q!).ToList();
+        var checks = CrossCheck.Build(primary, tess);
+        var prepared = tess?.PreparedImages ?? images.ToList();
+        return Package(primary, checks, prepared, quality, images.Count, vision.Model + (tess is null ? "" : " + Tesseract") + suffix, "");
+    }
+
+    private static Extraction Package(string text, List<FieldCheck> fieldChecks, List<string> prepared, List<ScanQuality> quality, int pages, string engine, string note)
+    {
         var checks = new List<ExtractedCheck>();
-        foreach (var k in doc.Checks)
+        foreach (var k in fieldChecks)
         {
             byte[]? crop = null;
-            if (!k.Box.IsEmpty && k.Page < doc.PreparedImages.Count)
-                try { crop = ImagePrep.Crop(doc.PreparedImages[k.Page], k.Box, Math.Max(8, k.Box.Height / 3)); }
+            if (!k.Box.IsEmpty && k.Page < prepared.Count)
+                try { crop = ImagePrep.Crop(prepared[k.Page], k.Box, Math.Max(8, k.Box.Height / 3)); }
                 catch (Exception ex) when (ex is ArgumentException or InvalidDataException) { }
-            var span = k.Offset >= 0 && k.Offset + k.Length <= doc.Text.Length ? doc.Text.Substring(k.Offset, k.Length) : "";
+            var span = k.Offset >= 0 && k.Offset + k.Length <= text.Length ? text.Substring(k.Offset, k.Length) : "";
             checks.Add(new ExtractedCheck(k, crop, span));
         }
-        var issues = doc.Quality.SelectMany((q, i) => q.Issues.Select(x => doc.Quality.Count > 1 ? $"صفحة {i + 1}: {x}" : x)).ToList();
-        var warning = issues.Count == 0 ? "" : "جودة المسح دون الحد المقبول: " + string.Join("؛ ", issues) + ". يُنصح بإعادة المسح.";
+        var issues = quality.SelectMany((q, i) => q.Issues.Select(x => quality.Count > 1 ? $"صفحة {i + 1}: {x}" : x)).ToList();
+        var warning = issues.Count == 0 ? note : "جودة المسح دون الحد المقبول: " + string.Join("؛ ", issues) + ". يُنصح بإعادة المسح." + (note == "" ? "" : " " + note);
         // نص خط القراءة نظيف أصلاً، ولا يمر بـ Clean حتى تبقى مواضع الفحوص فيه صحيحة.
-        return new Extraction(doc.Text, images.Count, Quality(doc.Text), engine, warning) { Checks = checks, ScanIssues = issues, UsedOcr = true };
+        return new Extraction(text, pages, Quality(text), engine, warning) { Checks = checks, ScanIssues = issues, UsedOcr = true };
     }
 
     /// <summary>النماذج الدقيقة المرفقة إن غطت كل اللغات المطلوبة، وإلا نماذج Tesseract المثبتة.</summary>

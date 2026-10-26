@@ -97,7 +97,7 @@ public sealed class ProcessingQueue : BackgroundService
         var doc = _docs.Get(job.DocumentId) ?? throw new KeyNotFoundException("المستند غير موجود.");
         if (doc.FileId == "" || !_files.Exists(doc.FileId)) throw new FileNotFoundException("ملف المستند الأصلي غير موجود في المخزن.");
         var s = _settings.All();
-        var tools = TextExtractor.Find(s["tesseract_path"], s["pdftoppm_path"], s["ocr_languages"]);
+        var tools = await OcrEngines.ToolsAsync(_settings, ct);
         var lastReport = DateTime.MinValue;
         var extraction = await _extractor.ExtractAsync(_files.PathOf(doc.FileId), doc.FileType, tools, (p, stage) =>
         {

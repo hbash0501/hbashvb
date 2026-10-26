@@ -43,17 +43,23 @@ for (let i = 1; i <= count; i++) {
   const ask = days ? `نأمل التكرم بالإفادة خلال (${days}) ${days <= 10 ? 'أيام' : 'يوماً'} من تاريخه.` : 'نأمل الاطلاع والإحاطة.';
   const body = `${lead}نفيدكم بأنه تمت دراسة الموضوع من قبل الإدارة المختصة، وقد تبين الحاجة إلى استكمال بعض المتطلبات النظامية والمستندات الداعمة. ${ask}`;
   const headerNo = eastNo ? east(no) : no;
+  // السحبات بترتيبها السابق نفسه حتى تبقى المجموعات المولّدة ببذور سابقة كما هي.
+  const font = pick(fonts), size = pick([18, 19, 20, 21, 22]), attach = pick(['لا يوجد', '1', 'ملف']);
+  const salute = pick(['سعادة', 'معالي', 'المكرم']), whom = pick(['مدير عام الشؤون الإدارية', 'وكيل الوزارة للخدمات المشتركة', 'رئيس الهيئة']);
   const html = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><style>
-  body{font-family:${pick(fonts)};font-size:${pick([18, 19, 20, 21, 22])}px;line-height:1.95;margin:70px 80px;color:#111;background:#fff}
+  body{font-family:${font};font-size:${size}px;line-height:1.95;margin:70px 80px;color:#111;background:#fff}
   .h{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #222;padding-bottom:12px;margin-bottom:34px}
   .h b{font-size:1.3em}.meta{line-height:1.8}p{margin:14px 0}</style></head><body>
-  <div class="h"><b>${org}</b><div class="meta">الرقم: ${headerNo}<br>التاريخ: ${fmtDate(date, dateStyle)}<br>المرفقات: ${pick(['لا يوجد', '1', 'ملف'])}</div></div>
-  <p>الموضوع: ${subject}</p><p>${pick(['سعادة', 'معالي', 'المكرم'])} ${pick(['مدير عام الشؤون الإدارية', 'وكيل الوزارة للخدمات المشتركة', 'رئيس الهيئة'])} المحترم</p>
+  <div class="h"><b>${org}</b><div class="meta">الرقم: ${headerNo}<br>التاريخ: ${fmtDate(date, dateStyle)}<br>المرفقات: ${attach}</div></div>
+  <p>الموضوع: ${subject}</p><p>${salute} ${whom} المحترم</p>
   <p>السلام عليكم ورحمة الله وبركاته</p><p>${body}</p><p>وتقبلوا تحياتنا،</p></body></html>`;
+  // النص الكامل كما يُقرأ (لقياس نسبة خطأ الحروف).
+  const text = [org, `الرقم: ${headerNo}`, `التاريخ: ${fmtDate(date, dateStyle)}`, `المرفقات: ${attach}`, `الموضوع: ${subject}`,
+    `${salute} ${whom} المحترم`, 'السلام عليكم ورحمة الله وبركاته', body, 'وتقبلوا تحياتنا،'].join('\n');
   await p.setContent(html);
   const name = `L${String(i).padStart(3, '0')}`;
   await p.screenshot({ path: `${out}/${name}.png`, fullPage: false });
-  truth.push({ name, number: keyOf(no), date: canon(date), subject, refs: refs.map(r => ({ number: keyOf(r.number), date: canon(r.date) })), deadlineDays: days });
+  truth.push({ name, number: keyOf(no), date: canon(date), subject, refs: refs.map(r => ({ number: keyOf(r.number), date: canon(r.date) })), deadlineDays: days, text });
 }
 await b.close();
 await writeFile(`${out}/truth.json`, JSON.stringify(truth, null, 1));

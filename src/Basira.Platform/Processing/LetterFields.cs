@@ -51,6 +51,35 @@ public static class LetterFields
         return new LetterHeader(number, dateIso, dateText, subject, Summarize(text ?? ""), Sender(text ?? ""), Addressee(text ?? ""));
     }
 
+    /// <summary>حقل في الترويسة وموضعه في النص (التطبيع يحافظ على الطول): number بصيغة المطابقة، date بصيغة ISO، subject كما هو.</summary>
+    public sealed record HeaderSpan(string Field, string Value, int Offset, int Length);
+
+    public static List<HeaderSpan> Locate(string text)
+    {
+        text ??= "";
+        var n = Norm(text);
+        var result = new List<HeaderSpan>();
+        if (NumberRx.Match(n) is { Success: true } nm)
+        {
+            var g = nm.Groups["v"];
+            var key = CorrespondenceReferenceParser.NumberKey(Regex.Replace(g.Value, @"\s+", "").Trim('/', '-'));
+            if (key != "") result.Add(new HeaderSpan("number", key, g.Index, g.Length));
+        }
+        if (DateRx.Match(n) is { Success: true } dm)
+        {
+            var g = dm.Groups["v"];
+            var canonical = ""; DateTime value = default;
+            if (CorrespondenceReferenceParser.TryParseDate(g.Value.Trim(), ref canonical, ref value))
+                result.Add(new HeaderSpan("date", value.ToString("yyyy-MM-dd"), g.Index, g.Length));
+        }
+        if (SubjectRx.Match(n) is { Success: true } sm)
+        {
+            var g = sm.Groups["v"];
+            result.Add(new HeaderSpan("subject", Regex.Replace(text.Substring(g.Index, g.Length), @"\s+", " ").Trim(), g.Index, g.Length));
+        }
+        return result;
+    }
+
     private static readonly Regex OrgRx = new(@"^(?:وزاره|وزارة|امانه|أمانة|هيئه|هيئة|الهيئه|الهيئة|اداره|إدارة|الاداره|الإدارة|شركه|شركة|مؤسسه|مؤسسة|بلديه|بلدية|جامعه|جامعة|مستشفي|مستشفى|مكتب|المديريه|المديرية|ديوان|مجلس|الرئاسه|الرئاسة|فرع|مركز|المركز|صندوق)", RegexOptions.Compiled);
     private static readonly Regex HeaderLabelRx = new(@"\s*(?:الرقم|التاريخ|المرفقات|الموضوع)\s*[:：].*$", RegexOptions.Compiled);
 

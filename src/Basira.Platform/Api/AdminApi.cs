@@ -49,12 +49,14 @@ public static class AdminApi
             if (body.TryGetValue("default_direction", out var dir) && !Roles.Directions.Contains(dir)) return Error("اتجاه غير معروف.");
             if (body.TryGetValue("semantic_model_url", out var url) && url.Trim() != "" && !(Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri) && uri.Scheme is "https" or "http"))
                 return Error("مصدر النموذج يجب أن يكون رابط http أو https.");
+            if (OcrApi.Validate(body) is { } ocrError) return Error(ocrError);
             var modelPathChanged = body.TryGetValue("semantic_model_path", out var mp) && mp.Trim() != settings.Get("semantic_model_path");
             settings.Set(body, U(c).UserName);
             if (modelPathChanged) semantic.Reset();
             return Results.Ok(new { ok = true });
         });
         SemanticApi.Map(admin);
+        OcrApi.Map(admin);
 
         admin.MapPost("/import-legacy", async (ImportBody b, HttpContext c, LegacyImporter importer) =>
         {

@@ -18,6 +18,10 @@ public sealed class SettingsStore
         ["reply_days"] = "7",
         ["default_direction"] = "وارد",
         ["commitment_days"] = "30",
+        ["ocr_engine"] = "auto",
+        ["vision_ocr_url"] = "",
+        ["vision_ocr_model"] = "",
+        ["vision_ocr_prompt"] = "",
         ["semantic_model_path"] = "",
         ["semantic_model_url"] = "",
     };

@@ -36,6 +36,7 @@ builder.Services.AddSingleton<ReviewStore>();
 builder.Services.AddSingleton<CommitmentStore>();
 builder.Services.AddSingleton<SemanticService>();
 builder.Services.AddSingleton<SemanticDownloader>();
+builder.Services.AddSingleton<Basira.Platform.Processing.Ocr.OcrBenchmark>();
 builder.Services.AddSingleton<ClassificationService>();
 builder.Services.AddSingleton<SettingsStore>();
 builder.Services.AddSingleton<ArchiveIndex>();
