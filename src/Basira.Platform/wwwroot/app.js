@@ -4,6 +4,7 @@ import { renderDashboard, renderThreads, renderThread, renderDocs, renderDoc, em
 import { renderInbox, renderAsk, renderAdmin, renderAuth, openPalette } from './views2.js';
 import { renderReview } from './review.js';
 import { renderReply } from './reply.js';
+import { renderCommitments } from './commitments.js';
 
 const root = document.getElementById('root');
 let view, navEls = {}, procBox, awaitingBadge, reviewBadge;
@@ -17,7 +18,7 @@ theme();
 const isDark = () => document.documentElement.dataset.theme === 'dark' || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
 
 const SHORT = { '': 'الرئيسية', threads: 'المعاملات', docs: 'المستندات', review: 'التحقق', inbox: 'إدراج', ask: 'اسأل', admin: 'الإدارة' };
-const NAV = [['', 'لوحة القيادة', 'home'], ['threads', 'المعاملات', 'thread'], ['docs', 'المستندات', 'docs'], ['review', 'التحقق من القراءة', 'eye'], ['inbox', 'الإدراج', 'upload'], ['ask', 'اسأل بصيرة', 'spark'], ['admin', 'الإدارة', 'sliders']];
+const NAV = [['', 'لوحة القيادة', 'home'], ['threads', 'المعاملات', 'thread'], ['docs', 'المستندات', 'docs'], ['commitments', 'الالتزامات', 'flag'], ['review', 'التحقق من القراءة', 'eye'], ['inbox', 'الإدراج', 'upload'], ['ask', 'اسأل بصيرة', 'spark'], ['admin', 'الإدارة', 'sliders']];
 const setReviewCount = n => { if (reviewBadge) { reviewBadge.textContent = nf.format(n); reviewBadge.hidden = !n; reviewBadge.title = 'حقول بانتظار التحقق'; } };
 
 function shell() {
@@ -55,7 +56,7 @@ async function route() {
   const key = section === 'doc' || section === 'reply' ? 'docs' : section === 'thread' ? 'threads' : section || '';
   for (const [k, el] of Object.entries(navEls)) el.setAttribute('aria-current', k === key ? 'page' : 'false');
   mount(view, h('div', { class: 'grid' }, h('div', { class: 'skeleton' }), h('div', { class: 'skeleton', style: 'min-height:240px' })));
-  const titles = { '': 'لوحة القيادة', threads: 'المعاملات', thread: 'معاملة', docs: 'المستندات', doc: 'مستند', reply: 'استوديو الرد', review: 'التحقق من القراءة', inbox: 'الإدراج', ask: 'اسأل بصيرة', admin: 'الإدارة' };
+  const titles = { '': 'لوحة القيادة', threads: 'المعاملات', thread: 'معاملة', docs: 'المستندات', doc: 'مستند', reply: 'استوديو الرد', commitments: 'الالتزامات', review: 'التحقق من القراءة', inbox: 'الإدراج', ask: 'اسأل بصيرة', admin: 'الإدارة' };
   document.title = (titles[section || ''] || 'بصيرة') + ' | بصيرة';
   try {
     if (!section) await renderDashboard(view);
@@ -63,7 +64,8 @@ async function route() {
     else if (section === 'thread') await renderThread(view, arg);
     else if (section === 'docs') await renderDocs(view, params);
     else if (section === 'doc') await renderDoc(view, arg, setReviewCount);
-    else if (section === 'reply') await renderReply(view, arg);
+    else if (section === 'reply') await renderReply(view, arg, params);
+    else if (section === 'commitments') await renderCommitments(view, params);
     else if (section === 'review') await renderReview(view, setReviewCount);
     else if (section === 'inbox') await renderInbox(view);
     else if (section === 'ask') await renderAsk(view, params);

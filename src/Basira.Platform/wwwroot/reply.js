@@ -21,8 +21,9 @@ function covered(ask, body) {
 const placeholders = t => [...new Set(t.match(/\[[^\[\]\n]{1,60}\]/g) || [])];
 const store = { get: k => { try { return localStorage.getItem(k) || ''; } catch { return ''; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* تخزين غير متاح */ } } };
 
-export async function renderReply(view, id) {
-  const r = await api('/documents/' + encodeURIComponent(id) + '/reply');
+export async function renderReply(view, id, params) {
+  const commitment = params?.get('commitment');
+  const r = await api('/documents/' + encodeURIComponent(id) + '/reply' + (commitment ? '?commitment=' + encodeURIComponent(commitment) : ''));
   const inc = r.incoming;
   const signerKey = 'basira.signer.' + (state.me?.userName || '');
   const saved = (() => { try { return JSON.parse(store.get(signerKey) || '{}'); } catch { return {}; } })();
@@ -154,6 +155,9 @@ export async function renderReply(view, id) {
       inc.dateHijri ? h('span', { class: 'chip', text: inc.dateHijri }) : null,
       dueChip,
       inc.willRegister ? h('span', { class: 'chip warn', title: 'الخطاب بلا رقم؛ يُقيَّد برقم الأرشيف عند الحفظ ليرتبط به الرد', text: 'سيُقيَّد برقم ' + inc.archiveNo }) : null),
+    r.commitment ? h('div', { class: 'card pad', style: 'margin-bottom:14px;border-color:var(--brand)' }, h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' }, icon('flag'),
+      h('b', { text: r.commitment.side === 'لنا' ? 'تعقيب على وعدهم:' : 'وفاء بما وعدنا به:' }), h('span', { text: '«' + r.commitment.promise + '»' }),
+      h('span', { class: 'chip ' + (r.commitment.state === 'overdue' ? 'danger' : 'warn'), text: r.commitment.state === 'overdue' ? `متأخر منذ ${nf.format(-r.commitment.daysLeft)} يوماً` : `موعده ${r.commitment.dueHijri}` }))) : null,
     r.existing.length ? h('div', { class: 'card pad', style: 'margin-bottom:14px;border-color:var(--accent)' }, h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' }, icon('alert'),
       h('span', { text: 'لهذا الخطاب رد محفوظ:' }), r.existing.map(e => h('a', { class: 'chip ' + (e.pending ? 'warn' : 'ok'), href: docLink(e.id), text: `${e.archiveNo} — ${e.pending ? 'بانتظار الاعتماد' : e.status}` })))) : null,
     h('div', { class: 'studio' },

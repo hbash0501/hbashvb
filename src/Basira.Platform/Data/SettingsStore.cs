@@ -17,6 +17,7 @@ public sealed class SettingsStore
         ["inbox_folder"] = "",
         ["reply_days"] = "7",
         ["default_direction"] = "وارد",
+        ["commitment_days"] = "30",
         ["semantic_model_path"] = "",
         ["semantic_model_url"] = "",
     };

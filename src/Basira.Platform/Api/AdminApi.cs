@@ -45,6 +45,7 @@ public static class AdminApi
         admin.MapPut("/settings", (Dictionary<string, string> body, HttpContext c, SettingsStore settings, SemanticService semantic) =>
         {
             if (body.TryGetValue("reply_days", out var rd) && (!int.TryParse(rd, out var n) || n is < 1 or > 120)) return Error("مهلة الرد بين 1 و120 يوماً.");
+            if (body.TryGetValue("commitment_days", out var cd) && (!int.TryParse(cd, out var cdn) || cdn is < 1 or > 365)) return Error("المهلة الافتراضية للالتزامات بين 1 و365 يوماً.");
             if (body.TryGetValue("default_direction", out var dir) && !Roles.Directions.Contains(dir)) return Error("اتجاه غير معروف.");
             if (body.TryGetValue("semantic_model_url", out var url) && url.Trim() != "" && !(Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri) && uri.Scheme is "https" or "http"))
                 return Error("مصدر النموذج يجب أن يكون رابط http أو https.");

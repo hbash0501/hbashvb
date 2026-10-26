@@ -33,6 +33,7 @@ builder.Services.AddSingleton<AuditStore>();
 builder.Services.AddSingleton<UserStore>();
 builder.Services.AddSingleton<DocumentStore>();
 builder.Services.AddSingleton<ReviewStore>();
+builder.Services.AddSingleton<CommitmentStore>();
 builder.Services.AddSingleton<SemanticService>();
 builder.Services.AddSingleton<SemanticDownloader>();
 builder.Services.AddSingleton<ClassificationService>();
@@ -121,6 +122,7 @@ AdminApi.Map(secured);
 ReviewApi.Map(secured);
 ClassificationApi.Map(secured);
 ReplyApi.Map(secured);
+CommitmentsApi.Map(secured);
 app.MapGet("/healthz", () => Results.Text("ok"));
 app.MapFallback(async ctx =>
 {

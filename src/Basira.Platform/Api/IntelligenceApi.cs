@@ -40,6 +40,7 @@ public static class IntelligenceApi
                 categories = s.Docs.GroupBy(d => d.Category == "" ? "غير مصنّف" : d.Category).OrderByDescending(x => x.Count()).Take(8).Select(x => new { name = x.Key, count = x.Count() }),
                 statuses = s.Docs.GroupBy(d => d.Status).OrderByDescending(x => x.Count()).Select(x => new { name = x.Key, count = x.Count() }),
                 pending = queue.Pending, replyDays = s.ReplyDays, builtAt = s.BuiltAt,
+                commitments = CommitmentsApi.Counts(CommitmentsApi.Visible(s, u)),
             });
         });
 

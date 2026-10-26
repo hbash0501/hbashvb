@@ -282,6 +282,16 @@ img.preview { object-fit: contain; height: auto; max-height: 72vh; display: bloc
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 @media print { .side, .top, .tabs, .btn { display: none !important; } .shell { display: block; } .card { box-shadow: none; } }
 
+/* الالتزامات */
+.pledge { box-shadow: none; }
+.pledge.overdue { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
+.pledge.fulfilled, .pledge.dismissed { opacity: .82; }
+.pledge-head { display: flex; gap: 12px; align-items: flex-start; }
+.pledge-text { margin: 0; line-height: 1.9; }
+.badge-days.muted { background: var(--line-2); color: var(--muted); }
+.panel .pledge { padding: 10px; }
+.panel .pledge .badge-days { display: none; }
+
 /* استوديو الرد */
 .studio { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 18px; align-items: start; }
 @media (max-width: 1200px) { .studio { grid-template-columns: 1fr; } }

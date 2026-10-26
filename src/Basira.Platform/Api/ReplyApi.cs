@@ -39,7 +39,7 @@ public static class ReplyApi
 
     public static void Map(RouteGroupBuilder g)
     {
-        g.MapGet("/documents/{id}/reply", async (string id, HttpContext c, ArchiveIndex index, SettingsStore settings, SemanticService semantic) =>
+        g.MapGet("/documents/{id}/reply", async (string id, HttpContext c, ArchiveIndex index, SettingsStore settings, SemanticService semantic, string? commitment) =>
         {
             var u = U(c);
             if (!UserStore.Can(u, "import")) return Forbidden("صياغة الردود");
@@ -50,6 +50,13 @@ public static class ReplyApi
             var ctx = ContextOf(d);
 
             var asks = ReplyComposer.ExtractAsks(d.Text);
+            // من سجل الالتزامات: تعقيب على وعد لهم في هذا الخطاب، أو وفاء بوعد قطعناه في ردنا عليه.
+            var pledge = commitment is null ? null : s.Commitments.FirstOrDefault(x => x.Key == commitment && (x.DocumentId == d.Id || x.RespondsTo == d.Id));
+            var special = new List<ReplyIntent>();
+            if (pledge is not null && pledge.Side == CommitmentLedger.Theirs)
+                special.Add(new("followup", "تعقيب على وعدهم", ReplyComposer.FollowUp(pledge.Promise, pledge.State == "overdue" ? Hijri(pledge.Due) : "")));
+            else if (pledge is not null && s.ById.TryGetValue(pledge.DocumentId, out var ours))
+                special.Add(new("fulfil", "وفاء بما وعدنا", ReplyComposer.Fulfil(pledge.Promise, ours.OutgoingNo != "" ? ours.OutgoingNo : ours.ArchiveNo, Hijri(ours.DocumentDate))));
             var signer = ReplyComposer.SignerTitle(d.Text);
             s.EffectiveDue.TryGetValue(d.Id, out var due);
             var today = DateTime.Today;
@@ -69,8 +76,9 @@ public static class ReplyApi
                 },
                 deadline = due.Date is null ? null : new { date = due.Date, hijri = Hijri(due.Date), source = due.Source, daysLeft },
                 asks = asks.Select(a => new { text = a.Text, kind = a.Kind, gist = a.Gist }),
-                intents = ReplyComposer.Intents(asks).Select(i => new { key = i.Key, label = i.Label, body = i.Body }),
-                suggestedIntent = ReplyComposer.SuggestIntent(d.Text, asks),
+                intents = special.Concat(ReplyComposer.Intents(asks)).Select(i => new { key = i.Key, label = i.Label, body = i.Body }),
+                suggestedIntent = special.Count > 0 ? special[0].Key : ReplyComposer.SuggestIntent(d.Text, asks),
+                commitment = pledge is null ? null : CommitmentsApi.View(pledge, s, u),
                 precedents = Precedents(s, d, ctx, u, semantic).Select(p => new
                 {
                     incomingId = p.IncomingId, incomingArchiveNo = p.IncomingArchiveNo, incomingTitle = p.IncomingTitle,

@@ -105,6 +105,15 @@ public static class ReplyComposer
         };
     }
 
+    /// <summary>تعقيب على وعد الجهة في خطابها («سيتم تزويدكم…»)، وانقضاء موعده إن انقضى.</summary>
+    public static string FollowUp(string promise, string overdueSinceHijri) =>
+        $"نأمل التكرم بإفادتنا عما تم حيال ما ورد في خطابكم من «{promise.TrimEnd('…')}»" +
+        (overdueSinceHijri != "" ? $"، علماً بأن الموعد المحدد لذلك ({overdueSinceHijri}) قد انقضى" : "") + "، وذلك [سبب الحاجة أو أثر التأخير].";
+
+    /// <summary>وفاء بوعد قطعته الجهة في خطاب سابق («وسنوافيكم بالبيان…»).</summary>
+    public static string Fulfil(string promise, string ourNo, string ourDateHijri) =>
+        $"وإلحاقاً لخطابنا رقم ({ourNo}){(ourDateHijri != "" ? " وتاريخ " + ourDateHijri : "")} الذي ورد فيه «{promise.TrimEnd('…')}»، نفيدكم بـ[ما تم إنجازه]، ونرفق لكم [المرفقات].";
+
     // ===== الإشارة والمخاطَب =====
 
     /// <summary>

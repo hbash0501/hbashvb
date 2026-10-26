@@ -126,6 +126,7 @@ public static class DocumentsApi
                     evidence = h.Evidence, offset = h.Offset, length = h.Length,
                 }).ToList(),
                 citedBy,
+                commitments = restricted ? new List<object>() : s.Commitments.Where(x => x.DocumentId == id).Select(x => CommitmentsApi.View(x, s, u)).ToList(),
                 related = s.Engine.Links(id).Select(l => new { id = l.Document.Id, archiveNo = l.Document.ArchiveNumber, title = l.Document.Title, reason = l.Reason }),
                 awaitingDays = awaiting?.DaysWaiting,
                 comments = docs.Comments(id),

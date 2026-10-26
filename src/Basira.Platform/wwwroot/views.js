@@ -1,6 +1,7 @@
 // بصيرة — الصفحات الرئيسية: لوحة القيادة، المعاملات، المستندات.
 import { h, s, icon, api, fmt, nf, mount, highlight, markTerms, toast, can, state, dirClass, dirIcon, docChips, statusChip, dueChip, onEvent } from './core.js';
 import { checkCard } from './review.js';
+import { commitmentCard } from './commitments.js';
 
 export const pageHead = (title, sub, ...actions) => h('div', { class: 'page-head' }, h('div', {}, h('h1', { text: title }), sub ? h('p', { text: sub }) : null), h('div', { class: 'actions' }, actions));
 export const empty = (iconName, text, action) => h('div', { class: 'empty' }, icon(iconName), h('p', { text }), action ? h('div', { style: 'margin-top:12px' }, action) : null);
@@ -51,13 +52,14 @@ export async function renderDashboard(view) {
     h('td', {}, h('span', { class: 'chip ' + (f.severity === 0 ? 'danger' : f.severity === 1 ? 'warn' : ''), text: f.kind })), h('td', { text: f.title }), h('td', { class: 'muted', text: f.reason })));
   const m = d.metrics;
   mount(view,
-    h('div', { class: 'greet' }, h('h1', { text: `${greet}${name ? '، ' + name : ''}` }), h('p', { class: 'date', text: `${fmt.hijri(now.toISOString().slice(0, 10))} — ${fmt.greg(now.toISOString().slice(0, 10))}${state.org ? ' • ' + state.org : ''}` })),
+    h('div', { class: 'greet' }, h('h1', { text: `${greet}${name ? '، ' + name : ''}` }), h('p', { class: 'date', text: `${fmt.hijri(now.toISOString().slice(0, 10))} — ${fmt.greg(now.toISOString().slice(0, 10))}${state.org ? ' • ' + state.org : ''} • ${nf.format(d.total)} مستند، ${nf.format(d.open)} قيد العمل` })),
     h('div', { class: 'kpis' },
       kpi('#/docs?filter=awaiting', 'alert', 'بانتظار الرد', d.awaitingTotal, `وارد بلا رد منذ ${d.replyDays} أيام فأكثر`, d.awaitingTotal ? 'warn' : ''),
       kpi('#/docs?filter=overdue', 'clock', 'مواعيد متأخرة', m.overdue, 'مسجلة أو مستخرجة من النص', m.overdue ? 'alert' : ''),
       kpi('#/threads', 'thread', 'معاملات نشطة', d.activeThreads, `من ${nf.format(d.threadsTotal)} معاملة مترابطة`),
       kpi('#/threads?missing=1', 'ghost', 'خطابات غير مؤرشفة', d.ghostsTotal, 'مشار إليها ولا توجد في الأرشيف'),
-      kpi('#/docs', 'docs', 'المستندات', d.total, `${nf.format(d.open)} قيد العمل`),
+      kpi('#/commitments?state=overdue', 'flag', 'التزامات متأخرة', d.commitments.ours.overdue + d.commitments.theirs.overdue,
+        `علينا ${nf.format(d.commitments.ours.overdue)} • لنا ${nf.format(d.commitments.theirs.overdue)}`, d.commitments.ours.overdue ? 'alert' : d.commitments.theirs.overdue ? 'warn' : ''),
       h('a', { class: 'card kpi', href: '#/admin/report' }, h('span', { class: 'label' }, icon('shield'), 'صحة الأرشيف'), h('div', { class: 'health' }, ring(m.score), h('span', { class: 'sub', text: `نص ${m.textPercent}% • تصنيف ${m.categoryPercent}%` })))),
     h('div', { class: 'grid cols-2' },
       h('section', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, icon('alert'), 'خطابات تنتظر الرد'), h('a', { href: '#/docs?filter=awaiting', class: 'small', text: 'عرض الكل' })), h('div', { class: 'card-body' }, awaiting)),
@@ -370,6 +372,8 @@ export async function renderDoc(view, id, onCount) {
         refItems.length ? h('section', { class: 'card pad panel' }, h('h3', {}, icon('link'), `يشير إلى (${nf.format(refItems.length)})`), refItems) : null,
         cited.length ? h('section', { class: 'card pad panel' }, h('h3', {}, icon('arrow'), `أشار إليه (${nf.format(cited.length)})`), cited) : null,
         deadlines.length ? h('section', { class: 'card pad panel' }, h('h3', {}, icon('clock'), 'المهل في النص'), deadlines) : null,
+        d.commitments?.length ? h('section', { class: 'card pad panel' }, h('h3', {}, icon('flag'), d.commitments[0].side === 'لنا' ? 'وعود الجهة في هذا الخطاب' : 'وعودنا في هذا الخطاب'),
+          h('div', { class: 'stack', style: 'gap:8px' }, d.commitments.map(c => commitmentCard(c, () => renderDoc(view, id))))) : null,
         h('section', { class: 'card pad panel' }, h('h3', {}, icon('message'), 'ملاحظات الفريق'), comments, cbox, addComment))));
   showTab(current);
   const off = onEvent(msg => { if (msg.type === 'job' && msg.payload.documentId === id && (msg.payload.state === 'done' || msg.payload.state === 'failed') && document.body.contains(view.firstChild)) { off(); renderDoc(view, id, onCount); } });

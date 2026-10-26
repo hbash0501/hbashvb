@@ -49,6 +49,7 @@ public sealed class Snapshot
     public int ReplyDays { get; init; } = 7;
     /// <summary>عدد الحقول الحرجة غير المؤكدة لكل مستند.</summary>
     public IReadOnlyDictionary<string, int> PendingChecks { get; init; } = new Dictionary<string, int>();
+    public IReadOnlyList<Commitment> Commitments { get; init; } = Array.Empty<Commitment>();
 
     public static DateTime? ParseIso(string v) =>
         DateTime.TryParseExact(v, new[] { "yyyy-MM-dd", "yyyy-MM-ddTHH:mm:ss.fffZ", "yyyy-MM-ddTHH:mm:ssZ", "o" }, CultureInfo.InvariantCulture,
@@ -64,18 +65,21 @@ public sealed class ArchiveIndex
     private readonly DocumentStore _docs;
     private readonly SettingsStore _settings;
     private readonly ReviewStore _review;
+    private readonly CommitmentStore _commitments;
     private readonly object _lock = new();
     private Snapshot _current = new();
     private bool _dirty = true;
     private Task? _building;
 
-    public ArchiveIndex(DocumentStore docs, SettingsStore settings, ReviewStore review)
+    public ArchiveIndex(DocumentStore docs, SettingsStore settings, ReviewStore review, CommitmentStore commitments)
     {
         _docs = docs;
         _settings = settings;
         _review = review;
+        _commitments = commitments;
         docs.Changed += () => { lock (_lock) _dirty = true; };
         review.Changed += () => { lock (_lock) _dirty = true; };
+        commitments.Changed += () => { lock (_lock) _dirty = true; };
     }
 
     public Snapshot Current => _current;
@@ -90,7 +94,11 @@ public sealed class ArchiveIndex
                 _dirty = false;
                 _building = Task.Run(() =>
                 {
-                    try { _current = Build(_docs.All(), _settings.GetInt("reply_days", 7, 1, 120), DateTime.Today, _review.PendingByDocument()); }
+                    try
+                    {
+                        _current = Build(_docs.All(), _settings.GetInt("reply_days", 7, 1, 120), DateTime.Today, _review.PendingByDocument(),
+                            _commitments.All(), _settings.GetInt("commitment_days", 30, 1, 365));
+                    }
                     finally { lock (_lock) _building = null; }
                 });
             }
@@ -122,7 +130,8 @@ public sealed class ArchiveIndex
     /// </summary>
     public const string PendingApproval = "بانتظار الاعتماد";
 
-    public static Snapshot Build(List<Doc> docs, int replyDays, DateTime today, IReadOnlyDictionary<string, List<FieldCheckRow>>? pending = null)
+    public static Snapshot Build(List<Doc> docs, int replyDays, DateTime today, IReadOnlyDictionary<string, List<FieldCheckRow>>? pending = null,
+        IReadOnlyDictionary<string, CommitmentDecision>? decisions = null, int commitmentDays = 30)
     {
         pending ??= new Dictionary<string, List<FieldCheckRow>>();
         bool PendingField(string id, string field) => pending.TryGetValue(id, out var l) && l.Any(k => k.Field == field);
@@ -262,6 +271,7 @@ public sealed class ArchiveIndex
             Edges = edges, ThreadOf = threadOf, Threads = threads, Awaiting = awaiting, Ghosts = ghosts.Values.ToList(),
             Findings = findings, Metrics = ArchiveHealthReportService.Compute(records, findings), BuiltAt = DateTime.Now, ReplyDays = replyDays,
             PendingChecks = pending.Where(p => byId.ContainsKey(p.Key)).ToDictionary(p => p.Key, p => p.Value.Count),
+            Commitments = CommitmentLedger.Build(docs, threadOf, edges, decisions ?? new Dictionary<string, CommitmentDecision>(), commitmentDays, today),
         };
     }
 

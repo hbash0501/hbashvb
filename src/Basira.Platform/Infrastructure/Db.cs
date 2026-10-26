@@ -88,6 +88,11 @@ public sealed class Db
           document_id TEXT NOT NULL, model_id TEXT NOT NULL, text_hash TEXT NOT NULL, vector BLOB NOT NULL,
           PRIMARY KEY(document_id, model_id));
         """,
+        // قرارات المستخدمين على الالتزامات المرصودة (تم الوفاء، ليس التزاماً، قائم).
+        """
+        CREATE TABLE commitment_decisions(
+          key TEXT PRIMARY KEY, document_id TEXT NOT NULL, state TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', actor TEXT NOT NULL, at TEXT NOT NULL);
+        """,
     };
 
     private void Migrate()
