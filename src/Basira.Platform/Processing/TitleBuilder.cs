@@ -20,12 +20,12 @@ public static class TitleBuilder
 
     private static readonly Regex Salutation = new(@"^(?:بسم الله|السلام عليكم|سعادة|معالي|صاحب|فضيلة|المكرم|الأستاذ|الاستاذ|الدكتور|إلى|الى|حفظه الله|وتقبلوا|وتقبل|مع خالص|والسلام|شاكرين|ولكم جزيل|المحترم|المرفقات|الرقم|التاريخ|رقم الفاتورة|سري|عاجل|يعتمد)", RegexOptions.Compiled);
     private static readonly Regex About = new(@"(?:بشأن|بخصوص)\s+([^،,.؛\n]{6,120})", RegexOptions.Compiled);
-    private static readonly Regex Filler = new(@"^(?:(?:إشارة|اشارة|بالإشارة|بالاشارة|إلحاقاً|الحاقا|رداً|ردا|بناءً|بناء|عطفاً|عطفا)\s[^،,]*[،,]\s*)?(?:نفيدكم\s+(?:بأن|بانه|بأنه|علماً|علما)?|نحيطكم\s+علماً\s+بأن|نحيطكم\s+بأن|نود\s+(?:الإحاطة|الافادة|إفادتكم)\s+(?:بأن)?|يسرنا\s+(?:إفادتكم|افادتكم)\s+(?:بأن)?|نرفق\s+(?:لكم|لسعادتكم)?|مرفق\s+(?:لكم)?|نأمل\s+(?:التكرم\s+)?(?:ب)?|أرجو\s+(?:التكرم\s+)?(?:ب)?|ارجو\s+|نرجو\s+|آمل\s+|يرجى\s+|أتقدم\s+(?:لسعادتكم|إليكم)?\s*(?:ب)?|تم\s+|لقد\s+|كما\s+)\s*", RegexOptions.Compiled);
+    private static readonly Regex Filler = new(@"^(?:(?:إشارة|اشارة|بالإشارة|بالاشارة|إلحاقاً|الحاقا|رداً|ردا|بناءً|بناء|عطفاً|عطفا)\s[^،,]*[،,]\s*)?(?:نفيدكم\s+(?:بأنه|بانه|بأن|علماً|علما)?|نحيطكم\s+علماً\s+بأن|نحيطكم\s+بأن|نود\s+(?:الإحاطة|الافادة|إفادتكم)\s+(?:بأن)?|يسرنا\s+(?:إفادتكم|افادتكم)\s+(?:بأن)?|نرفق\s+(?:لكم|لسعادتكم)?|مرفق\s+(?:لكم)?|نأمل\s+(?:التكرم\s+)?(?:ب)?|أرجو\s+(?:التكرم\s+)?(?:ب)?|ارجو\s+|نرجو\s+|آمل\s+|يرجى\s+|أتقدم\s+(?:لسعادتكم|إليكم)?\s*(?:ب)?|تمت\s+|تم\s+|لقد\s+|كما\s+)\s*", RegexOptions.Compiled);
     private static readonly Regex RequestVerb = new(@"^(?:نأمل|أرجو|ارجو|نرجو|آمل|يرجى|أتقدم)", RegexOptions.Compiled);
 
     public static string Build(string text, string subject = "")
     {
-        if (Clean(subject) is { Length: > 2 } s) return Clip(s);
+        if (Clean(subject) is { Length: > 2 } s && Plausible(Clip(s))) return Clip(s);
         var lines = (text ?? "").Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0 && Readable(l)).Take(20).ToList();
         if (lines.Count == 0) return "";
 
@@ -37,12 +37,62 @@ public static class TitleBuilder
             var type = Types.FirstOrDefault(t => line.StartsWith(t, StringComparison.Ordinal));
             if (type is null) continue;
             // عنوان وافٍ بذاته («عقد تقديم خدمات نظافة»، «أمر شراء رقم 551»).
-            if (words.Length >= 3) return Clip(line.TrimEnd(':', '：'));
+            if (words.Length >= 3 && Plausible(Clip(line.TrimEnd(':', '：')))) return Clip(line.TrimEnd(':', '：'));
             var detail = Detail(text!, lines, line);
-            return Clip(detail == "" ? line.TrimEnd(':') : $"{line.TrimEnd(':')}: {detail}");
+            var typed = Clip(detail == "" ? line.TrimEnd(':') : $"{line.TrimEnd(':')}: {detail}");
+            if (Plausible(typed)) return typed;
         }
-        if (About.Match(text!) is { Success: true } m && Clean(m.Groups[1].Value) is { Length: > 5 } about) return Clip(about);
-        return Clip(FirstSentence(lines));
+        if (About.Match(text!) is { Success: true } m && Clean(m.Groups[1].Value) is { Length: > 5 } about && Plausible(Clip(about))) return Clip(about);
+        return FirstSentence(lines);
+    }
+
+    private static readonly HashSet<string> ShortWords = new(StringComparer.Ordinal) { "في", "من", "عن", "على", "إلى", "الى", "و", "أو", "او", "مع", "لا", "ما", "ب", "ل" };
+
+    /// <summary>
+    /// عنوان مقبول: كلمتان عربيتان فأكثر، بلا حروف لاتينية مختلطة بالعربية ولا رموز ضجيج، وأغلب كلماته ليست شظايا حرفين.
+    /// يُستبعد به ما تنتجه قراءة رديئة («تج nd ge oak دراسة…»).
+    /// </summary>
+    public static bool Plausible(string title)
+    {
+        var words = (title ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var arabic = words.Count(w => Regex.IsMatch(w, @"^[\p{IsArabic}]+[:،,.]?$"));
+        if (arabic < 2) return false;
+        if (words.Any(w => Regex.IsMatch(w, @"[a-z]") || Regex.IsMatch(w, @"[|<>*_=~^\\{}\[\]#@$&]"))) return false;
+        var fragments = words.Count(w => w.Trim(':', '،', ',', '.').Length <= 2 && !ShortWords.Contains(w) && !Regex.IsMatch(w, @"^\d+$"));
+        return fragments <= words.Length * 0.25;
+    }
+
+    // ألفاظ أسماء ملفات السكانر والكاميرا والتطبيقات: لا تصف المحتوى.
+    private static readonly HashSet<string> DeviceWords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "scan", "scanned", "scanner", "scansnap", "img", "image", "dsc", "pxl", "photo", "doc", "docs", "document", "file", "untitled", "cam", "camera", "capture",
+        "screenshot", "whatsapp", "wa", "at", "copy", "new", "page", "pdf", "mmexport", "epson", "canon", "hp", "brother", "ricoh", "xerox", "kyocera", "jpeg", "jpg", "png",
+        "صورة", "صوره", "مستند", "ملف", "نسخة", "نسخه", "سكان", "جديد", "صفحة", "لقطة", "شاشة",
+    };
+
+    /// <summary>اسم ملف سمّاه المستخدم بكلمات («عقد صيانة المصاعد») لا اسم سكانر أو كاميرا («scan_0042»، «IMG_20261026»، «WhatsApp Image …»).</summary>
+    public static bool MeaningfulFileName(string stem)
+    {
+        var words = Regex.Matches(stem ?? "", @"\p{L}{2,}").Select(m => m.Value).Where(w => !DeviceWords.Contains(w)).ToList();
+        return words.Count >= 2;
+    }
+
+    /// <summary>
+    /// عنوان المستند في كل الأحوال: من المحتوى، وإلا اسم الملف إن سمّاه المستخدم بكلمات، وإلا وصف من بياناته
+    /// («خطاب وارد من وزارة المالية — 1448/04/01هـ»). لا يبقى اسم سكانر عنواناً.
+    /// </summary>
+    public static string ForDocument(string text, string subject, string fileName, string direction, string sender, string category, string subCategory, string dateHijri)
+    {
+        var fromContent = Build(text, subject != "" ? subject : LetterFields.Parse(text ?? "").Subject);
+        if (fromContent != "") return fromContent;
+        var stem = Path.GetFileNameWithoutExtension(fileName ?? "").Replace('_', ' ').Trim();
+        if (MeaningfulFileName(stem)) return Clip(stem);
+        var kind = direction switch { "صادر" => "خطاب صادر", "داخلي" => "مذكرة داخلية", _ => "خطاب وارد" };
+        var who = Clean(sender) is { Length: > 3 } s && Plausible(s) ? (direction == "صادر" ? " إلى " : " من ") + s : "";
+        var what = category != "" ? " — " + (subCategory != "" ? subCategory : category) : "";
+        var when = dateHijri != "" ? " — " + dateHijri : "";
+        if (who == "" && what == "" && (text ?? "").Count(char.IsLetter) < 20) return $"{kind} مصوّر لم يُقرأ نصه{when}";
+        return Clip(kind + who) + what + when;
     }
 
     /// <summary>ما يوضح عنواناً عاماً كـ«محضر اجتماع» أو «فاتورة ضريبية»: اللجنة، أو البيان، أو الجملة الأولى.</summary>
@@ -77,7 +127,8 @@ public static class TitleBuilder
             // «نفيدكم بانتهاء…» ← «انتهاء…»: باء الجر المتبقية بعد حذف الفعل.
             if (core != main && Regex.IsMatch(core, @"^ب[\p{L}]{3,}")) core = core[1..];
             if (core.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length < 2) continue;
-            return (request && !core.StartsWith("طلب", StringComparison.Ordinal) ? "طلب " : "") + Clean(core);
+            var result = Clip((request && !core.StartsWith("طلب", StringComparison.Ordinal) ? "طلب " : "") + Clean(core));
+            if (Plausible(result)) return result;
         }
         return "";
     }

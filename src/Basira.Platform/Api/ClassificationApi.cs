@@ -1,4 +1,5 @@
 using Basira.Platform.Data;
+using Basira.Platform.Infrastructure;
 using Basira.Platform.Intelligence;
 using Basira.Platform.Processing;
 using static Basira.Platform.Api.ApiCommon;
@@ -90,6 +91,27 @@ public static class ClassificationApi
                 changed++;
             }
             return Results.Ok(new { changed, skipped });
+        });
+
+        // يعيد توليد العناوين الآلية (وما بقي باسم الملف) من المحتوى؛ لا يمس عنواناً كتبه مستخدم.
+        g.MapPost("/titles/rebuild", (HttpContext c, DocumentStore docs) =>
+        {
+            var u = U(c);
+            if (!UserStore.Can(u, "edit")) return Forbidden("تعديل المستندات");
+            int changed = 0, kept = 0;
+            foreach (var d in docs.All())
+            {
+                var stem = Path.GetFileNameWithoutExtension(d.FileName);
+                if (!(d.IsAuto("title") || d.Title == "" || stem != "" && d.Title == stem)) { kept++; continue; }
+                var header = LetterFields.Parse(d.Text);
+                var title = TitleBuilder.ForDocument(d.Text, header.Subject, d.FileName, d.Direction,
+                    d.Direction == "صادر" ? d.DestinationEntity : d.SourceEntity != "" ? d.SourceEntity : header.Sender,
+                    d.Category, d.SubCategory, Clock.Hijri(d.DocumentDate));
+                if (title == "" || title == d.Title) { kept++; continue; }
+                docs.Update(d.Id, null, x => { x.Title = title; x.SetAuto("title", true); }, u.UserName, "عنوان من المحتوى: " + title, "تحديث عنوان");
+                changed++;
+            }
+            return Results.Ok(new { changed, kept });
         });
     }
 }

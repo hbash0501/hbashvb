@@ -119,12 +119,17 @@ public sealed class ProcessingQueue : BackgroundService
                 k.Box.IsEmpty ? "" : $"{k.Box.Left},{k.Box.Top},{k.Box.Right},{k.Box.Bottom}", k.Offset, k.Length, x.SpanText, cropId, "", "", "", ""));
         }
         var pending = rows.Count(r => r.Pending);
-        // العنوان من المحتوى، ثم التصنيف بالعنوان والنص (للحقول التي لم يحددها المستخدم).
+        // التصنيف بالنص وعنوانه المستخرج، ثم العنوان: من المحتوى، وإلا اسم ملف سمّاه المستخدم، وإلا وصف من البيانات
+        // (لا يبقى اسم ملف السكانر عنواناً). الحقول التي حددها المستخدم لا تُمس.
         var titleAuto = doc.Title == "" || doc.Title == stem || doc.IsAuto("title");
-        var title = titleAuto ? TitleBuilder.Build(extraction.Text, header.Subject) : doc.Title;
-        if (title == "") title = doc.Title;
+        var contentTitle = TitleBuilder.Build(extraction.Text, header.Subject);
         Report(current with { Stage = "التصنيف", Progress = 95 });
-        var classification = extraction.Text.Length > 0 && (doc.Category == "" || doc.IsAuto("category")) ? _classifier.Classify(extraction.Text, title, doc.Id) : ClassificationResult.None;
+        var classification = extraction.Text.Length > 0 && (doc.Category == "" || doc.IsAuto("category")) ? _classifier.Classify(extraction.Text, titleAuto ? contentTitle : doc.Title, doc.Id) : ClassificationResult.None;
+        var category = classification.Category != "" ? classification.Category : doc.Category;
+        var title = !titleAuto ? doc.Title : TitleBuilder.ForDocument(extraction.Text, header.Subject, doc.FileName, doc.Direction,
+            doc.Direction == "صادر" ? doc.DestinationEntity : doc.SourceEntity != "" ? doc.SourceEntity : header.Sender,
+            category, classification.Category != "" ? classification.SubCategory : doc.SubCategory, Clock.Hijri(doc.DocumentDate != "" ? doc.DocumentDate : header.DateIso));
+        if (title == "") title = doc.Title;
         _docs.Update(doc.Id, null, d =>
         {
             if (titleAuto && title != "") { d.Title = title; d.SetAuto("title", true); }

@@ -173,6 +173,10 @@ async function adminTaxonomy(body) {
       h('div', { class: 'row', style: 'gap:8px;margin-top:12px;flex-wrap:wrap' },
         h('button', { class: 'btn primary', onclick: () => run('unclassified') }, icon('spark'), 'صنّف المستندات غير المصنفة'),
         h('button', { class: 'btn', onclick: () => run('auto') }, icon('refresh'), 'أعد التصنيف الآلي غير المؤكد'),
+        h('button', { class: 'btn', title: 'للعناوين الآلية وما بقي باسم الملف؛ لا يمس عنواناً كتبه مستخدم', onclick: async () => {
+          try { const r = await api('/titles/rebuild', { method: 'POST' }); toast(`حُدّث ${nf.format(r.changed)} عنواناً من المحتوى`); }
+          catch (e) { toast(e.message, { error: true }); }
+        } }, icon('edit'), 'أعد توليد العناوين من المحتوى'),
         h('a', { class: 'btn ghost', href: '#/docs?filter=autocat' }, icon('eye'), 'مراجعة التصنيفات المقترحة'))),
     o.unmapped.length ? h('div', { class: 'card pad', style: 'margin-bottom:14px' },
       h('h3', {}, icon('alert'), 'تصنيفات في الأرشيف خارج الشجرة'),

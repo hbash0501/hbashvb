@@ -159,4 +159,13 @@ public static class SqliteExtensions
 public static class Clock
 {
     public static string Now() => DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>تاريخ ISO بالتقويم الهجري (أم القرى): «1448/05/15هـ»، أو فارغ.</summary>
+    public static string Hijri(string iso)
+    {
+        if (!DateTime.TryParse(iso, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AdjustToUniversal, out var d)) return "";
+        var cal = new System.Globalization.UmAlQuraCalendar();
+        try { return $"{cal.GetYear(d)}/{cal.GetMonth(d):00}/{cal.GetDayOfMonth(d):00}هـ"; }
+        catch (ArgumentOutOfRangeException) { return ""; }
+    }
 }
