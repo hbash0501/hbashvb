@@ -22,6 +22,7 @@ public static class OcrApi
                 tesseract = tools.Tesseract, pdftoppm = tools.PdfToPpm,
                 vision = tools.Vision is null ? null : new { url = tools.Vision.Url, model = tools.Vision.Model },
                 visionNote = tools.VisionNote,
+                digitReader = new { available = DigitReader.Available, templates = DigitReader.TemplateCount, problem = DigitReader.Problem },
                 benchmark = bench.Last, running = bench.Running, progress = bench.Progress, error = bench.Error,
             });
         });

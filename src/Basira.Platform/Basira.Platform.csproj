@@ -8,7 +8,7 @@
     <AssemblyName>Basira</AssemblyName>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
-    <Version>3.6.0</Version>
+    <Version>3.6.1</Version>
     <Product>بصيرة</Product>
     <ApplicationIcon>../../AIDocumentArchiveVB/Assets/basira.ico</ApplicationIcon>
     <InvariantGlobalization>false</InvariantGlobalization>
@@ -27,6 +27,8 @@
   </ItemGroup>
   <ItemGroup>
     <Content Remove="wwwroot/**" />
+    <!-- ملفات JSON المضمّنة لا تُنسخ بجوار البرنامج (حزمة Web تنشر ملفات json افتراضياً). -->
+    <Content Remove="Intelligence/Calibration/*.json;Processing/Ocr/Samples/*.json" />
     <EmbeddedResource Include="wwwroot/**" />
     <!-- قوالب قارئ الأرقام: مولّدة بـ tools/DigitTemplates من خطوط عربية مفتوحة (OFL). -->
     <EmbeddedResource Include="Processing/Ocr/digits.bin.gz" LogicalName="digits.bin.gz" />

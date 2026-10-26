@@ -211,6 +211,8 @@ public class VisionOcrTests
         dead.Dispose();
         await Json(await Send(c, HttpMethod.Put, "/api/admin/settings", new Dictionary<string, string> { ["vision_ocr_url"] = url, ["vision_ocr_model"] = "qwen3-vl:4b" }));
         var st = await Get(c, "/api/admin/ocr");
+        Assert.True(st.GetProperty("digitReader").GetProperty("available").GetBoolean());
+        Assert.Equal("", st.GetProperty("digitReader").GetProperty("problem").GetString());
         Assert.Equal(System.Text.Json.JsonValueKind.Null, st.GetProperty("vision").ValueKind);
         Assert.Contains("غير متاح", st.GetProperty("visionNote").GetString());
         var up = await Upload(c, "x.png", await File.ReadAllBytesAsync(Fixture("incoming-letter.png")));

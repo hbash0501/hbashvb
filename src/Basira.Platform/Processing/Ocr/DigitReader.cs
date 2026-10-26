@@ -42,11 +42,31 @@ public static class DigitReader
 
     public static int TemplateCount => Templates.Value.Count;
 
+    /// <summary>قارئ الأرقام يعمل (قوالبه محمّلة). بدونها تستمر القراءة بـ Tesseract وحده دون هذه الطبقة.</summary>
+    public static bool Available => Templates.Value.Count > 0;
+
+    /// <summary>سبب تعطل قارئ الأرقام إن تعطل، لعرضه للمدير.</summary>
+    public static string Problem { get; private set; } = "";
+
+    /// <summary>
+    /// القوالب مضمّنة في البرنامج؛ وإن غابت (نسخة بُنيت من مصدر ناقص) يُبحث عن الملف بجوار البرنامج. تعذّرها لا يوقف القراءة،
+    /// بل يعطل طبقة قارئ الأرقام وحدها مع بيان السبب.
+    /// </summary>
     private static List<Template> LoadTemplates()
     {
-        using var s = typeof(DigitReader).Assembly.GetManifestResourceStream("digits.bin.gz")
-            ?? throw new InvalidOperationException("قوالب قارئ الأرقام غير مضمّنة.");
-        return ReadTemplates(s);
+        try
+        {
+            using var embedded = typeof(DigitReader).Assembly.GetManifestResourceStream("digits.bin.gz");
+            if (embedded is not null) return ReadTemplates(embedded);
+            foreach (var path in new[] { Path.Combine(AppContext.BaseDirectory, "digits.bin.gz"), Path.Combine(AppContext.BaseDirectory, "Processing", "Ocr", "digits.bin.gz") })
+                if (File.Exists(path)) { using var f = File.OpenRead(path); return ReadTemplates(f); }
+            Problem = "قوالب قارئ الأرقام غير موجودة في هذه النسخة؛ تُقرأ الأرقام بـ Tesseract وحده. استخدم الحزمة الرسمية أو ضع الملف digits.bin.gz بجوار البرنامج.";
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or EndOfStreamException)
+        {
+            Problem = "ملف قوالب قارئ الأرقام تالف (" + ex.Message + ")؛ تُقرأ الأرقام بـ Tesseract وحده.";
+        }
+        return new List<Template>();
     }
 
     public static List<Template> ReadTemplates(Stream compressed)
@@ -254,6 +274,7 @@ public static class DigitReader
     /// <summary>يقرأ الأرقام في منطقة من صورة رمادية (ورق فاتح وحبر داكن).</summary>
     public static DigitReading? Read(ImagePrep.Gray g, SKRectI box)
     {
+        if (!Available) return null;
         var region = SKRectI.Intersect(box, new SKRectI(0, 0, g.Width, g.Height));
         if (region.Width < 4 || region.Height < 4) return null;
         var threshold = LocalThreshold(g, region);
