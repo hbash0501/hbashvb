@@ -17,19 +17,20 @@ public static class OcrEngines
     {
         var url = s.Get("vision_ocr_url").Trim();
         var model = s.Get("vision_ocr_model").Trim();
-        return url == "" || model == "" ? null : new VisionOptions(url, model, s.Get("vision_ocr_prompt"), s.GetInt("vision_ocr_max_side", 1800, 640, 4000), s.GetInt("vision_ocr_timeout", 300, 30, 1800));
+        return url == "" || model == "" ? null : new VisionOptions(url, model, s.Get("vision_ocr_prompt"), s.GetInt("vision_ocr_max_side", 1280, 640, 4000), s.GetInt("vision_ocr_timeout", 600, 30, 3600));
     }
 
     public static async Task<(bool Ok, string Message, List<string> Models)> ProbeAsync(string url, CancellationToken ct, bool fresh = false)
     {
         if (!fresh && Probes.TryGetValue(url, out var p) && DateTime.UtcNow - p.At < TimeSpan.FromMinutes(1)) return (p.Ok, p.Message, p.Models);
+        if (fresh) VisionOcr.Forget(url);
         var r = await VisionOcr.ProbeAsync(url, ct);
         Probes[url] = (DateTime.UtcNow, r.Ok, r.Message, r.Models);
         return r;
     }
 
     /// <summary>أدوات القراءة لمستند: Tesseract وpdftoppm، والمحرك المرئي بحسب الوضع وحالة خادمه.</summary>
-    public static async Task<TextExtractor.Tools> ToolsAsync(SettingsStore s, CancellationToken ct)
+    public static async Task<TextExtractor.Tools> ToolsAsync(SettingsStore s, CancellationToken ct, bool ignoreSuspension = false)
     {
         var all = s.All();
         var mode = Modes.Contains(all.GetValueOrDefault("ocr_engine", "auto")) ? all["ocr_engine"] : "auto";
@@ -37,6 +38,8 @@ public static class OcrEngines
         if (mode == "tesseract") return tools;
         var vision = Configured(s);
         if (vision is null) return tools;
+        if (!ignoreSuspension && VisionOcr.Suspended(vision.Url, out var until))
+            return tools with { VisionNote = $"أُوقف المحرك المرئي مؤقتاً حتى {until.ToLocalTime():HH:mm} لتجاوز القراءة المهلة مرتين متتاليتين" };
         var (ok, message, models) = await ProbeAsync(vision.Url, ct);
         if (!ok) return tools with { VisionNote = "خادم القراءة المرئية غير متاح: " + message };
         if (models.Count > 0 && !models.Any(m => m.Equals(vision.Model, StringComparison.OrdinalIgnoreCase) || m.StartsWith(vision.Model + ":", StringComparison.OrdinalIgnoreCase)))

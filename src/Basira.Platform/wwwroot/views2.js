@@ -306,6 +306,8 @@ function ocrPanel() {
       url: h('input', { class: 'ltr', value: st.url || '', placeholder: 'http://127.0.0.1:11434/v1' }),
       model: h('input', { class: 'ltr', value: st.model || '', placeholder: 'qwen3-vl:4b', list: 'ocr-models' }),
       prompt: h('textarea', { class: 'ltr', rows: 3, placeholder: st.defaultPrompt, value: st.prompt || '' }),
+      side: h('select', {}, [['1024', '1024 بكسل (أسرع)'], ['1280', '1280 بكسل (موصى به)'], ['1600', '1600 بكسل'], ['2000', '2000 بكسل (أدق وأبطأ)']].map(([v, l]) => h('option', { value: v, text: l, selected: v === String(st.maxSide) }))),
+      timeout: h('input', { type: 'number', min: 30, max: 3600, value: st.timeout }),
     };
     const models = h('datalist', { id: 'ocr-models' });
     const probeOut = h('span', { class: 'small' });
@@ -320,7 +322,7 @@ function ocrPanel() {
     };
     const save = async () => {
       err.textContent = '';
-      try { await api('/admin/settings', { method: 'PUT', body: { ocr_engine: f.mode.value, vision_ocr_url: f.url.value.trim(), vision_ocr_model: f.model.value.trim(), vision_ocr_prompt: f.prompt.value.trim() } }); toast('حُفظت إعدادات القراءة'); load(); }
+      try { await api('/admin/settings', { method: 'PUT', body: { ocr_engine: f.mode.value, vision_ocr_url: f.url.value.trim(), vision_ocr_model: f.model.value.trim(), vision_ocr_prompt: f.prompt.value.trim(), vision_ocr_max_side: f.side.value, vision_ocr_timeout: String(f.timeout.value) } }); toast('حُفظت إعدادات القراءة'); load(); }
       catch (e) { err.textContent = e.message; }
     };
     const bench = async () => { try { await api('/admin/ocr/benchmark', { method: 'POST' }); toast('بدأ القياس'); load(); } catch (e) { toast(e.message, { error: true }); } };
@@ -340,18 +342,23 @@ function ocrPanel() {
         h('div', { class: 'full' }, h('label', { class: 'f', text: 'الوضع' }), f.mode),
         h('div', {}, h('label', { class: 'f', text: 'عنوان الخادم المحلي' }), f.url, h('p', { class: 'hint', text: 'Ollama: http://127.0.0.1:11434/v1 — llama.cpp: http://127.0.0.1:8080/v1' })),
         h('div', {}, h('label', { class: 'f', text: 'النموذج' }), f.model, models, h('p', { class: 'hint', text: 'اسمه في الخادم، مثل qwen3-vl:4b. «فحص الخادم» يعرض المتوفر.' })),
+        h('div', {}, h('label', { class: 'f', text: 'دقة الصورة المرسلة' }), f.side, h('p', { class: 'hint', text: 'كلما كبرت زادت الدقة والزمن. 1280 تكفي غالباً لخطاب A4.' })),
+        h('div', {}, h('label', { class: 'f', text: 'مهلة الصفحة (ثانية)' }), f.timeout, h('p', { class: 'hint', text: 'بعدها تُقرأ الصفحة بـ Tesseract. تجاوزها مرتين متتاليتين يوقف المحرك المرئي 20 دقيقة.' })),
         h('details', { class: 'full' }, h('summary', { class: 'small', text: 'موجّه القراءة (متقدم)' }), f.prompt, h('p', { class: 'hint', text: 'اتركه فارغاً للموجّه الافتراضي. نماذج PaddleOCR-VL تستخدم «OCR:» تلقائياً.' }))),
       h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center' },
         h('button', { class: 'btn primary', type: 'button', onclick: save }, icon('check'), 'حفظ'),
         h('button', { class: 'btn', type: 'button', onclick: probe }, icon('search'), 'فحص الخادم'), probeOut,
         h('button', { class: 'btn', type: 'button', disabled: st.running || !st.tesseract && !st.vision, onclick: bench, style: 'margin-inline-start:auto' }, icon('report'), 'قياس المحركات على العينات')),
       err,
-      st.running ? h('p', { class: 'small' }, icon('refresh'), ' ', st.progress || 'جارٍ القياس…', ' — قد يستغرق دقائق مع نموذج على المعالج') : null,
+      st.running ? h('p', { class: 'small' }, icon('refresh'), ' ', st.progress || 'جارٍ القياس…', st.progressSeconds ? ` — ${nf.format(st.progressSeconds)} ثانية` : '', ' — قد يستغرق دقائق مع نموذج على المعالج') : null,
       st.error ? h('p', { class: 'error', text: st.error }) : null,
       b ? h('div', { style: 'margin-top:12px' },
         h('div', { class: 'table-wrap' }, h('table', {},
           h('thead', {}, h('tr', {}, ['المحرك', 'خطأ الحروف', ...Object.values(levels), 'حقول اعتُمدت صحيحة', 'خطأ صامت', 'للتحقق', 'لم تُقرأ', 'ثانية/صفحة'].map(x => h('th', { text: x })))),
-          h('tbody', {}, b.engines.map(e => h('tr', {},
+          h('tbody', {}, b.engines.map(e => e.incomplete ? h('tr', {},
+            h('td', {}, h('b', { text: 'تلقائي' }), h('div', { class: 'muted small ltr', text: e.engine })),
+            h('td', { colspan: 9 }, h('span', { class: 'chip danger', text: `لم يكتمل: تعذرت القراءة المرئية في الصفحة ${nf.format(e.pagesDone + 1)}` }), h('div', { class: 'small error', style: 'margin-top:4px', text: e.note })),
+            h('td', { text: nf.format(e.secondsPerPage) })) : h('tr', {},
             h('td', {}, h('b', { text: e.mode === 'auto' ? 'تلقائي' : 'Tesseract وحده' }), h('div', { class: 'muted small ltr', text: e.engine }), e.note ? h('div', { class: 'small error', text: e.note }) : null),
             h('td', {}, h('b', { text: pct(e.cer) })),
             ...Object.keys(levels).map(k => h('td', { text: pct(e.cerByLevel[k]) })),

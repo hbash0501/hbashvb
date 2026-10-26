@@ -22,6 +22,8 @@ public sealed class SettingsStore
         ["vision_ocr_url"] = "",
         ["vision_ocr_model"] = "",
         ["vision_ocr_prompt"] = "",
+        ["vision_ocr_max_side"] = "1280",
+        ["vision_ocr_timeout"] = "600",
         ["semantic_model_path"] = "",
         ["semantic_model_url"] = "",
     };

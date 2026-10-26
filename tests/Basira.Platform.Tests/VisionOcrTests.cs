@@ -20,6 +20,11 @@ public sealed class FakeVisionServer : IDisposable
     public int Requests;
     public string LastPrompt = "";
     public int LastImageBytes;
+    /// <summary>يتصرف كـ Ollama: /api/version و/api/chat (الواجهة الأصلية التي تقبل حجم السياق).</summary>
+    public bool Ollama { get; set; }
+    public int DelayMs { get; set; }
+    public string LastPath = "";
+    public int LastNumCtx;
 
     public FakeVisionServer()
     {
@@ -28,7 +33,7 @@ public sealed class FakeVisionServer : IDisposable
         var port = ((IPEndPoint)probe.LocalEndpoint).Port;
         probe.Stop();
         Url = $"http://127.0.0.1:{port}/v1";
-        _listener.Prefixes.Add($"http://127.0.0.1:{port}/v1/");
+        _listener.Prefixes.Add($"http://127.0.0.1:{port}/");
         _listener.Start();
         _ = Task.Run(Loop);
     }
@@ -40,10 +45,30 @@ public sealed class FakeVisionServer : IDisposable
             HttpListenerContext ctx;
             try { ctx = await _listener.GetContextAsync(); } catch (Exception) { return; }
             string json;
-            if (ctx.Request.Url!.AbsolutePath.EndsWith("/models", StringComparison.Ordinal))
+            var path = ctx.Request.Url!.AbsolutePath;
+            if (path.EndsWith("/models", StringComparison.Ordinal))
                 json = JsonSerializer.Serialize(new { data = Models.Select(m => new { id = m }) });
+            else if (path == "/api/version")
+            {
+                if (!Ollama) { ctx.Response.StatusCode = 404; ctx.Response.Close(); continue; }
+                json = "{\"version\":\"0.12.9\"}";
+            }
+            else if (path == "/api/chat")
+            {
+                LastPath = path;
+                using var reader = new StreamReader(ctx.Request.InputStream);
+                using var body = JsonDocument.Parse(await reader.ReadToEndAsync());
+                var m = body.RootElement.GetProperty("messages")[0];
+                LastPrompt = m.GetProperty("content").GetString()!;
+                LastImageBytes = Convert.FromBase64String(m.GetProperty("images")[0].GetString()!).Length;
+                LastNumCtx = body.RootElement.GetProperty("options").GetProperty("num_ctx").GetInt32();
+                var n = Interlocked.Increment(ref Requests);
+                if (DelayMs > 0) await Task.Delay(DelayMs);
+                json = JsonSerializer.Serialize(new { model = "x", message = new { role = "assistant", content = Reply(n) }, done = true });
+            }
             else
             {
+                LastPath = path;
                 using var reader = new StreamReader(ctx.Request.InputStream);
                 using var body = JsonDocument.Parse(await reader.ReadToEndAsync());
                 var parts = body.RootElement.GetProperty("messages")[0].GetProperty("content").EnumerateArray().ToList();
@@ -51,13 +76,18 @@ public sealed class FakeVisionServer : IDisposable
                 var url = parts.First(p => p.GetProperty("type").GetString() == "image_url").GetProperty("image_url").GetProperty("url").GetString()!;
                 LastImageBytes = Convert.FromBase64String(url[(url.IndexOf(',') + 1)..]).Length;
                 var n = Interlocked.Increment(ref Requests);
+                if (DelayMs > 0) await Task.Delay(DelayMs);
                 json = JsonSerializer.Serialize(new { choices = new[] { new { message = new { role = "assistant", content = Reply(n) } } } });
             }
             var bytes = Encoding.UTF8.GetBytes(json);
-            ctx.Response.ContentType = "application/json";
-            ctx.Response.ContentLength64 = bytes.Length;
-            await ctx.Response.OutputStream.WriteAsync(bytes);
-            ctx.Response.Close();
+            try
+            {
+                ctx.Response.ContentType = "application/json";
+                ctx.Response.ContentLength64 = bytes.Length;
+                await ctx.Response.OutputStream.WriteAsync(bytes);
+                ctx.Response.Close();
+            }
+            catch (Exception ex) when (ex is HttpListenerException or ObjectDisposedException or IOException) { } // أغلق العميل الاتصال بعد المهلة
         }
     }
 
@@ -137,6 +167,53 @@ public class VisionOcrTests
         // ما قرأه Tesseract وغاب عن المحرك المرئي يُعرض للتأكيد.
         var noNumber = CrossCheck.Build(IncomingText.Replace("الرقم: 4521\n", ""), second);
         Assert.Contains(noNumber, c => c.Field == "number" && !c.Confident && c.Value == "4521" && c.Offset == -1);
+    }
+
+    [Fact]
+    public async Task Ollama_native_api_gets_a_context_that_fits_the_page_and_slow_servers_are_paused()
+    {
+        // سياق يتسع للصورة: A4 بعرض 1280 نحو 2950 رمزاً للصورة؛ وبعرض 1800 يتجاوز 8192 (سياق Ollama الافتراضي 4096).
+        Assert.Equal(7168, VisionOcr.ContextFor(1280, 1810));
+        Assert.True(VisionOcr.ContextFor(1800, 2546) > 8192);
+
+        using var server = new FakeVisionServer { Ollama = true, Reply = _ => IncomingText };
+        var o = new VisionOptions(server.Url, "qwen3-vl:4b");
+        var text = await VisionOcr.ReadAsync(Fixture("incoming-letter.png"), o, CancellationToken.None);
+        Assert.Equal(IncomingText.Trim(), text);
+        Assert.Equal("/api/chat", server.LastPath);
+        Assert.Contains("Transcribe", server.LastPrompt);
+        Assert.InRange(server.LastNumCtx, 4096, 16384);
+
+        // مهلة قصيرة وخادم بطيء: تجاوزان متتاليان يوقفان المحرك مؤقتاً، والفحص الجديد يستأنفه.
+        server.DelayMs = 2500;
+        var quick = o with { TimeoutSeconds = 1 };
+        await Assert.ThrowsAsync<VisionTimeoutException>(() => VisionOcr.ReadAsync(Fixture("incoming-letter.png"), quick, CancellationToken.None));
+        Assert.False(VisionOcr.Suspended(server.Url, out _));
+        await Assert.ThrowsAsync<VisionTimeoutException>(() => VisionOcr.ReadAsync(Fixture("incoming-letter.png"), quick, CancellationToken.None));
+        Assert.True(VisionOcr.Suspended(server.Url, out var until));
+        Assert.True(until > DateTime.UtcNow.AddMinutes(VisionOcr.SuspendMinutes - 1));
+        VisionOcr.Forget(server.Url);
+        Assert.False(VisionOcr.Suspended(server.Url, out _));
+        server.DelayMs = 0;
+    }
+
+    [Fact]
+    public async Task Benchmark_stops_the_vision_run_at_the_first_timeout()
+    {
+        using var server = new FakeVisionServer { DelayMs = 40_000, Reply = _ => IncomingText };
+        using var f = new PlatformFactory();
+        var c = await Configure(f, server);
+        await Json(await Send(c, HttpMethod.Put, "/api/admin/settings", new Dictionary<string, string> { ["vision_ocr_timeout"] = "30" }));
+        Assert.Equal(HttpStatusCode.BadRequest, (await Send(c, HttpMethod.Put, "/api/admin/settings", new Dictionary<string, string> { ["vision_ocr_timeout"] = "5" })).StatusCode);
+        await Json(await Send(c, HttpMethod.Post, "/api/admin/ocr/benchmark"));
+        var until = DateTime.UtcNow.AddMinutes(6);
+        var st = await Get(c, "/api/admin/ocr");
+        while (st.GetProperty("running").GetBoolean() && DateTime.UtcNow < until) { await Task.Delay(500); st = await Get(c, "/api/admin/ocr"); }
+        var auto = st.GetProperty("benchmark").GetProperty("engines").EnumerateArray().Single(e => e.GetProperty("mode").GetString() == "auto");
+        Assert.True(auto.GetProperty("incomplete").GetBoolean());
+        Assert.Equal(0, auto.GetProperty("pagesDone").GetInt32());
+        Assert.Contains("30 ثانية", auto.GetProperty("note").GetString());
+        Assert.Equal(1, server.Requests); // لم يُكمل الصفحات الباقية بعد تجاوز المهلة
     }
 
     private static async Task<HttpClient> Configure(PlatformFactory f, FakeVisionServer server)

@@ -19,6 +19,8 @@ public static class OcrApi
             return Results.Ok(new
             {
                 mode = s["ocr_engine"], url = s["vision_ocr_url"], model = s["vision_ocr_model"], prompt = s["vision_ocr_prompt"], defaultPrompt = VisionOptions.DefaultPrompt,
+                maxSide = s["vision_ocr_max_side"], timeout = s["vision_ocr_timeout"],
+                progressSeconds = bench.Running && bench.ProgressSince != DateTime.MinValue ? (int)(DateTime.UtcNow - bench.ProgressSince).TotalSeconds : 0,
                 tesseract = tools.Tesseract, pdftoppm = tools.PdfToPpm,
                 vision = tools.Vision is null ? null : new { url = tools.Vision.Url, model = tools.Vision.Model },
                 visionNote = tools.VisionNote,
@@ -42,6 +44,10 @@ public static class OcrApi
     {
         if (body.TryGetValue("ocr_engine", out var mode) && !OcrEngines.Modes.Contains(mode)) return "وضع محرك القراءة غير معروف.";
         if (body.TryGetValue("vision_ocr_url", out var url) && url.Trim() != "" && !VisionOcr.IsLocalUrl(url, out var why)) return why;
+        if (body.TryGetValue("vision_ocr_max_side", out var side) && (!int.TryParse(side, out var sv) || sv is < 640 or > 4000)) return "دقة الصورة بين 640 و4000 بكسل.";
+        if (body.TryGetValue("vision_ocr_timeout", out var to) && (!int.TryParse(to, out var tv) || tv is < 30 or > 3600)) return "مهلة الصفحة بين 30 و3600 ثانية.";
+        // إعدادات جديدة: يُنسى الإيقاف المؤقت ونوع الخادم.
+        if (url is not null && url.Trim() != "") VisionOcr.Forget(url.Trim());
         return null;
     }
 }

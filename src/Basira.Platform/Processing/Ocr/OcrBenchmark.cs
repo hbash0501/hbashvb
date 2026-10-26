@@ -9,7 +9,8 @@ using Basira.Platform.Data;
 namespace Basira.Platform.Processing.Ocr;
 
 /// <summary>نتيجة محرك على العينات: نسبة خطأ الحروف، ومآل الحقول الحرجة (اعتماد آلي صحيح، خطأ صامت، مراجعة، مفقود)، والزمن.</summary>
-public sealed record EngineScore(string Mode, string Engine, double Cer, Dictionary<string, double> CerByLevel, int Fields, int AutoCorrect, int SilentWrong, int Review, int Missing, double SecondsPerPage, string Note);
+public sealed record EngineScore(string Mode, string Engine, double Cer, Dictionary<string, double> CerByLevel, int Fields, int AutoCorrect, int SilentWrong, int Review, int Missing, double SecondsPerPage, string Note,
+    bool Incomplete = false, int PagesDone = 0);
 
 public sealed record OcrBenchmarkResult(string At, int Pages, List<EngineScore> Engines);
 
@@ -25,6 +26,7 @@ public sealed class OcrBenchmark
     private readonly object _lock = new();
     public bool Running { get; private set; }
     public string Progress { get; private set; } = "";
+    public DateTime ProgressSince { get; private set; } = DateTime.MinValue;
     public string Error { get; private set; } = "";
 
     public OcrBenchmark(SettingsStore settings, ILogger<OcrBenchmark> log) { _settings = settings; _log = log; }
@@ -65,7 +67,7 @@ public sealed class OcrBenchmark
                 Error = ex.Message;
                 _log.LogWarning(ex, "OCR benchmark failed");
             }
-            finally { Running = false; Progress = ""; }
+            finally { Running = false; Progress = ""; ProgressSince = DateTime.MinValue; }
         });
         return true;
     }
@@ -84,7 +86,8 @@ public sealed class OcrBenchmark
                 await using (var dst = File.Create(path)) await src.CopyToAsync(dst, ct);
                 files.Add(path);
             }
-            var auto = await OcrEngines.ToolsAsync(_settings, ct);
+            if (OcrEngines.Configured(_settings) is { } configured) VisionOcr.Forget(configured.Url);
+            var auto = await OcrEngines.ToolsAsync(_settings, ct, ignoreSuspension: true);
             var engines = new List<EngineScore>();
             if (auto.Tesseract is not null) engines.Add(await ScoreAsync("tesseract", auto with { Vision = null, VisionNote = "" }, samples, files, dir, ct));
             if (auto.Vision is not null) engines.Add(await ScoreAsync("auto", auto, samples, files, dir, ct));
@@ -107,9 +110,13 @@ public sealed class OcrBenchmark
         {
             var s = samples[i];
             Progress = $"{(mode == "tesseract" ? "Tesseract" : "المحرك المرئي + Tesseract")}: صفحة {i + 1} من {samples.Count}";
+            ProgressSince = DateTime.UtcNow;
             var work = Directory.CreateDirectory(Path.Combine(dir, mode + i)).FullName;
             var e = await TextExtractor.ReadImagesAsync(tools, new[] { files[i] }, work, (_, _) => { }, ct);
             engine = e.Engine;
+            // تعذرت القراءة المرئية (مهلة أو خطأ): يتوقف قياس الوضع التلقائي ولا يُكمل بـ Tesseract، حتى لا تختلط نتيجته بنتيجة Tesseract.
+            if (mode == "auto" && e.Warning.StartsWith("تعذرت القراءة بالمحرك المرئي", StringComparison.Ordinal))
+                return new EngineScore(mode, tools.Vision?.Model ?? "", 0, new(), 0, 0, 0, 0, 0, Math.Round(sw.Elapsed.TotalSeconds / (i + 1), 1), e.Warning, Incomplete: true, PagesDone: i);
             if (e.Warning != "" && !e.Warning.StartsWith("جودة المسح", StringComparison.Ordinal) && !notes.Contains(e.Warning)) notes.Add(e.Warning);
             var cer = Cer(e.Text, s.Text);
             cerSum += cer;
@@ -126,7 +133,7 @@ public sealed class OcrBenchmark
             }
         }
         return new EngineScore(mode, engine, Math.Round(100 * cerSum / samples.Count, 1), byLevel.ToDictionary(x => x.Key, x => Math.Round(100 * x.Value.Average(), 1)),
-            fields, autoCorrect, silent, review, missing, Math.Round(sw.Elapsed.TotalSeconds / samples.Count, 1), string.Join(" ", notes.Take(2)));
+            fields, autoCorrect, silent, review, missing, Math.Round(sw.Elapsed.TotalSeconds / samples.Count, 1), string.Join(" ", notes.Take(2)), PagesDone: samples.Count);
     }
 
     /// <summary>نسبة خطأ الحروف: مسافة التحرير بين النصين بعد التوحيد (الهمزات والتشكيل والأرقام والمسافات) مقسومة على طول النص الصحيح.</summary>

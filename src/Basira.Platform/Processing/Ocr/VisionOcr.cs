@@ -8,7 +8,7 @@ using SkiaSharp;
 namespace Basira.Platform.Processing.Ocr;
 
 /// <summary>إعدادات محرك القراءة المرئي: خادم محلي بواجهة OpenAI (Ollama أو llama.cpp أو LM Studio) والنموذج.</summary>
-public sealed record VisionOptions(string Url, string Model, string Prompt = "", int MaxSide = 1800, int TimeoutSeconds = 300)
+public sealed record VisionOptions(string Url, string Model, string Prompt = "", int MaxSide = 1280, int TimeoutSeconds = 600)
 {
     public const string DefaultPrompt =
         "Transcribe all text in this scanned Arabic document image exactly as written, line by line, in natural reading order (right to left). " +
@@ -17,6 +17,12 @@ public sealed record VisionOptions(string Url, string Model, string Prompt = "",
 
     /// <summary>نماذج OCR المتخصصة تتوقع موجّهاً قصيراً بعينه (PaddleOCR-VL: «OCR:»).</summary>
     public string EffectivePrompt => Prompt.Trim() != "" ? Prompt.Trim() : Model.Contains("paddleocr", StringComparison.OrdinalIgnoreCase) ? "OCR:" : DefaultPrompt;
+}
+
+/// <summary>تجاوز قراءة صفحة المهلة المحددة.</summary>
+public sealed class VisionTimeoutException : InvalidOperationException
+{
+    public VisionTimeoutException(string message) : base(message) { }
 }
 
 /// <summary>
@@ -74,22 +80,83 @@ public static class VisionOcr
         }
     }
 
-    /// <summary>صورة الصفحة مصغرة إلى أطول ضلع MaxSide (لا تكبير)، بصيغة PNG.</summary>
-    public static byte[] Encode(string imagePath, int maxSide)
+    /// <summary>صورة الصفحة مصغرة إلى أطول ضلع MaxSide (لا تكبير)، بصيغة PNG، مع أبعادها.</summary>
+    public static (byte[] Png, int Width, int Height) Encode(string imagePath, int maxSide)
     {
         using var src = SKBitmap.Decode(imagePath) ?? throw new InvalidDataException("تعذر قراءة صورة الصفحة.");
         var scale = Math.Min(1.0, (double)maxSide / Math.Max(src.Width, src.Height));
         using var resized = scale < 1 ? src.Resize(new SKImageInfo((int)(src.Width * scale), (int)(src.Height * scale)), SKFilterQuality.High) : null;
-        using var img = SKImage.FromBitmap(resized ?? src);
+        var bmp = resized ?? src;
+        using var img = SKImage.FromBitmap(bmp);
         using var data = img.Encode(SKEncodedImageFormat.Png, 100);
-        return data.ToArray();
+        return (data.ToArray(), bmp.Width, bmp.Height);
     }
+
+    /// <summary>
+    /// سياق يتسع للصورة والموجّه والنص المقروء. نماذج Qwen-VL تمثل كل مربع 28×28 بكسل تقريباً برمز واحد؛ صفحة A4 بعرض 1280 نحو 2300 رمز،
+    /// وبعرض 1800 نحو 4500 رمز تتجاوز سياق Ollama الافتراضي (4096) فيُقتطع الإدخال أو يتعثر.
+    /// </summary>
+    public static int ContextFor(int width, int height) => (int)Math.Min(32768, Math.Ceiling(((width / 28.0) * (height / 28.0) + 3500) / 1024) * 1024);
+
+    // خوادم Ollama تُكتشف مرة لكل عنوان: واجهتها الأصلية تقبل حجم السياق وإبقاء النموذج محمّلاً بين الصفحات.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> OllamaServers = new();
+
+    private static string Root(string url) => Regex.Replace(url.TrimEnd('/'), @"/v1$", "");
+
+    public static async Task<bool> IsOllamaAsync(string url, CancellationToken ct)
+    {
+        if (OllamaServers.TryGetValue(url, out var known)) return known;
+        var ollama = false;
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(5));
+            using var r = await Http.GetAsync(Root(url) + "/api/version", cts.Token);
+            if (r.IsSuccessStatusCode)
+            {
+                using var j = JsonDocument.Parse(await r.Content.ReadAsStringAsync(cts.Token));
+                ollama = j.RootElement.TryGetProperty("version", out _);
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException) { }
+        OllamaServers[url] = ollama;
+        return ollama;
+    }
+
+    // ===== صحة الخادم: تجاوز المهلة مرتين متتاليتين يوقف المحرك المرئي مؤقتاً حتى لا تنتظر كل وثيقة المهلة كاملة =====
+    public const int SuspendMinutes = 20;
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (int Timeouts, DateTime Until)> Health = new();
+
+    public static void Record(string url, bool timedOut)
+    {
+        if (!timedOut) { Health.TryRemove(url, out _); return; }
+        Health.AddOrUpdate(url, _ => (1, DateTime.MinValue), (_, h) => h.Timeouts + 1 >= 2 ? (0, DateTime.UtcNow.AddMinutes(SuspendMinutes)) : (h.Timeouts + 1, h.Until));
+    }
+
+    /// <summary>المحرك المرئي موقوف مؤقتاً لتكرار تجاوز المهلة، وحتى متى.</summary>
+    public static bool Suspended(string url, out DateTime until)
+    {
+        until = Health.TryGetValue(url, out var h) ? h.Until : DateTime.MinValue;
+        return until > DateTime.UtcNow;
+    }
+
+    public static void Resume(string url) => Health.TryRemove(url, out _);
 
     public static async Task<string> ReadAsync(string imagePath, VisionOptions o, CancellationToken ct)
     {
         if (!IsLocalUrl(o.Url, out var why)) throw new InvalidOperationException(why);
-        var png = Encode(imagePath, o.MaxSide);
-        var body = new
+        var (png, width, height) = Encode(imagePath, o.MaxSide);
+        var ollama = await IsOllamaAsync(o.Url, ct);
+        object body = ollama
+            ? new
+            {
+                model = o.Model,
+                stream = false,
+                keep_alive = "30m",
+                options = new { temperature = 0, num_ctx = ContextFor(width, height), num_predict = 3072 },
+                messages = new object[] { new { role = "user", content = o.EffectivePrompt, images = new[] { Convert.ToBase64String(png) } } },
+            }
+            : new
         {
             model = o.Model,
             temperature = 0,
@@ -107,6 +174,8 @@ public static class VisionOcr
                 },
             },
         };
+        // طلب واحد في كل مرة: خوادم النماذج المحلية تعالج طلباً واحداً افتراضياً، والمهلة تُحسب من بدء المعالجة لا من الانتظار في الطابور.
+        await Gate.WaitAsync(ct);
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(o.TimeoutSeconds));
         try
@@ -114,13 +183,39 @@ public static class VisionOcr
             // جسم بطول معلن (لا ترميز مقطّع): بعض الخوادم المحلية لا تقبل غيره.
             using var content = new ByteArrayContent(JsonSerializer.SerializeToUtf8Bytes(body));
             content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
-            using var r = await Http.PostAsync(Endpoint(o.Url, "chat/completions"), content, cts.Token);
+            using var r = await Http.PostAsync(ollama ? Root(o.Url) + "/api/chat" : Endpoint(o.Url, "chat/completions"), content, cts.Token);
             var json = await r.Content.ReadAsStringAsync(cts.Token);
             if (!r.IsSuccessStatusCode) throw new InvalidOperationException($"خادم القراءة ردّ برمز {(int)r.StatusCode}: {Short(json)}");
-            return Tidy(Content(json));
+            var text = Tidy(ollama ? OllamaContent(json) : Content(json));
+            Record(o.Url, timedOut: false);
+            return text;
         }
-        catch (TaskCanceledException) when (!ct.IsCancellationRequested) { throw new InvalidOperationException($"تجاوزت قراءة الصفحة {o.TimeoutSeconds} ثانية."); }
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+        {
+            Record(o.Url, timedOut: true);
+            throw new VisionTimeoutException($"تجاوزت قراءة الصفحة {o.TimeoutSeconds} ثانية. النموذج بطيء على هذا الجهاز: جرّب نموذجاً أصغر أو دقة صورة أقل أو مهلة أطول، أو خادماً ببطاقة رسومية.");
+        }
         catch (HttpRequestException ex) { throw new InvalidOperationException("تعذر الاتصال بخادم القراءة: " + ex.Message); }
+        finally { Gate.Release(); }
+    }
+
+    private static readonly SemaphoreSlim Gate = new(1, 1);
+
+    /// <summary>تنسى المنصة ما عرفته عن الخادم (نوعه وإيقافه المؤقت) بعد تغيير الإعدادات أو فحصه.</summary>
+    public static void Forget(string url) { OllamaServers.TryRemove(url, out _); Health.TryRemove(url, out _); }
+
+    /// <summary>نص الرد من واجهة Ollama الأصلية (message.content).</summary>
+    private static string OllamaContent(string json)
+    {
+        try
+        {
+            using var j = JsonDocument.Parse(json);
+            return j.RootElement.GetProperty("message").GetProperty("content").GetString() ?? "";
+        }
+        catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException)
+        {
+            throw new InvalidOperationException("رد غير متوقع من خادم القراءة: " + Short(json));
+        }
     }
 
     /// <summary>نص الرد من choices[0].message.content (نصاً أو أجزاء).</summary>
