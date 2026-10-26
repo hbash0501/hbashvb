@@ -282,6 +282,36 @@ img.preview { object-fit: contain; height: auto; max-height: 72vh; display: bloc
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 @media print { .side, .top, .tabs, .btn { display: none !important; } .shell { display: block; } .card { box-shadow: none; } }
 
+/* استوديو الرد */
+.studio { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 18px; align-items: start; }
+@media (max-width: 1200px) { .studio { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .letter-page { padding: 20px 16px; font-size: 15.5px; } .lp-head { flex-direction: column; } }
+.ask { display: grid; grid-template-columns: 24px 1fr; gap: 8px; align-items: start; padding: 8px; border-radius: var(--r-sm); background: var(--surface-2); border: 1px solid var(--line-2); }
+.ask-mark { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line); display: grid; place-items: center; color: var(--ok); }
+.ask-mark svg { width: 14px; height: 14px; }
+.ask.done { background: var(--ok-soft); border-color: transparent; }
+.ask.done .ask-mark { border-color: var(--ok); background: var(--surface); }
+.precedent { box-shadow: none; background: var(--surface-2); }
+.precedent-body { white-space: pre-line; max-height: 7.2em; overflow: hidden; margin: 8px 0; color: var(--ink-2); border-inline-start: 3px solid var(--line); padding-inline-start: 8px; }
+.letter-page { background: #fff; color: #111; border: 1px solid var(--line); border-radius: 6px; padding: 36px 44px; min-height: 520px; font-family: "Noto Naskh Arabic", "Traditional Arabic", "Times New Roman", serif; font-size: 17px; line-height: 2; box-shadow: 0 6px 24px rgba(0,0,0,.06); }
+.letter-page p { margin: 0 0 10px; }
+.letter-page mark { background: #fde68a; }
+.lp-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; border-bottom: 2px solid #0f6b5f; padding-bottom: 10px; margin-bottom: 22px; }
+.lp-head b { font-size: 19px; color: #0f6b5f; }
+.lp-meta { font-size: 14px; line-height: 1.8; text-align: start; }
+.lp-to { display: flex; justify-content: space-between; font-weight: 700; }
+.lp-body { text-align: justify; white-space: pre-line; }
+.lp-close { margin-top: 18px !important; }
+.lp-sign { margin-top: 26px; margin-inline-start: auto; width: fit-content; text-align: center; }
+.print-root { display: none; }
+@media print {
+  @page { size: A4; margin: 18mm 16mm; }
+  body.print-letter { background: #fff; }
+  body.print-letter > :not(.print-root) { display: none !important; }
+  body.print-letter .print-root { display: block; }
+  body.print-letter .print-root .letter-page { border: 0; box-shadow: none; padding: 0; min-height: 0; }
+}
+
 /* ===== التحقق من القراءة الآلية ===== */
 mark.pending, mark.check { background: color-mix(in srgb, var(--accent) 18%, transparent); outline: 2px dashed var(--accent); outline-offset: 1px; border-radius: 3px; }
 .legend i.pending-swatch { background: transparent; outline: 2px dashed var(--accent); }

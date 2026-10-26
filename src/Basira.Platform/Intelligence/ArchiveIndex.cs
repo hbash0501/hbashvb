@@ -120,6 +120,8 @@ public sealed class ArchiveIndex
     /// الإشارة غير المؤكدة لا تربط ولا تنشئ خطاباً غائباً، والتاريخ غير المؤكد لا تُحسب منه مهلة،
     /// والرقم غير المؤكد لا يُعتمد هوية للمستند (فلا تُربط به إشارات المستندات الأخرى إلا اقتراحاً).
     /// </summary>
+    public const string PendingApproval = "بانتظار الاعتماد";
+
     public static Snapshot Build(List<Doc> docs, int replyDays, DateTime today, IReadOnlyDictionary<string, List<FieldCheckRow>>? pending = null)
     {
         pending ??= new Dictionary<string, List<FieldCheckRow>>();
@@ -182,7 +184,9 @@ public sealed class ArchiveIndex
         }
 
         // المواعيد: اليدوي أولاً، وإلا أقرب مهلة في النص؛ وتسقط مهلة النص عن الوارد الذي صدر ما يشير إليه (أُجيب عليه).
-        var answered = edges.Select(e => e.To).ToHashSet();
+        // رد صادر بانتظار الاعتماد لم يصدر بعد: لا يُعد جواباً حتى يُعتمد.
+        var answering = edges.Where(e => !(byId[e.From].Direction == "صادر" && byId[e.From].Status == PendingApproval)).ToList();
+        var answered = answering.Select(e => e.To).ToHashSet();
         var deadlines = new Dictionary<string, List<DeadlineHint>>();
         var due = new Dictionary<string, (string, string)>();
         foreach (var d in docs)
@@ -210,7 +214,7 @@ public sealed class ArchiveIndex
         foreach (var g in ghosts.Values) for (var i = 1; i < g.CitedBy.Count; i++) Union(g.CitedBy[0], g.CitedBy[i]);
 
         // بانتظار رد: وارد غير منجز لم يشر إليه أي مستند لاحق، وتجاوز مهلة الرد.
-        var cited = edges.Select(e => e.To).ToHashSet();
+        var cited = answered;
         var awaiting = new List<AwaitingItem>();
         foreach (var d in docs)
         {

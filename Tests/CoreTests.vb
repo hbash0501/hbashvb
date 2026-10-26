@@ -429,6 +429,12 @@ Module CoreTests
         Check(d6.Count = 1 AndAlso d6(0).Days = 15 AndAlso d6(0).Due.GetValueOrDefault() = New DateTime(2026, 10, 16), "OCR-garbled unit before 'from its date' read as days")
         Check(DeadlineExtractor.Extract("خلال (15) يوماً من تاريخه", baseDate).Count = 1, "No double count when unit is readable")
         Check(DeadlineExtractor.EarliestDue("خلال 30 يوماً، أو في موعد أقصاه 2026/10/05م", baseDate).GetValueOrDefault() = New DateTime(2026, 10, 5), "Earliest due date wins")
+        Dim d7 = DeadlineExtractor.Extract("نأمل تزويدنا بالبيان في موعد أقصاه عشرة أيام من تاريخه.", baseDate)
+        Check(d7.Count = 1 AndAlso d7(0).Days = 10 AndAlso d7(0).Due.GetValueOrDefault() = New DateTime(2026, 10, 11), "'At most' with a period of days is relative")
+        Dim d8 = DeadlineExtractor.Extract("وذلك في موعد أقصاه أسبوعان من تاريخه.", baseDate)
+        Check(d8.Count = 1 AndAlso d8(0).Due.GetValueOrDefault() = New DateTime(2026, 10, 15), "'At most' with weeks is relative")
+        Dim d9 = DeadlineExtractor.Extract("في موعد أقصاه يوم الأحد 1448/5/1هـ", baseDate)
+        Check(d9.Count = 1 AndAlso Not d9(0).IsRelative, "'At most' before a date stays absolute (no one-day reading)")
     End Sub
 
     Private Sub TestProcesses()

@@ -34,14 +34,15 @@ Public NotInheritable Class DeadlineExtractor
         {"خمسه عشر", 15}, {"عشرين", 20}, {"ثلاثين", 30}, {"اربعين", 40}, {"خمسه واربعين", 45}, {"ستين", 60}, {"تسعين", 90}}
 
     Private Shared ReadOnly RelativeRx As Regex
-    Private Shared ReadOnly PeriodRx As New Regex("(?<!\p{L})خلال\s+(?<p>اسبوع|اسبوعين|شهر|شهرين|ثلاثه\s+اشهر)(?!\p{L})", RegexOptions.Compiled)
+    Private Shared ReadOnly PeriodRx As New Regex("(?<!\p{L})(?:خلال|في\s+غضون|في\s+موعد\s+(?:اقصاه|لا\s+يتجاوز)|موعدا\s+اقصاه)\s+(?<p>اسبوع|اسبوعين|اسبوعان|شهر|شهرين|شهران|ثلاثه\s+اشهر)(?!\p{L})", RegexOptions.Compiled)
     Private Shared ReadOnly AbsoluteRx As Regex
     ' «خلال (15) … من تاريخه» حين تشوّه OCR كلمة الوحدة: تُعد أياماً، وهو الاستخدام الغالب في المراسلات.
     Private Shared ReadOnly GarbledUnitRx As New Regex("(?<!\p{L})خلال\s*[\(\[]\s*(?<n>[0-9]{1,3})\s*[\)\]]\s*\S{1,10}\s+من\s+تاريخ", RegexOptions.Compiled)
 
     Shared Sub New()
         Dim words = String.Join("|", NumberWords.Keys.OrderByDescending(Function(k) k.Length).Select(Function(k) k.Replace(" ", "\s+")))
-        RelativeRx = New Regex("(?<!\p{L})(?:خلال|في\s+غضون|في\s+مده\s+لا\s+تتجاوز|بمده\s+لا\s+تتجاوز|في\s+مده\s+اقصاها)\s*[\(\[]?\s*(?:(?<n>[0-9]{1,3})|(?<w>" & words & "))\s*[\)\]]?\s*(?<u>يوما|يوم|ايام)?(?<b>\s+عمل)?(?!\p{L})", RegexOptions.Compiled)
+        ' «في موعد أقصاه» قبل مدة («عشرة أيام») لا قبل تاريخ؛ ويلزمها ذكر الوحدة حتى لا تُقرأ «في موعد أقصاه يوم الأحد» مدة.
+        RelativeRx = New Regex("(?<!\p{L})(?:خلال|في\s+غضون|في\s+مده\s+لا\s+تتجاوز|بمده\s+لا\s+تتجاوز|في\s+مده\s+اقصاها|(?<cap>في\s+موعد\s+(?:اقصاه|لا\s+يتجاوز)|موعدا\s+اقصاه))\s*[\(\[]?\s*(?:(?<n>[0-9]{1,3})|(?<w>" & words & "))\s*[\)\]]?\s*(?<u>يوما|يوم|ايام)?(?<b>\s+عمل)?(?!\p{L})", RegexOptions.Compiled)
         AbsoluteRx = New Regex("(?<!\p{L})(?:في\s+موعد\s+(?:اقصاه|غايته|لا\s+يتجاوز)|موعدا\s+اقصاه|بحد\s+اقصي|حتي\s+تاريخ|قبل\s+تاريخ|قبل\s+نهايه\s+يوم|في\s+موعد\s+اقصاه\s+يوم)\s*[:：\(]?\s*(?:\p{L}+\s+)?" & CorrespondenceReferenceParser.DateBody, RegexOptions.Compiled)
     End Sub
 
@@ -63,6 +64,7 @@ Public NotInheritable Class DeadlineExtractor
         Dim norm As String = CorrespondenceReferenceParser.NormalizeWithMap(text, map)
 
         For Each m As Match In RelativeRx.Matches(norm)
+            If m.Groups("cap").Success AndAlso Not m.Groups("u").Success Then Continue For
             Dim days As Integer
             If m.Groups("n").Success Then
                 days = Integer.Parse(m.Groups("n").Value, CultureInfo.InvariantCulture)
@@ -90,7 +92,7 @@ Public NotInheritable Class DeadlineExtractor
 
         For Each m As Match In PeriodRx.Matches(norm)
             Dim p As String = Regex.Replace(m.Groups("p").Value, "\s+", " ")
-            Dim days As Integer = If(p = "اسبوع", 7, If(p = "اسبوعين", 14, If(p = "شهر", 30, If(p = "شهرين", 60, 90))))
+            Dim days As Integer = If(p = "اسبوع", 7, If(p = "اسبوعين" OrElse p = "اسبوعان", 14, If(p = "شهر", 30, If(p = "شهرين" OrElse p = "شهران", 60, 90))))
             Dim h As New DeadlineHint With {.IsRelative = True, .Days = days}
             If documentDate.HasValue Then h.Due = documentDate.Value.Date.AddDays(days)
             Place(text, map, m, h)

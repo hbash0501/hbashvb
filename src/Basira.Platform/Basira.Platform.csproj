@@ -8,7 +8,7 @@
     <AssemblyName>Basira</AssemblyName>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
-    <Version>3.3.0</Version>
+    <Version>3.4.0</Version>
     <Product>بصيرة</Product>
     <ApplicationIcon>../../AIDocumentArchiveVB/Assets/basira.ico</ApplicationIcon>
     <InvariantGlobalization>false</InvariantGlobalization>

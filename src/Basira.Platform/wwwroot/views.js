@@ -42,7 +42,8 @@ export async function renderDashboard(view) {
   const awaiting = d.awaiting.length ? d.awaiting.map(a => h('a', { class: 'list-item', href: docLink(a.doc.id) },
     h('div', { class: 'badge-days' + (a.days >= d.replyDays * 2 ? ' danger' : '') }, nf.format(a.days), h('small', { text: 'يوماً' })),
     h('div', { class: 'grow' }, h('span', { class: 't', text: a.doc.title }), h('span', { class: 'muted small', text: [a.doc.sourceEntity || 'جهة غير محددة', a.doc.externalNo ? 'رقم ' + a.doc.externalNo : '', a.doc.documentDate ? fmt.hijri(a.doc.documentDate) : ''].filter(Boolean).join(' • ') })),
-    icon('arrow'))) : [empty('check', 'لا توجد خطابات واردة تنتظر الرد. كل وارد صدر ما يشير إليه.')];
+    can('import') ? h('span', { class: 'btn sm', role: 'link', tabindex: '0', title: 'فتح استوديو الرد', onclick: e => { e.preventDefault(); e.stopPropagation(); location.hash = '#/reply/' + encodeURIComponent(a.doc.id); },
+      onkeydown: e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); location.hash = '#/reply/' + encodeURIComponent(a.doc.id); } } }, icon('edit'), 'صياغة الرد') : icon('arrow'))) : [empty('check', 'لا توجد خطابات واردة تنتظر الرد. كل وارد صدر ما يشير إليه.')];
   const due = d.dueSoon.length ? d.dueSoon.map(x => h('a', { class: 'list-item', href: docLink(x.doc.id) },
     h('div', { class: 'badge-days' + (x.days < 0 ? ' danger' : '') }, x.days < 0 ? nf.format(-x.days) : nf.format(x.days), h('small', { text: x.days < 0 ? 'متأخر' : x.days === 0 ? 'اليوم' : 'يوماً' })),
     h('div', { class: 'grow' }, h('span', { class: 't', text: x.doc.title }), h('span', { class: 'muted small', text: `${fmt.both(x.doc.due)}${x.doc.dueSource.startsWith('مستخرج') ? ' • من نص الخطاب' : ''}` })), icon('arrow'))) : [empty('calendar', 'لا مواعيد مستحقة خلال الأسبوع.')];
@@ -352,6 +353,7 @@ export async function renderDoc(view, id, onCount) {
       h('div', { class: 'doc-title' }, h('div', { class: 'doc-ico ' + dirClass(doc.direction), style: 'width:48px;height:48px' }, dirIcon(doc.direction)),
         h('div', {}, h('div', { class: 'muted small num', text: `${doc.archiveNo}${doc.documentDate ? ' • ' + fmt.both(doc.documentDate) : ''}` }), h('h1', { text: doc.title }), doc.titleAuto ? h('div', { class: 'muted small', title: 'استُخرج العنوان من محتوى المستند؛ عدّله من «البيانات» إن لزم', text: 'عنوان مستخرج من المحتوى' }) : null, h('div', { class: 'chips' }, docChips(doc)))),
       h('div', { class: 'actions' },
+        doc.direction === 'وارد' && can('import') && !d.restricted ? h('a', { class: 'btn primary', href: '#/reply/' + encodeURIComponent(id) }, icon('edit'), 'صياغة الرد') : null,
         d.can.workflow ? statusBtn : null,
         d.can.edit && doc.hasFile ? h('button', { class: 'btn', onclick: async () => { await api(`/documents/${encodeURIComponent(id)}/reprocess`, { method: 'POST' }); toast('أُرسل المستند لإعادة المعالجة'); } }, icon('refresh'), 'إعادة المعالجة') : null,
         d.can.file ? h('a', { class: 'btn', href: `/api/documents/${encodeURIComponent(id)}/file?download=true` }, icon('download'), 'الأصل') : null)),

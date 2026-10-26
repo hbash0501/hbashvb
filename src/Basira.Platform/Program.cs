@@ -120,6 +120,7 @@ InboxApi.Map(secured);
 AdminApi.Map(secured);
 ReviewApi.Map(secured);
 ClassificationApi.Map(secured);
+ReplyApi.Map(secured);
 app.MapGet("/healthz", () => Results.Text("ok"));
 app.MapFallback(async ctx =>
 {
