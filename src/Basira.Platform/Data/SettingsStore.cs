@@ -17,6 +17,8 @@ public sealed class SettingsStore
         ["inbox_folder"] = "",
         ["reply_days"] = "7",
         ["default_direction"] = "وارد",
+        ["semantic_model_path"] = "",
+        ["semantic_model_url"] = "",
     };
 
     public Dictionary<string, string> All()

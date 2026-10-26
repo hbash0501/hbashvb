@@ -178,9 +178,62 @@ async function adminTaxonomy(body) {
       h('h3', {}, icon('alert'), 'تصنيفات في الأرشيف خارج الشجرة'),
       h('p', { class: 'muted small', text: 'لا يتعلم منها المصنِّف حتى تُضاف إلى الشجرة (أو تُوحَّد مع تصنيف قائم بتعديل المستندات).' }),
       h('div', { class: 'chips' }, o.unmapped.map(u => h('button', { class: 'chip', title: 'إضافة إلى الشجرة', onclick: () => { tax.push({ name: u.name, keywords: '', subs: [] }); draw(); toast(`أُضيف «${u.name}»؛ احفظ الشجرة`); } }, icon('plus'), `${u.name} (${nf.format(u.count)})`)))) : null,
+    state.me.isAdmin ? semanticPanel() : null,
     h('div', { class: 'row', style: 'justify-content:space-between;margin-bottom:10px' }, h('h3', { text: 'شجرة التصنيف' }),
       h('div', { class: 'row', style: 'gap:8px' }, h('button', { class: 'btn', onclick: () => { tax.push({ name: 'تصنيف جديد', keywords: '', subs: [] }); draw(); } }, icon('plus'), 'تصنيف عام'), h('button', { class: 'btn primary', onclick: save }, icon('check'), 'حفظ الشجرة'))),
     err, editor);
+}
+
+// ===== النموذج الدلالي المحلي: مكانه وحالته وتنزيله ومعايرته =====
+function semanticPanel() {
+  const box = h('div', { class: 'card pad', style: 'margin-bottom:14px' });
+  let timer = null;
+  const pct = x => x == null ? '—' : x + '%';
+  const draw = st => {
+    clearTimeout(timer);
+    const cal = st.calibration?.current ? st.calibration.cal : null;
+    const dl = st.download;
+    const busy = Boolean(dl.running || st.activity);
+    const act = async (path, msg) => {
+      try { const r = await api('/admin/semantic/' + path, { method: 'POST' }); if (msg) toast(msg); load(r.loaded !== undefined ? r : null); }
+      catch (e) { toast(e.message, { error: true }); load(); }
+    };
+    mount(box,
+      h('h3', {}, icon('spark'), 'النموذج الدلالي (فهم المعنى)'),
+      h('p', { class: 'muted small', text: 'نموذج يعمل على هذا الجهاز وحده يفهم معنى الخطاب لا كلماته فقط، فيصنّف ما خلا من الكلمات الدالة. يُدمج مع القواعد بوزن تحدده المعايرة على عينات مصنفة، ولا يُستخدم إن لم يرفع الدقة.' }),
+      st.loaded
+        ? h('div', { class: 'stack', style: 'gap:6px;margin-top:8px' },
+            h('div', {}, h('span', { class: 'chip ok', text: 'محمّل' }), ' ', h('b', { text: st.model.name }), h('span', { class: 'muted small', text: ` — ${st.model.file}، ${nf.format(st.model.dimension)} بُعداً` })),
+            h('div', { class: 'muted small ltr', text: st.model.folder }))
+        : h('div', { class: 'stack', style: 'gap:6px;margin-top:8px' },
+            h('div', {}, h('span', { class: 'chip warn', text: 'غير موجود' }), ' ', h('span', { class: 'small', text: 'التصنيف يعمل بالقواعد وما يتعلمه من الأرشيف. ضع ملفات النموذج (‎.onnx وtokenizer.json) في أحد المجلدات التالية، أو نزّله:' })),
+            h('ul', { class: 'small ltr', style: 'margin:0' }, st.candidates.map(c => h('li', { text: c })))),
+      st.error ? h('p', { class: 'error', text: st.error }) : null,
+      st.preparationError ? h('p', { class: 'error', text: st.preparationError }) : null,
+      st.activity ? h('p', { class: 'small' }, icon('refresh'), ' ', st.activity) : null,
+      dl.running ? h('p', { class: 'small', text: `تنزيل ${dl.file}: ${nf.format(Math.round(dl.received / 1048576))}${dl.total ? ' / ' + nf.format(Math.round(dl.total / 1048576)) : ''} ميجابايت` }) : null,
+      dl.error ? h('p', { class: 'error', text: dl.error }) : null,
+      cal ? h('div', { style: 'margin-top:10px' },
+        h('div', { class: 'table-wrap' }, h('table', {},
+          h('thead', {}, h('tr', {}, [`على ${nf.format(cal.heldOutCount)} عينة محجوزة`, 'الكلمات الدالة وحدها', 'مع النموذج الدلالي'].map(x => h('th', { text: x })))),
+          h('tbody', {}, [
+            ['دقة التصنيف العام', cal.heldOutRules, cal.heldOutFused],
+            ['دقة التصنيف الفرعي', cal.heldOutSubRules, cal.heldOutSubFused],
+            ['دقة التصنيف الواثق', cal.confidentPrecisionRules, cal.confidentPrecisionFused],
+            ['نسبة التصنيف الواثق', cal.confidentCoverageRules, cal.confidentCoverageFused],
+          ].map(([label, a, b]) => h('tr', {}, h('td', { text: label }), h('td', { text: pct(a) }), h('td', {}, h('b', { text: pct(b) }))))))),
+        h('p', { class: 'muted small', style: 'margin-top:8px', text: `وزن النموذج في الدمج ${cal.weight} — معايَر على ${nf.format(cal.tuneCount)} عينة، ومقيس على عينات لم تدخل المعايرة. ${cal.note || ''}` })) : null,
+      h('div', { class: 'row', style: 'gap:8px;margin-top:12px;flex-wrap:wrap' },
+        !st.loaded ? h('button', { class: 'btn primary', disabled: busy, onclick: () => act('download', 'بدأ التنزيل') }, icon('download'), 'نزّل النموذج الموصى به (~120 ميجابايت)') : null,
+        st.loaded ? h('button', { class: 'btn', disabled: busy, onclick: () => act('calibrate', 'اكتملت المعايرة') }, icon('refresh'), 'أعد المعايرة والقياس') : null,
+        h('button', { class: 'btn ghost', disabled: busy, onclick: () => act('reload') }, icon('search'), 'أعد البحث عن النموذج')),
+      !st.loaded ? h('p', { class: 'hint' }, 'يُنزَّل إلى ', h('bdi', { class: 'ltr', text: st.downloadTarget }), ' من ', h('bdi', { class: 'ltr', text: dl.source })) : null);
+    if (busy) timer = setTimeout(() => box.isConnected && load(), 1500);
+  };
+  const load = st => (st ? Promise.resolve(st) : api('/admin/semantic')).then(draw).catch(e => mount(box, h('p', { class: 'error', text: e.message })));
+  mount(box, h('p', { class: 'muted small', text: 'جارٍ فحص النموذج الدلالي…' }));
+  load();
+  return box;
 }
 
 async function adminUsers(body) {
@@ -221,10 +274,12 @@ async function adminSettings(body) {
     ['tesseract_path', 'مسار Tesseract', r.detected.tesseract ? 'مكتشف: ' + r.detected.tesseract : 'غير مكتشف — مطلوب لقراءة الصور والملفات المصورة'],
     ['pdftoppm_path', 'مسار pdftoppm (Poppler)', r.detected.pdftoppm ? 'مكتشف: ' + r.detected.pdftoppm : 'غير مكتشف — مطلوب لملفات PDF المصورة'],
     ['ocr_languages', 'لغات OCR', 'مثل ara+eng'],
+    ['semantic_model_path', 'مجلد النموذج الدلالي', 'اختياري: اتركه فارغاً ليُبحث عنه في models\\semantic بجوار البرنامج'],
+    ['semantic_model_url', 'مصدر تنزيل النموذج', 'اختياري: مرآة داخلية للمؤسسة بدل المصدر الافتراضي'],
   ];
   const inputs = {};
   const err = h('p', { class: 'error', role: 'alert' });
-  const form = h('form', { class: 'form card pad' }, fields.map(([k, label, hint]) => h('div', { class: k === 'organization' || k === 'inbox_folder' ? 'full' : '' }, h('label', { class: 'f', text: label }), inputs[k] = h('input', { value: s[k] || '', class: k.endsWith('path') || k === 'inbox_folder' ? 'ltr' : '' }), h('p', { class: 'hint', text: hint }))),
+  const form = h('form', { class: 'form card pad' }, fields.map(([k, label, hint]) => h('div', { class: k === 'organization' || k === 'inbox_folder' ? 'full' : '' }, h('label', { class: 'f', text: label }), inputs[k] = h('input', { value: s[k] || '', class: k.endsWith('path') || k.endsWith('url') || k === 'inbox_folder' ? 'ltr' : '' }), h('p', { class: 'hint', text: hint }))),
     h('div', { class: 'full row' }, h('button', { class: 'btn primary', type: 'submit' }, icon('check'), 'حفظ الإعدادات'), err));
   form.addEventListener('submit', async e => {
     e.preventDefault();

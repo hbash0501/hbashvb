@@ -15,6 +15,10 @@ mkdir -p "$pkg"
 cp "$stage/publish/Basira.exe" "$pkg/"
 # نماذج OCR الدقيقة بجوار الملف التنفيذي (تُقرأ منها مباشرة، لا تُضمَّن في الملف الواحد).
 cp -r "$stage/publish/tessdata" "$pkg/"
+# مكان النموذج الدلالي الاختياري (لا يُضمَّن لحجمه)، وسكربت تنزيله لجهاز غير متصل.
+mkdir -p "$pkg/models/semantic"
+cp "$root/tools/semantic/get-semantic-model.ps1" "$pkg/models/"
+cp "$root/tools/semantic/models-readme-ar.txt" "$pkg/models/semantic/README_AR.txt"
 cp "$root/tools/platform-readme-ar.txt" "$pkg/README_AR.txt"
 cp "$root/tools/platform-third-party.txt" "$pkg/THIRD_PARTY_NOTICES.txt"
 mkdir -p "$out"

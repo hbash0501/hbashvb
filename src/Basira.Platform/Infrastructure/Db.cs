@@ -82,6 +82,12 @@ public sealed class Db
           final_category TEXT NOT NULL, final_sub TEXT NOT NULL, confidence REAL NOT NULL, confident INTEGER NOT NULL,
           action TEXT NOT NULL, actor TEXT NOT NULL, at TEXT NOT NULL);
         """,
+        // متجهات النموذج الدلالي للمستندات (للتصنيف بأقرب الجيران من الأرشيف)، مربوطة بالنموذج ونص المستند.
+        """
+        CREATE TABLE doc_embeddings(
+          document_id TEXT NOT NULL, model_id TEXT NOT NULL, text_hash TEXT NOT NULL, vector BLOB NOT NULL,
+          PRIMARY KEY(document_id, model_id));
+        """,
     };
 
     private void Migrate()

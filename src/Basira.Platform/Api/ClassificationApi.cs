@@ -84,7 +84,7 @@ public static class ClassificationApi
             foreach (var d in docs.All())
             {
                 if (!(d.Category == "" || includeAuto && d.IsAuto("category")) || d.Text == "") { skipped++; continue; }
-                var r = classifier.Classify(d.Text, d.Title);
+                var r = classifier.Classify(d.Text, d.Title, d.Id);
                 if (r.Category == "" || r.Category == d.Category && r.SubCategory == d.SubCategory) { skipped++; continue; }
                 docs.Update(d.Id, null, x => classifier.Apply(x, r), ProcessingQueue.SystemActor, $"تصنيف آلي: {r.Category} / {r.SubCategory}", "تصنيف آلي");
                 changed++;

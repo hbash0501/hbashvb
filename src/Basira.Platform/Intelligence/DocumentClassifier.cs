@@ -153,8 +153,14 @@ public sealed class ArchiveModel
 }
 
 /// <summary>
+/// إشارة النموذج الدلالي لمستند: احتمال كل تصنيف عام، واحتمالات الفرعية داخل كل عام، ووزنها في الدمج وحد الاطمئنان
+/// (كلاهما من المعايرة على العينات المصنفة).
+/// </summary>
+public sealed record SemanticSignal(Dictionary<string, double> Category, Dictionary<string, Dictionary<string, double>> Subs, double Weight, double ConfidentAt);
+
+/// <summary>
 /// المصنِّف: قواعد بكلمات دالة من شجرة التصنيف (أوزان أعلى لما في الموضوع والعنوان)، يُدمج معها نموذج الأرشيف
-/// بوزن يزداد مع عدد المستندات المصنفة يدوياً. لا يُرسل أي نص إلى خدمة خارجية.
+/// بوزن يزداد مع عدد المستندات المصنفة يدوياً، والنموذج الدلالي المحلي إن وُضع بجوار المنصة. لا يُرسل أي نص إلى خدمة خارجية.
 /// </summary>
 public static class DocumentClassifier
 {
@@ -166,12 +172,14 @@ public static class DocumentClassifier
 
     private sealed record Scored(double Score, List<string> Evidence);
 
-    public static ClassificationResult Classify(Taxonomy taxonomy, ArchiveModel model, string text, string subject = "")
+    public static ClassificationResult Classify(Taxonomy taxonomy, ArchiveModel model, string text, string subject = "", SemanticSignal? semantic = null)
     {
         text ??= ""; subject ??= "";
         var body = ArabicText.Tokens(text);
         var head = ArabicText.Tokens(subject);
         if (body.Count + head.Count == 0) return ClassificationResult.None;
+        var w = semantic is { Weight: > 0 } ? Math.Min(semantic.Weight, 1) : 0;
+        double Sem(string cat) => w > 0 ? semantic!.Category.GetValueOrDefault(cat) : 0;
 
         // ===== القواعد =====
         var catScores = new Dictionary<string, (double Score, string BestSub, Dictionary<string, Scored> Subs, List<string> Evidence)>();
@@ -200,7 +208,8 @@ public static class DocumentClassifier
         // وزن نموذج الأرشيف بقدر بياناته: يحتاج عشرات الأمثلة لكل تصنيف ليتفوق على القواعد (قيس: 5 أمثلة لكل تصنيف تعطي 32% فقط).
         var perLabel = model.LabelCount == 0 ? 0 : (double)model.TrainingDocs / model.LabelCount;
         var alpha = nb.Count == 0 ? 0 : ruleTotal <= 0 ? 1 : Math.Clamp((perLabel - 5) / 50.0, 0, 0.5);
-        var fused = taxonomy.Categories.ToDictionary(c => c.Name, c => (1 - alpha) * ruleP.GetValueOrDefault(c.Name) + alpha * nb.GetValueOrDefault(c.Name));
+        // النموذج الدلالي يأخذ وزنه المعايَر من المجموع؛ ويكفي وحده لمستند خلا من الكلمات الدالة.
+        var fused = taxonomy.Categories.ToDictionary(c => c.Name, c => (1 - w) * ((1 - alpha) * ruleP.GetValueOrDefault(c.Name) + alpha * nb.GetValueOrDefault(c.Name)) + w * Sem(c.Name));
         var ranked = fused.OrderByDescending(x => x.Value).ToList();
         if (ranked.Count == 0 || ranked[0].Value <= 0) return ClassificationResult.None;
 
@@ -214,6 +223,11 @@ public static class DocumentClassifier
         var subAlpha = subNb.Count == 0 ? 0 : subTotal <= 0 ? 1 : alpha;
         var subFused = subRule.ToDictionary(x => x.Key, x => (1 - subAlpha) * (subTotal > 0 ? x.Value.Score / subTotal : 0) + subAlpha * subNb.GetValueOrDefault(x.Key));
         foreach (var (name, p) in subNb) if (!subFused.ContainsKey(name)) subFused[name] = subAlpha * p; // فرعي تعلّمه الأرشيف خارج الشجرة
+        if (w > 0 && semantic!.Subs.TryGetValue(cat, out var semSubs))
+        {
+            foreach (var name in subFused.Keys.ToList()) subFused[name] = (1 - w) * subFused[name] + w * semSubs.GetValueOrDefault(name);
+            foreach (var (name, p) in semSubs) if (!subFused.ContainsKey(name)) subFused[name] = w * p;
+        }
         var subRanked = subFused.OrderByDescending(x => x.Value).ToList();
         var sub = subRanked.Count > 0 && subRanked[0].Value > 0 ? subRanked[0].Key : "";
         var s1 = subRanked.Count > 0 ? subRanked[0].Value : 0;
@@ -224,12 +238,15 @@ public static class DocumentClassifier
         evidence = evidence.Distinct().Take(5).ToList();
         if (alpha > 0 && nb.GetValueOrDefault(cat) >= 0.5)
             evidence.Add($"يشبه مستندات الأرشيف المصنفة «{cat}» ({model.DocsIn(cat)})");
+        if (w > 0 && Sem(cat) >= 0.5)
+            evidence.Add(sub != "" ? $"قريب في معناه من «{cat} / {sub}»" : $"قريب في معناه من «{cat}»");
         // الاطمئنان يحتاج نسبة غالبة ودليلاً كافياً معاً: كلمة واحدة ضعيفة تجعل النسبة 100% دون أن تكفي.
-        var evidenceStrength = (1 - alpha) * catScores[cat].Score + alpha * 10 * nb.GetValueOrDefault(cat);
-        var confident = p1 >= ConfidentProbability && p1 - p2 >= ConfidentMargin && evidenceStrength >= MinEvidence;
+        var evidenceStrength = (1 - w) * ((1 - alpha) * catScores[cat].Score + alpha * 10 * nb.GetValueOrDefault(cat)) + w * 10 * Sem(cat);
+        var confidentAt = w > 0 ? semantic!.ConfidentAt : ConfidentProbability;
+        var confident = p1 >= confidentAt && p1 - p2 >= ConfidentMargin && evidenceStrength >= MinEvidence;
         var alternatives = ranked.Take(3).Where(x => x.Value > 0)
             .Select(x => new ClassAlternative(x.Key, x.Key == cat ? sub : catScores[x.Key].BestSub, Math.Round(x.Value, 3))).ToList();
-        var method = alpha <= 0 ? "قواعد" : alpha >= 1 ? "الأرشيف" : "قواعد + الأرشيف";
+        var method = (alpha <= 0 ? "قواعد" : alpha >= 1 ? "الأرشيف" : "قواعد + الأرشيف") + (w > 0 ? " + دلالي" : "");
         return new ClassificationResult(cat, sub, Math.Round(p1, 3), Math.Round(s1, 3), confident, alternatives, evidence, method);
     }
 

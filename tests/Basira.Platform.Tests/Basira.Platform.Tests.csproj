@@ -15,6 +15,7 @@
     <ProjectReference Include="../../src/Basira.Platform/Basira.Platform.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="Fixtures/*.png;Fixtures/*.pdf;Fixtures/*.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures/*.png;Fixtures/*.pdf;Fixtures/*.json;Fixtures/semantic-test-model/*" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../src/Basira.Platform/Intelligence/Calibration/*.json" Link="Fixtures/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

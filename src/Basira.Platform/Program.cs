@@ -5,13 +5,14 @@ using Basira.Platform.Api;
 using Basira.Platform.Data;
 using Basira.Platform.Infrastructure;
 using Basira.Platform.Intelligence;
+using Basira.Platform.Intelligence.Semantic;
 using Basira.Platform.Processing;
 using Microsoft.Extensions.FileProviders;
 
 const string DefaultUrl = "http://127.0.0.1:5280";
 var builder = WebApplication.CreateBuilder(args);
 var explicitUrls = builder.Configuration["urls"] ?? Environment.GetEnvironmentVariable("ASPNETCORE_URLS");
-var interactive = !args.Contains("--no-browser") && Environment.GetEnvironmentVariable("BASIRA_NO_BROWSER") != "1" && !args.Any(a => a.StartsWith("--create-admin") || a == "--import-legacy");
+var interactive = !args.Contains("--no-browser") && Environment.GetEnvironmentVariable("BASIRA_NO_BROWSER") != "1" && !args.Any(a => a.StartsWith("--create-admin") || a == "--import-legacy" || a == "--download-model");
 
 // نسخة تعمل بالفعل على الجهاز: افتح نافذتها بدل تشغيل نسخة ثانية.
 if (explicitUrls is null && interactive && PortInUse(5280))
@@ -32,6 +33,8 @@ builder.Services.AddSingleton<AuditStore>();
 builder.Services.AddSingleton<UserStore>();
 builder.Services.AddSingleton<DocumentStore>();
 builder.Services.AddSingleton<ReviewStore>();
+builder.Services.AddSingleton<SemanticService>();
+builder.Services.AddSingleton<SemanticDownloader>();
 builder.Services.AddSingleton<ClassificationService>();
 builder.Services.AddSingleton<SettingsStore>();
 builder.Services.AddSingleton<ArchiveIndex>();
@@ -68,6 +71,19 @@ if (Array.IndexOf(args, "--import-legacy") is var li and >= 0)
     Console.WriteLine($"مستندات: {r.Documents} (تخطي {r.Skipped})، ملفات: {r.Files} (مفقودة {r.MissingFiles})، مستخدمون: {r.Users}");
     return 0;
 }
+if (args.Contains("--download-model"))
+{
+    var semantic = app.Services.GetRequiredService<SemanticService>();
+    var target = semantic.DownloadTarget();
+    var downloader = app.Services.GetRequiredService<SemanticDownloader>();
+    Console.WriteLine($"تنزيل النموذج الدلالي من {downloader.Source} إلى {target}");
+    try { await downloader.DownloadAsync(target, Console.WriteLine, CancellationToken.None); return 0; }
+    catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidOperationException or TaskCanceledException or UnauthorizedAccessException)
+    { Console.Error.WriteLine("تعذر التنزيل: " + ex.Message); return 3; }
+}
+
+// يُحمَّل النموذج الدلالي (إن وُضع بجوار المنصة) بعد التشغيل في الخلفية، فيُجهَّز ويُعاير دون انتظار أول مستند.
+app.Lifetime.ApplicationStarted.Register(() => Task.Run(() => app.Services.GetRequiredService<SemanticService>().Model));
 
 app.Use(async (ctx, next) =>
 {

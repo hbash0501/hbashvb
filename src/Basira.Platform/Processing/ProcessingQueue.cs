@@ -124,7 +124,7 @@ public sealed class ProcessingQueue : BackgroundService
         var title = titleAuto ? TitleBuilder.Build(extraction.Text, header.Subject) : doc.Title;
         if (title == "") title = doc.Title;
         Report(current with { Stage = "التصنيف", Progress = 95 });
-        var classification = extraction.Text.Length > 0 && (doc.Category == "" || doc.IsAuto("category")) ? _classifier.Classify(extraction.Text, title) : ClassificationResult.None;
+        var classification = extraction.Text.Length > 0 && (doc.Category == "" || doc.IsAuto("category")) ? _classifier.Classify(extraction.Text, title, doc.Id) : ClassificationResult.None;
         _docs.Update(doc.Id, null, d =>
         {
             if (titleAuto && title != "") { d.Title = title; d.SetAuto("title", true); }
