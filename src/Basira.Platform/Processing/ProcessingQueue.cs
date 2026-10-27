@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
+using AIDocumentArchiveVB;
 using Basira.Platform.Data;
 using Basira.Platform.Infrastructure;
 using Basira.Platform.Intelligence;
@@ -23,10 +24,11 @@ public sealed class ProcessingQueue : BackgroundService
     private readonly TextExtractor _extractor = new();
     private readonly PlatformOptions _options;
     private readonly ILogger<ProcessingQueue> _log;
+    private readonly AuditStore _audit;
 
-    public ProcessingQueue(Db db, DocumentStore docs, FileStore files, SettingsStore settings, EventHub events, ReviewStore review, ClassificationService classifier, PlatformOptions options, ILogger<ProcessingQueue> log)
+    public ProcessingQueue(Db db, DocumentStore docs, FileStore files, SettingsStore settings, EventHub events, ReviewStore review, ClassificationService classifier, PlatformOptions options, ILogger<ProcessingQueue> log, AuditStore audit)
     {
-        _db = db; _docs = docs; _files = files; _settings = settings; _events = events; _review = review; _classifier = classifier; _options = options; _log = log;
+        _db = db; _docs = docs; _files = files; _settings = settings; _events = events; _review = review; _classifier = classifier; _options = options; _log = log; _audit = audit;
     }
 
     public void Enqueue(Doc d)
@@ -97,13 +99,17 @@ public sealed class ProcessingQueue : BackgroundService
         var doc = _docs.Get(job.DocumentId) ?? throw new KeyNotFoundException("المستند غير موجود.");
         if (doc.FileId == "" || !_files.Exists(doc.FileId)) throw new FileNotFoundException("ملف المستند الأصلي غير موجود في المخزن.");
         var s = _settings.All();
-        var tools = await OcrEngines.ToolsAsync(_settings, ct);
+        var tools = await OcrEngines.ToolsAsync(_settings, ct, sensitive: BasiraEngine.IsSensitive(ArchiveIndex.ToRecord(doc, "")));
         var lastReport = DateTime.MinValue;
         var extraction = await _extractor.ExtractAsync(_files.PathOf(doc.FileId), doc.FileType, tools, (p, stage) =>
         {
             current = current with { Progress = Math.Clamp(p, 5, 90), Stage = stage };
             if ((DateTime.UtcNow - lastReport).TotalMilliseconds > 300) { lastReport = DateTime.UtcNow; Report(current); }
         }, ct);
+
+        // كل إرسال لصور مستند إلى خدمة سحابية يُسجل في سجل التدقيق.
+        if (tools.Vision is { IsCloud: true } cloud && extraction.UsedOcr)
+            _audit.Append(SystemActor, "قراءة سحابية", $"{doc.ArchiveNo}: {extraction.Pages} صفحة إلى {cloud.ProviderLabel} ({cloud.Model})");
 
         Report(current with { Stage = "قراءة الترويسة والإشارات", Progress = 92 });
         var header = LetterFields.Parse(extraction.Text);

@@ -294,7 +294,7 @@ async function adminSettings(body) {
   mount(body, form, ocrPanel());
 }
 
-// ===== محرك القراءة: Tesseract، والمحرك المرئي المحلي، وقياسهما على العينات المضمّنة =====
+// ===== محرك القراءة: Tesseract، والمحرك المرئي (محلي أو سحابي)، وقياسهما على العينات المضمّنة =====
 function ocrPanel() {
   const box = h('section', { class: 'card pad', style: 'margin-top:16px' });
   let timer = null;
@@ -308,21 +308,69 @@ function ocrPanel() {
       prompt: h('textarea', { class: 'ltr', rows: 3, placeholder: st.defaultPrompt, value: st.prompt || '' }),
       side: h('select', {}, [['1024', '1024 بكسل (أسرع)'], ['1280', '1280 بكسل (موصى به)'], ['1600', '1600 بكسل'], ['2000', '2000 بكسل (أدق وأبطأ)']].map(([v, l]) => h('option', { value: v, text: l, selected: v === String(st.maxSide) }))),
       timeout: h('input', { type: 'number', min: 30, max: 3600, value: st.timeout }),
+      provider: h('select', {}, [['local', 'نموذج محلي (على هذا الجهاز أو خادم داخلي)'], ['gemini', 'Google Gemini (سحابي)'], ['claude', 'Anthropic Claude (سحابي)']].map(([v, l]) => h('option', { value: v, text: l, selected: v === st.provider }))),
+      key: h('input', { type: 'password', class: 'ltr', autocomplete: 'off' }),
+      cloudModel: h('input', { class: 'ltr', value: st.cloudModel || '', list: 'ocr-models' }),
+      consent: h('input', { type: 'checkbox' }),
     };
+    const cloudOf = p => st.cloud.find(c => c.provider === p);
+    const localBox = h('div', { class: 'form full', style: 'padding:0' });
+    const cloudBox = h('div', { class: 'form full', style: 'padding:0' });
+    const consentNote = h('div', { class: 'full' });
+    const keyActions = h('span');
+    const withdraw = async p => {
+      if (!confirm('سحب الإقرار يوقف الإرسال إلى هذه الخدمة ويعيد القراءة إلى المحرك المحلي. متابعة؟')) return;
+      try { await api('/admin/ocr/cloud', { method: 'POST', body: { provider: p, consent: false } }); toast('سُحب الإقرار'); load(); } catch (e) { toast(e.message, { error: true }); }
+    };
+    const removeKey = async p => {
+      try { await api('/admin/ocr/cloud', { method: 'POST', body: { provider: p, key: '' } }); toast('حُذف المفتاح'); load(); } catch (e) { toast(e.message, { error: true }); }
+    };
+    const showProvider = () => {
+      const p = f.provider.value, c = cloudOf(p);
+      localBox.hidden = p !== 'local'; cloudBox.hidden = p === 'local';
+      if (!c) return;
+      f.key.placeholder = c.hasKey ? `محفوظ (${c.keyHint}) — اكتب مفتاحاً جديداً لاستبداله` : (p === 'gemini' ? 'AIza…' : 'sk-ant-…');
+      mount(keyActions, c.hasKey ? h('button', { class: 'btn sm ghost', type: 'button', onclick: () => removeKey(p) }, icon('x'), 'حذف المفتاح المحفوظ') : null);
+      // اسم نموذج المزوّد الآخر لا يصلح لهذا.
+      if (f.cloudModel.value && !f.cloudModel.value.startsWith(p)) f.cloudModel.value = '';
+      f.cloudModel.placeholder = c.defaultModel;
+      f.consent.checked = !!c.consentBy; f.consent.disabled = !!c.consentBy;
+      mount(consentNote, h('label', { class: 'row', style: 'gap:8px;align-items:flex-start' }, f.consent,
+        h('span', { class: 'small' }, `أقرّ بأن صور صفحات المستندات المصنفة «عادي» سترسل عبر الإنترنت إلى ${c.label} لقراءتها، وبأن ذلك متوافق مع سياسة تصنيف البيانات في جهتنا. المستندات المصنفة «مقيد» أو «سري» أو «سري للغاية» لا تُرسل أبداً وتُقرأ على هذا الجهاز.`,
+          c.consentBy ? h('span', { class: 'muted' }, ` — أقرّه ${c.consentBy} في ${fmt.time(c.consentAt)} `, h('button', { class: 'btn sm ghost', type: 'button', onclick: () => withdraw(p) }, 'سحب الإقرار')) : null)));
+    };
+    f.provider.addEventListener('change', showProvider);
     const models = h('datalist', { id: 'ocr-models' });
     const probeOut = h('span', { class: 'small' });
     const err = h('p', { class: 'error', role: 'alert' });
     const probe = async () => {
       mount(probeOut, 'جارٍ الفحص…');
       try {
-        const r = await api('/admin/ocr/probe', { method: 'POST', body: { url: f.url.value } });
+        if (f.provider.value !== 'local' && f.key.value.trim()) await saveCloud(false);
+        const r = await api('/admin/ocr/probe', { method: 'POST', body: { url: f.url.value, provider: f.provider.value } });
         mount(models, r.models.map(m => h('option', { value: m })));
-        mount(probeOut, r.ok ? h('span', { class: 'chip ok' }, icon('check'), `الخادم متاح — ${nf.format(r.models.length)} نموذج`) : h('span', { class: 'chip danger', text: r.message }));
+        mount(probeOut, r.ok ? h('span', { class: 'chip ok' }, icon('check'), `${f.provider.value === 'local' ? 'الخادم متاح' : 'المفتاح صالح'} — ${nf.format(r.models.length)} نموذج`) : h('span', { class: 'chip danger', text: r.message }));
       } catch (e) { mount(probeOut, h('span', { class: 'chip danger', text: e.message })); }
+    };
+    // المفتاح والإقرار يُحفظان أولاً (المفتاح مشفّراً ولا يعود إلى المتصفح)، ثم بقية الإعدادات.
+    const saveCloud = async withConsent => {
+      const p = f.provider.value, key = f.key.value.trim(), c = cloudOf(p);
+      if (!key && !(withConsent && f.consent.checked && !c.consentBy)) return;
+      const r = await api('/admin/ocr/cloud', { method: 'POST', body: { provider: p, key: key || null, consent: withConsent && f.consent.checked ? true : null } });
+      Object.assign(c, r); f.key.value = '';
     };
     const save = async () => {
       err.textContent = '';
-      try { await api('/admin/settings', { method: 'PUT', body: { ocr_engine: f.mode.value, vision_ocr_url: f.url.value.trim(), vision_ocr_model: f.model.value.trim(), vision_ocr_prompt: f.prompt.value.trim(), vision_ocr_max_side: f.side.value, vision_ocr_timeout: String(f.timeout.value) } }); toast('حُفظت إعدادات القراءة'); load(); }
+      try {
+        const p = f.provider.value;
+        if (p !== 'local') {
+          if (!f.consent.checked) { err.textContent = 'اختيار خدمة سحابية يتطلب الإقرار أدناه.'; return; }
+          await saveCloud(true);
+          if (!cloudOf(p).hasKey) { err.textContent = 'أدخل مفتاح API للخدمة.'; return; }
+        }
+        await api('/admin/settings', { method: 'PUT', body: { ocr_engine: f.mode.value, vision_provider: p, vision_cloud_model: f.cloudModel.value.trim(), vision_ocr_url: f.url.value.trim(), vision_ocr_model: f.model.value.trim(), vision_ocr_prompt: f.prompt.value.trim(), vision_ocr_max_side: f.side.value, vision_ocr_timeout: String(f.timeout.value) } });
+        toast('حُفظت إعدادات القراءة'); load();
+      }
       catch (e) { err.textContent = e.message; }
     };
     const bench = async () => { try { await api('/admin/ocr/benchmark', { method: 'POST' }); toast('بدأ القياس'); load(); } catch (e) { toast(e.message, { error: true }); } };
@@ -331,17 +379,24 @@ function ocrPanel() {
     const levels = { clean: 'نظيف', mild: 'خفيف', moderate: 'متوسط', severe: 'شديد' };
     mount(box,
       h('h3', {}, icon('eye'), 'محرك القراءة (OCR)'),
-      h('p', { class: 'muted small', text: 'Tesseract ضعيف في المسح الرديء. نماذج الرؤية الحديثة أدق بكثير في قراءة العربية، وتعمل على هذا الجهاز أو خادم داخلي في المؤسسة عبر Ollama أو llama.cpp. في الوضع التلقائي يُقرأ النص بالنموذج المرئي، ويقرأ Tesseract الصفحة قراءةً ثانية: ما اتفقا عليه من رقم وتاريخ وموضوع وإشارات ومهل يُعتمد آلياً، وما اختلفا فيه يُعرض للتحقق. لا يُقبل عنوان خادم على الإنترنت.' }),
+      h('p', { class: 'muted small', text: 'Tesseract ضعيف في المسح الرديء. نماذج الرؤية الحديثة أدق بكثير في قراءة العربية: محلياً عبر Ollama أو llama.cpp (يحتاج جهازاً قوياً، ويفضَّل بطاقة رسومية)، أو عبر خدمة سحابية (Gemini أو Claude) بمفتاح API، وهي الأدق والأسرع دون عتاد خاص. في الوضع التلقائي يُقرأ النص بالنموذج المرئي، ويقرأ Tesseract الصفحة قراءةً ثانية: ما اتفقا عليه من رقم وتاريخ وموضوع وإشارات ومهل يُعتمد آلياً، وما اختلفا فيه يُعرض للتحقق.' }),
       h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;margin:8px 0' },
         h('span', { class: 'chip ' + (st.tesseract ? 'ok' : 'warn'), text: st.tesseract ? 'Tesseract: مثبت' : 'Tesseract: غير مثبت' }),
-        h('span', { class: 'chip ' + (st.vision ? 'ok' : st.url ? 'danger' : ''), text: st.vision ? `المحرك المرئي: ${st.vision.model}` : st.url ? 'المحرك المرئي: غير متاح' : 'المحرك المرئي: لم يُضبط' }),
+        h('span', { class: 'chip ' + (st.vision ? 'ok' : st.url || st.provider !== 'local' ? 'danger' : ''), text: st.vision ? `المحرك المرئي: ${st.vision.model}${st.vision.cloud ? ' — ' + st.vision.label : ''}` : st.url || st.provider !== 'local' ? 'المحرك المرئي: غير متاح' : 'المحرك المرئي: لم يُضبط' }),
         h('span', { class: 'chip ' + (st.digitReader.available ? 'ok' : 'danger'), title: st.digitReader.problem, text: st.digitReader.available ? 'قارئ الأرقام: يعمل' : 'قارئ الأرقام: معطل' }),
         st.visionNote ? h('span', { class: 'small muted', text: st.visionNote }) : null),
       st.digitReader.problem ? h('p', { class: 'error small', text: st.digitReader.problem }) : null,
       h('div', { class: 'form' },
-        h('div', { class: 'full' }, h('label', { class: 'f', text: 'الوضع' }), f.mode),
-        h('div', {}, h('label', { class: 'f', text: 'عنوان الخادم المحلي' }), f.url, h('p', { class: 'hint', text: 'Ollama: http://127.0.0.1:11434/v1 — llama.cpp: http://127.0.0.1:8080/v1' })),
-        h('div', {}, h('label', { class: 'f', text: 'النموذج' }), f.model, models, h('p', { class: 'hint', text: 'اسمه في الخادم، مثل qwen3-vl:4b. «فحص الخادم» يعرض المتوفر.' })),
+        h('div', {}, h('label', { class: 'f', text: 'الوضع' }), f.mode),
+        h('div', {}, h('label', { class: 'f', text: 'المحرك المرئي' }), f.provider),
+        mount(localBox,
+          h('div', {}, h('label', { class: 'f', text: 'عنوان الخادم المحلي' }), f.url, h('p', { class: 'hint', text: 'Ollama: http://127.0.0.1:11434/v1 — llama.cpp: http://127.0.0.1:8080/v1. لا يُقبل هنا عنوان على الإنترنت.' })),
+          h('div', {}, h('label', { class: 'f', text: 'النموذج' }), f.model, h('p', { class: 'hint', text: 'اسمه في الخادم، مثل qwen3-vl:4b. «فحص الخادم» يعرض المتوفر.' }))),
+        mount(cloudBox,
+          h('div', {}, h('label', { class: 'f', text: 'مفتاح API' }), f.key, h('p', { class: 'hint', text: 'يُحفظ مشفّراً على هذا الخادم ولا يُعرض بعد حفظه. Gemini: من aistudio.google.com — Claude: من console.anthropic.com.' }), keyActions),
+          h('div', {}, h('label', { class: 'f', text: 'النموذج السحابي' }), f.cloudModel, h('p', { class: 'hint', text: 'اتركه فارغاً للموصى به. «فحص الخادم» يتحقق من المفتاح ويعرض النماذج المتاحة له.' })),
+          consentNote),
+        models,
         h('div', {}, h('label', { class: 'f', text: 'دقة الصورة المرسلة' }), f.side, h('p', { class: 'hint', text: 'كلما كبرت زادت الدقة والزمن. 1280 تكفي غالباً لخطاب A4.' })),
         h('div', {}, h('label', { class: 'f', text: 'مهلة الصفحة (ثانية)' }), f.timeout, h('p', { class: 'hint', text: 'بعدها تُقرأ الصفحة بـ Tesseract. تجاوزها مرتين متتاليتين يوقف المحرك المرئي 20 دقيقة.' })),
         h('details', { class: 'full' }, h('summary', { class: 'small', text: 'موجّه القراءة (متقدم)' }), f.prompt, h('p', { class: 'hint', text: 'اتركه فارغاً للموجّه الافتراضي. نماذج PaddleOCR-VL تستخدم «OCR:» تلقائياً.' }))),
@@ -366,12 +421,19 @@ function ocrPanel() {
             h('td', {}, h('span', { class: 'chip ' + (e.silentWrong ? 'danger' : 'ok'), text: nf.format(e.silentWrong) })),
             h('td', { text: nf.format(e.review) }), h('td', { text: nf.format(e.missing) }), h('td', { text: nf.format(e.secondsPerPage) })))))),
         h('p', { class: 'muted small', style: 'margin-top:6px', text: `قيس ${fmt.time(b.at)} على ${nf.format(b.pages)} صفحات اصطناعية بعيوب مسح متدرجة. «خطأ صامت»: حقل اعتُمد آلياً وهو خطأ، وهو الأخطر. العينات مؤشر للمقارنة على هذا الجهاز؛ الحكم النهائي على مراسلاتكم.` })) : null,
+      h('details', { style: 'margin-top:12px' }, h('summary', { class: 'small', text: 'كيف أستخدم خدمة سحابية؟' }),
+        h('ol', { class: 'small' },
+          h('li', {}, 'Gemini (الأدق في قياسات العربية المنشورة، وكلفته منخفضة): أنشئ مفتاحاً من aistudio.google.com، واختر «Google Gemini» والصق المفتاح وأقرّ ثم «حفظ».'),
+          h('li', {}, 'Claude: أنشئ مفتاحاً من console.anthropic.com واختر «Anthropic Claude».'),
+          h('li', {}, 'لا تُرسل المستندات المصنفة «مقيد» أو «سري» أو «سري للغاية» أبداً؛ صنّف المستند قبل رفعه إن كان كذلك. كل إرسال يُسجل في سجل التدقيق («قراءة سحابية»).'),
+          h('li', {}, 'تأكد أن سياسة جهتك تسمح بإرسال المراسلات العادية إلى خدمة خارجية، ثم «قياس المحركات على العينات» للمقارنة بـ Tesseract.'))),
       h('details', { style: 'margin-top:12px' }, h('summary', { class: 'small', text: 'كيف أشغّل نموذجاً محلياً؟' }),
         h('ol', { class: 'small' },
           h('li', {}, 'Ollama (الأسهل): ثبّته من ollama.com، ثم في سطر الأوامر: ', h('code', { class: 'ltr', text: 'ollama pull qwen3-vl:4b' }), '، والعنوان http://127.0.0.1:11434/v1 والنموذج qwen3-vl:4b.'),
           h('li', {}, 'llama.cpp مع PaddleOCR-VL (نموذج قراءة متخصص صغير يدعم العربية): ', h('code', { class: 'ltr', text: 'llama-server -m PaddleOCR-VL-1.5.gguf --mmproj PaddleOCR-VL-1.5-mmproj.gguf --temp 0' }), '، والعنوان http://127.0.0.1:8080/v1.'),
           h('li', {}, 'ثم «فحص الخادم» و«حفظ»، ثم «قياس المحركات على العينات» لمقارنته بـ Tesseract على هذا الجهاز. جرّب أكثر من نموذج واعتمد الأدق.'),
           h('li', {}, 'بطاقة رسومية تسرّع القراءة كثيراً؛ على المعالج وحده قد تستغرق الصفحة دقيقة أو أكثر.'))));
+    showProvider();
     if (st.running) timer = setTimeout(() => box.isConnected && load(), 2000);
   }
   mount(box, h('p', { class: 'muted small', text: 'جارٍ فحص محركات القراءة…' }));

@@ -6,7 +6,9 @@ namespace Basira.Platform.Data;
 public sealed class SettingsStore
 {
     private readonly Db _db;
-    public SettingsStore(Db db) => _db = db;
+    private readonly SecretBox? _secrets;
+    public SettingsStore(Db db) : this(db, null) { }
+    public SettingsStore(Db db, SecretBox? secrets) { _db = db; _secrets = secrets; }
 
     public static readonly Dictionary<string, string> Defaults = new()
     {
@@ -24,6 +26,8 @@ public sealed class SettingsStore
         ["vision_ocr_prompt"] = "",
         ["vision_ocr_max_side"] = "1280",
         ["vision_ocr_timeout"] = "600",
+        ["vision_provider"] = "local",
+        ["vision_cloud_model"] = "",
         ["semantic_model_path"] = "",
         ["semantic_model_url"] = "",
     };
@@ -55,6 +59,12 @@ public sealed class SettingsStore
         using var c = _db.Open();
         return c.Scalar("SELECT value FROM settings WHERE key=@key", new { key }) as string ?? "";
     }
+
+    /// <summary>سر مشفّر (مفتاح API): لا يُعرض في الإعدادات ولا يُعاد إلى الواجهة.</summary>
+    public string GetSecret(string key) => _secrets?.Open(GetRaw(key)) ?? "";
+
+    public void SetSecret(string key, string value, string actor, string auditAction) =>
+        SetRaw(key, value == "" ? "" : (_secrets ?? throw new InvalidOperationException("تشفير الأسرار غير مهيأ.")).Seal(value), actor, auditAction);
 
     public void SetRaw(string key, string value, string actor, string auditAction)
     {

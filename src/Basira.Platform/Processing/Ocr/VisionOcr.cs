@@ -7,9 +7,16 @@ using SkiaSharp;
 
 namespace Basira.Platform.Processing.Ocr;
 
-/// <summary>إعدادات محرك القراءة المرئي: خادم محلي بواجهة OpenAI (Ollama أو llama.cpp أو LM Studio) والنموذج.</summary>
-public sealed record VisionOptions(string Url, string Model, string Prompt = "", int MaxSide = 1280, int TimeoutSeconds = 600)
+/// <summary>
+/// إعدادات محرك القراءة المرئي: المزوّد («local» خادم محلي بواجهة OpenAI مثل Ollama وllama.cpp؛ أو خدمة سحابية «gemini» أو «claude»
+/// بمفتاح API)، والنموذج. عنوان الخدمة السحابية ثابت في البرنامج لا يُضبط، فلا تُرسل الصور إلا إلى عنوان المزوّد الرسمي.
+/// </summary>
+public sealed record VisionOptions(string Url, string Model, string Prompt = "", int MaxSide = 1280, int TimeoutSeconds = 600, string Provider = "local", string ApiKey = "")
 {
+    public bool IsCloud => Provider != "local";
+
+    public string ProviderLabel => Provider switch { "gemini" => "Google Gemini", "claude" => "Anthropic Claude", _ => "محلي" };
+
     public const string DefaultPrompt =
         "Transcribe all text in this scanned Arabic document image exactly as written, line by line, in natural reading order (right to left). " +
         "Keep every number, date, letter reference and punctuation exactly as printed, including Arabic-Indic digits. " +
@@ -32,6 +39,19 @@ public sealed class VisionTimeoutException : InvalidOperationException
 public static class VisionOcr
 {
     private static readonly HttpClient Http = new(new SocketsHttpHandler { UseProxy = false, PooledConnectionLifetime = TimeSpan.FromMinutes(5) }) { Timeout = Timeout.InfiniteTimeSpan };
+    // الخدمات السحابية عبر وكيل النظام إن وُجد (شبكات المؤسسات).
+    private static readonly HttpClient CloudHttp = new(new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5) }) { Timeout = Timeout.InfiniteTimeSpan };
+
+    public static readonly string[] Providers = { "local", "gemini", "claude" };
+
+    /// <summary>عناوين المزوّدين الرسمية (تُستبدل في الاختبارات وحدها).</summary>
+    public static string GeminiUrl { get; internal set; } = "https://generativelanguage.googleapis.com/v1beta/openai";
+    public static string ClaudeUrl { get; internal set; } = "https://api.anthropic.com";
+
+    /// <summary>النموذج الموصى به لكل مزوّد سحابي (يُعدَّل من الإعدادات، و«فحص الخادم» يعرض المتاح).</summary>
+    public static string DefaultModel(string provider) => provider switch { "gemini" => "gemini-3.8-flash", "claude" => "claude-opus-5-5", _ => "" };
+
+    public static string UrlFor(string provider, string localUrl) => provider switch { "gemini" => GeminiUrl, "claude" => ClaudeUrl, _ => localUrl };
 
     /// <summary>عنوان الخادم محلي: هذا الجهاز، أو عنوان شبكة خاصة (10/8، 172.16/12، 192.168/16، fc00::/7)، أو اسم جهاز داخلي بلا نطاق.</summary>
     public static bool IsLocalUrl(string url, out string reason)
@@ -58,19 +78,24 @@ public static class VisionOcr
 
     private static string Endpoint(string baseUrl, string path) => baseUrl.TrimEnd('/') + "/" + path;
 
-    /// <summary>فحص الخادم: متاح، والنماذج المتوفرة فيه.</summary>
-    public static async Task<(bool Ok, string Message, List<string> Models)> ProbeAsync(string url, CancellationToken ct)
+    /// <summary>فحص الخادم أو الخدمة: متاحة (والمفتاح صالح)، والنماذج المتوفرة.</summary>
+    public static async Task<(bool Ok, string Message, List<string> Models)> ProbeAsync(string url, CancellationToken ct, string provider = "local", string apiKey = "")
     {
-        if (!IsLocalUrl(url, out var why)) return (false, why, new());
+        if (provider == "claude") return await ClaudeOcr.ModelsAsync(apiKey, ClaudeUrl, ct);
+        var cloud = provider != "local";
+        if (!cloud && !IsLocalUrl(url, out var why)) return (false, why, new());
+        if (cloud && apiKey == "") return (false, "احفظ مفتاح API أولاً.", new());
         try
         {
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            cts.CancelAfter(TimeSpan.FromSeconds(5));
-            using var r = await Http.GetAsync(Endpoint(url, "models"), cts.Token);
-            if (!r.IsSuccessStatusCode) return (false, $"الخادم ردّ برمز {(int)r.StatusCode}", new());
+            cts.CancelAfter(TimeSpan.FromSeconds(cloud ? 15 : 5));
+            using var req = new HttpRequestMessage(HttpMethod.Get, Endpoint(url, "models"));
+            if (cloud) req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+            using var r = await (cloud ? CloudHttp : Http).SendAsync(req, cts.Token);
+            if (!r.IsSuccessStatusCode) return (false, (int)r.StatusCode is 401 or 403 ? "المفتاح مرفوض (رمز " + (int)r.StatusCode + ")" : $"الخادم ردّ برمز {(int)r.StatusCode}", new());
             using var j = JsonDocument.Parse(await r.Content.ReadAsStringAsync(cts.Token));
             var models = j.RootElement.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array
-                ? data.EnumerateArray().Select(m => m.TryGetProperty("id", out var id) ? id.GetString() ?? "" : "").Where(x => x != "").ToList()
+                ? data.EnumerateArray().Select(m => m.TryGetProperty("id", out var id) ? (id.GetString() ?? "").Replace("models/", "") : "").Where(x => x != "").ToList()
                 : new List<string>();
             return (true, "", models);
         }
@@ -144,9 +169,11 @@ public static class VisionOcr
 
     public static async Task<string> ReadAsync(string imagePath, VisionOptions o, CancellationToken ct)
     {
-        if (!IsLocalUrl(o.Url, out var why)) throw new InvalidOperationException(why);
+        if (!o.IsCloud && !IsLocalUrl(o.Url, out var why)) throw new InvalidOperationException(why);
+        if (o.IsCloud && o.ApiKey == "") throw new InvalidOperationException("لم يُحفظ مفتاح API للخدمة السحابية.");
         var (png, width, height) = Encode(imagePath, o.MaxSide);
-        var ollama = await IsOllamaAsync(o.Url, ct);
+        if (o.Provider == "claude") return await CloudAsync(o, () => ClaudeOcr.ReadAsync(png, o.Model, o.ApiKey, o.EffectivePrompt, o.TimeoutSeconds, ClaudeUrl, ct), ct);
+        var ollama = !o.IsCloud && await IsOllamaAsync(o.Url, ct);
         object body = ollama
             ? new
             {
@@ -156,26 +183,53 @@ public static class VisionOcr
                 options = new { temperature = 0, num_ctx = ContextFor(width, height), num_predict = 3072 },
                 messages = new object[] { new { role = "user", content = o.EffectivePrompt, images = new[] { Convert.ToBase64String(png) } } },
             }
-            : new
-        {
-            model = o.Model,
-            temperature = 0,
-            max_tokens = 4096,
-            messages = new object[]
-            {
-                new
-                {
-                    role = "user",
-                    content = new object[]
-                    {
-                        new { type = "image_url", image_url = new { url = "data:image/png;base64," + Convert.ToBase64String(png) } },
-                        new { type = "text", text = o.EffectivePrompt },
-                    },
-                },
-            },
-        };
+            : o.Provider == "gemini"
+                // Gemini يفكر قبل الرد، وتفكيره يُحسب من حد الرموز: جهد منخفض (النقل الحرفي لا يحتاجه) وحدّ يتسع للتفكير والصفحة معاً.
+                // ودرجة الحرارة تبقى على افتراضيها: خفضها في نماذج Gemini 3 قد يسبب التكرار الحلقي.
+                ? new { model = o.Model, max_tokens = 12000, reasoning_effort = "low", messages = OpenAiMessages(png, o.EffectivePrompt) }
+                : new { model = o.Model, temperature = 0, max_tokens = 4096, messages = OpenAiMessages(png, o.EffectivePrompt) };
+        if (o.IsCloud) return await CloudAsync(o, () => PostAsync(o, body, false, ct), ct);
         // طلب واحد في كل مرة: خوادم النماذج المحلية تعالج طلباً واحداً افتراضياً، والمهلة تُحسب من بدء المعالجة لا من الانتظار في الطابور.
         await Gate.WaitAsync(ct);
+        try { return await PostAsync(o, body, ollama, ct); }
+        finally { Gate.Release(); }
+    }
+
+    private static object[] OpenAiMessages(byte[] png, string prompt) => new object[]
+    {
+        new
+        {
+            role = "user",
+            content = new object[]
+            {
+                new { type = "image_url", image_url = new { url = "data:image/png;base64," + Convert.ToBase64String(png) } },
+                new { type = "text", text = prompt },
+            },
+        },
+    };
+
+    /// <summary>الخدمات السحابية: حتى ثلاثة طلبات معاً، ومهلتها وإيقافها المؤقت كالخادم المحلي.</summary>
+    private static async Task<string> CloudAsync(VisionOptions o, Func<Task<string>> call, CancellationToken ct)
+    {
+        await CloudGate.WaitAsync(ct);
+        try
+        {
+            var text = Tidy(await call().WaitAsync(TimeSpan.FromSeconds(o.TimeoutSeconds + 5), ct));
+            Record(o.Url, timedOut: false);
+            return text;
+        }
+        catch (Exception ex) when (ex is TimeoutException || ex is TaskCanceledException && !ct.IsCancellationRequested)
+        {
+            Record(o.Url, timedOut: true);
+            throw new VisionTimeoutException($"تجاوزت قراءة الصفحة {o.TimeoutSeconds} ثانية لدى {o.ProviderLabel}.");
+        }
+        finally { CloudGate.Release(); }
+    }
+
+    private static readonly SemaphoreSlim CloudGate = new(3, 3);
+
+    private static async Task<string> PostAsync(VisionOptions o, object body, bool ollama, CancellationToken ct)
+    {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(o.TimeoutSeconds));
         try
@@ -183,20 +237,24 @@ public static class VisionOcr
             // جسم بطول معلن (لا ترميز مقطّع): بعض الخوادم المحلية لا تقبل غيره.
             using var content = new ByteArrayContent(JsonSerializer.SerializeToUtf8Bytes(body));
             content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
-            using var r = await Http.PostAsync(ollama ? Root(o.Url) + "/api/chat" : Endpoint(o.Url, "chat/completions"), content, cts.Token);
+            using var request = new HttpRequestMessage(HttpMethod.Post, ollama ? Root(o.Url) + "/api/chat" : Endpoint(o.Url, "chat/completions")) { Content = content };
+            if (o.ApiKey != "") request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", o.ApiKey);
+            using var r = await (o.IsCloud ? CloudHttp : Http).SendAsync(request, cts.Token);
             var json = await r.Content.ReadAsStringAsync(cts.Token);
+            if (o.IsCloud && (int)r.StatusCode is 401 or 403) throw new InvalidOperationException($"مفتاح {o.ProviderLabel} مرفوض (رمز {(int)r.StatusCode}).");
+            if (o.IsCloud && (int)r.StatusCode == 429) throw new InvalidOperationException("تجاوزت الطلبات حد الخدمة السحابية؛ أعد المحاولة لاحقاً.");
             if (!r.IsSuccessStatusCode) throw new InvalidOperationException($"خادم القراءة ردّ برمز {(int)r.StatusCode}: {Short(json)}");
+            if (o.IsCloud) return ollama ? OllamaContent(json) : Content(json);
             var text = Tidy(ollama ? OllamaContent(json) : Content(json));
             Record(o.Url, timedOut: false);
             return text;
         }
-        catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested && !o.IsCloud)
         {
             Record(o.Url, timedOut: true);
             throw new VisionTimeoutException($"تجاوزت قراءة الصفحة {o.TimeoutSeconds} ثانية. النموذج بطيء على هذا الجهاز: جرّب نموذجاً أصغر أو دقة صورة أقل أو مهلة أطول، أو خادماً ببطاقة رسومية.");
         }
         catch (HttpRequestException ex) { throw new InvalidOperationException("تعذر الاتصال بخادم القراءة: " + ex.Message); }
-        finally { Gate.Release(); }
     }
 
     private static readonly SemaphoreSlim Gate = new(1, 1);

@@ -25,6 +25,13 @@ public sealed class FakeVisionServer : IDisposable
     public int DelayMs { get; set; }
     public string LastPath = "";
     public int LastNumCtx;
+    // الخدمات السحابية: ترويسة التفويض (Gemini)، ومفتاح Anthropic وترويسة الميزات التجريبية والنموذج (Claude).
+    public string LastAuthorization = "";
+    public string LastApiKey = "";
+    public string LastBeta = "";
+    public string LastModel = "";
+    public bool RejectKey { get; set; }
+    public string LastReasoning = "";
 
     public FakeVisionServer()
     {
@@ -46,7 +53,40 @@ public sealed class FakeVisionServer : IDisposable
             try { ctx = await _listener.GetContextAsync(); } catch (Exception) { return; }
             string json;
             var path = ctx.Request.Url!.AbsolutePath;
-            if (path.EndsWith("/models", StringComparison.Ordinal))
+            var anthropic = ctx.Request.Headers["anthropic-version"] is not null;
+            LastAuthorization = ctx.Request.Headers["Authorization"] ?? LastAuthorization;
+            LastApiKey = ctx.Request.Headers["x-api-key"] ?? LastApiKey;
+            if (RejectKey)
+            {
+                ctx.Response.StatusCode = 401;
+                var e = Encoding.UTF8.GetBytes("{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"}}");
+                ctx.Response.ContentType = "application/json";
+                await ctx.Response.OutputStream.WriteAsync(e);
+                ctx.Response.Close();
+                continue;
+            }
+            if (anthropic && path.EndsWith("/models", StringComparison.Ordinal))
+                json = JsonSerializer.Serialize(new { data = Models.Select(m => new { id = m, type = "model", display_name = m, created_at = "2026-01-01T00:00:00Z" }), has_more = false, first_id = Models[0], last_id = Models[^1] });
+            else if (anthropic && path == "/v1/messages")
+            {
+                LastPath = path;
+                LastBeta = ctx.Request.Headers["anthropic-beta"] ?? "";
+                using var reader = new StreamReader(ctx.Request.InputStream);
+                using var body = JsonDocument.Parse(await reader.ReadToEndAsync());
+                LastModel = body.RootElement.GetProperty("model").GetString()!;
+                var parts = body.RootElement.GetProperty("messages")[0].GetProperty("content").EnumerateArray().ToList();
+                LastPrompt = parts.First(p => p.GetProperty("type").GetString() == "text").GetProperty("text").GetString()!;
+                LastImageBytes = Convert.FromBase64String(parts.First(p => p.GetProperty("type").GetString() == "image").GetProperty("source").GetProperty("data").GetString()!).Length;
+                var n = Interlocked.Increment(ref Requests);
+                json = JsonSerializer.Serialize(new
+                {
+                    id = "msg_test", type = "message", role = "assistant", model = LastModel,
+                    content = new[] { new { type = "text", text = Reply(n) } },
+                    stop_reason = "end_turn", stop_sequence = (string?)null,
+                    usage = new { input_tokens = 1500, output_tokens = 300 },
+                });
+            }
+            else if (path.EndsWith("/models", StringComparison.Ordinal))
                 json = JsonSerializer.Serialize(new { data = Models.Select(m => new { id = m }) });
             else if (path == "/api/version")
             {
@@ -72,6 +112,7 @@ public sealed class FakeVisionServer : IDisposable
                 using var reader = new StreamReader(ctx.Request.InputStream);
                 using var body = JsonDocument.Parse(await reader.ReadToEndAsync());
                 var parts = body.RootElement.GetProperty("messages")[0].GetProperty("content").EnumerateArray().ToList();
+                LastReasoning = body.RootElement.TryGetProperty("reasoning_effort", out var re) ? re.GetString()! : "";
                 LastPrompt = parts.First(p => p.GetProperty("type").GetString() == "text").GetProperty("text").GetString()!;
                 var url = parts.First(p => p.GetProperty("type").GetString() == "image_url").GetProperty("image_url").GetProperty("url").GetString()!;
                 LastImageBytes = Convert.FromBase64String(url[(url.IndexOf(',') + 1)..]).Length;

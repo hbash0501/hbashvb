@@ -38,6 +38,7 @@ builder.Services.AddSingleton<SemanticService>();
 builder.Services.AddSingleton<SemanticDownloader>();
 builder.Services.AddSingleton<Basira.Platform.Processing.Ocr.OcrBenchmark>();
 builder.Services.AddSingleton<ClassificationService>();
+builder.Services.AddSingleton<SecretBox>();
 builder.Services.AddSingleton<SettingsStore>();
 builder.Services.AddSingleton<ArchiveIndex>();
 builder.Services.AddSingleton<EventHub>();

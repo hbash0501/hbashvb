@@ -178,11 +178,18 @@ public sealed class TextExtractor
         var pages = new List<string>();
         try
         {
-            for (var i = 0; i < images.Count; i++)
+            if (vision.IsCloud)
             {
-                progress(45 + 40 * i / images.Count, images.Count > 1 ? $"القراءة بالنموذج المرئي: صفحة {i + 1} من {images.Count}" : "القراءة بالنموذج المرئي");
-                pages.Add(await VisionOcr.ReadAsync(images[i], vision, ct));
+                // الخدمة السحابية تقرأ الصفحات معاً (حتى ثلاث في وقت واحد).
+                progress(45, $"القراءة لدى {vision.ProviderLabel}" + (images.Count > 1 ? $": {images.Count} صفحات" : ""));
+                pages.AddRange(await Task.WhenAll(images.Select(img => VisionOcr.ReadAsync(img, vision, ct))));
             }
+            else
+                for (var i = 0; i < images.Count; i++)
+                {
+                    progress(45 + 40 * i / images.Count, images.Count > 1 ? $"القراءة بالنموذج المرئي: صفحة {i + 1} من {images.Count}" : "القراءة بالنموذج المرئي");
+                    pages.Add(await VisionOcr.ReadAsync(images[i], vision, ct));
+                }
         }
         catch (InvalidOperationException ex)
         {
@@ -198,7 +205,7 @@ public sealed class TextExtractor
         var quality = tess?.Quality ?? images.Select(img => ImagePrep.Load(img) is { } g ? ImagePrep.Analyze(g).Quality : null).Where(q => q is not null).Select(q => q!).ToList();
         var checks = CrossCheck.Build(primary, tess);
         var prepared = tess?.PreparedImages ?? images.ToList();
-        return Package(primary, checks, prepared, quality, images.Count, vision.Model + (tess is null ? "" : " + Tesseract") + suffix, "");
+        return Package(primary, checks, prepared, quality, images.Count, vision.Model + (vision.IsCloud ? $" ({vision.ProviderLabel})" : "") + (tess is null ? "" : " + Tesseract") + suffix, "");
     }
 
     private static Extraction Package(string text, List<FieldCheck> fieldChecks, List<string> prepared, List<ScanQuality> quality, int pages, string engine, string note)
