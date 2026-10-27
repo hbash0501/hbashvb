@@ -34,7 +34,7 @@ public sealed class VisionTimeoutException : InvalidOperationException
 
 /// <summary>
 /// القراءة بنموذج رؤية لغوي يعمل على خادم محلي. الخادم يجب أن يكون على هذا الجهاز أو شبكة المؤسسة الداخلية
-/// (لا يُرسل أي مستند إلى عنوان على الإنترنت). النص الناتج يُدقق قبل اعتماده (التكرار الحلقي، والمخالفة الكبيرة لـ Tesseract).
+/// (لا يُقبل للخادم المحلي عنوان على الإنترنت؛ والخدمات السحابية بعناوينها الرسمية الثابتة فقط). النص الناتج يُدقق قبل اعتماده (التكرار الحلقي، والمخالفة الكبيرة لـ Tesseract).
 /// </summary>
 public static class VisionOcr
 {
@@ -92,7 +92,13 @@ public static class VisionOcr
             using var req = new HttpRequestMessage(HttpMethod.Get, Endpoint(url, "models"));
             if (cloud) req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
             using var r = await (cloud ? CloudHttp : Http).SendAsync(req, cts.Token);
-            if (!r.IsSuccessStatusCode) return (false, (int)r.StatusCode is 401 or 403 ? "المفتاح مرفوض (رمز " + (int)r.StatusCode + ")" : $"الخادم ردّ برمز {(int)r.StatusCode}", new());
+            if (!r.IsSuccessStatusCode)
+            {
+                // Gemini يرد على المفتاح غير الصالح برمز 400 ورسالة تذكر المفتاح؛ فيُعرض سبب الخدمة نفسها.
+                var reason = cloud ? ErrorMessage(await r.Content.ReadAsStringAsync(cts.Token)) : "";
+                var rejected = (int)r.StatusCode is 401 or 403 || reason.Contains("API key", StringComparison.OrdinalIgnoreCase);
+                return (false, (rejected ? "المفتاح مرفوض" : $"الخادم ردّ برمز {(int)r.StatusCode}") + (reason == "" ? "" : ": " + reason), new());
+            }
             using var j = JsonDocument.Parse(await r.Content.ReadAsStringAsync(cts.Token));
             var models = j.RootElement.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array
                 ? data.EnumerateArray().Select(m => m.TryGetProperty("id", out var id) ? (id.GetString() ?? "").Replace("models/", "") : "").Where(x => x != "").ToList()
@@ -243,7 +249,7 @@ public static class VisionOcr
             var json = await r.Content.ReadAsStringAsync(cts.Token);
             if (o.IsCloud && (int)r.StatusCode is 401 or 403) throw new InvalidOperationException($"مفتاح {o.ProviderLabel} مرفوض (رمز {(int)r.StatusCode}).");
             if (o.IsCloud && (int)r.StatusCode == 429) throw new InvalidOperationException("تجاوزت الطلبات حد الخدمة السحابية؛ أعد المحاولة لاحقاً.");
-            if (!r.IsSuccessStatusCode) throw new InvalidOperationException($"خادم القراءة ردّ برمز {(int)r.StatusCode}: {Short(json)}");
+            if (!r.IsSuccessStatusCode) throw new InvalidOperationException($"خادم القراءة ردّ برمز {(int)r.StatusCode}: {(o.IsCloud ? ErrorMessage(json) : Short(json))}");
             if (o.IsCloud) return ollama ? OllamaContent(json) : Content(json);
             var text = Tidy(ollama ? OllamaContent(json) : Content(json));
             Record(o.Url, timedOut: false);
@@ -293,6 +299,20 @@ public static class VisionOcr
     }
 
     private static string Short(string s) => s.Length > 200 ? s[..200] + "…" : s;
+
+    /// <summary>رسالة الخطأ من رد خدمة (error.message، وقد يأتي الرد مصفوفة)، وإلا أوله.</summary>
+    private static string ErrorMessage(string json)
+    {
+        try
+        {
+            using var d = JsonDocument.Parse(json);
+            var root = d.RootElement.ValueKind == JsonValueKind.Array && d.RootElement.GetArrayLength() > 0 ? d.RootElement[0] : d.RootElement;
+            if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("error", out var e) && e.ValueKind == JsonValueKind.Object && e.TryGetProperty("message", out var m))
+                return Short(m.GetString() ?? "");
+        }
+        catch (JsonException) { }
+        return Short(json.Trim());
+    }
 
     /// <summary>
     /// تنظيف رد النموذج: أسوار Markdown وعلاماته، والتكرار الحلقي (سطر يتكرر بلا نهاية، وهو عطل معروف في نماذج الرؤية).

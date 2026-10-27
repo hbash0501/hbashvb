@@ -311,7 +311,7 @@ function ocrPanel() {
       provider: h('select', {}, [['local', 'نموذج محلي (على هذا الجهاز أو خادم داخلي)'], ['gemini', 'Google Gemini (سحابي)'], ['claude', 'Anthropic Claude (سحابي)']].map(([v, l]) => h('option', { value: v, text: l, selected: v === st.provider }))),
       key: h('input', { type: 'password', class: 'ltr', autocomplete: 'off' }),
       cloudModel: h('input', { class: 'ltr', value: st.cloudModel || '', list: 'ocr-models' }),
-      consent: h('input', { type: 'checkbox' }),
+      consent: h('input', { type: 'checkbox', style: 'width:auto;flex:none;margin-top:3px' }),
     };
     const cloudOf = p => st.cloud.find(c => c.provider === p);
     const localBox = h('div', { class: 'form full', style: 'padding:0' });
@@ -335,7 +335,7 @@ function ocrPanel() {
       if (f.cloudModel.value && !f.cloudModel.value.startsWith(p)) f.cloudModel.value = '';
       f.cloudModel.placeholder = c.defaultModel;
       f.consent.checked = !!c.consentBy; f.consent.disabled = !!c.consentBy;
-      mount(consentNote, h('label', { class: 'row', style: 'gap:8px;align-items:flex-start' }, f.consent,
+      mount(consentNote, h('label', { class: 'row', style: 'gap:8px;align-items:flex-start;flex-wrap:nowrap' }, f.consent,
         h('span', { class: 'small' }, `أقرّ بأن صور صفحات المستندات المصنفة «عادي» سترسل عبر الإنترنت إلى ${c.label} لقراءتها، وبأن ذلك متوافق مع سياسة تصنيف البيانات في جهتنا. المستندات المصنفة «مقيد» أو «سري» أو «سري للغاية» لا تُرسل أبداً وتُقرأ على هذا الجهاز.`,
           c.consentBy ? h('span', { class: 'muted' }, ` — أقرّه ${c.consentBy} في ${fmt.time(c.consentAt)} `, h('button', { class: 'btn sm ghost', type: 'button', onclick: () => withdraw(p) }, 'سحب الإقرار')) : null)));
     };
@@ -500,7 +500,7 @@ export function renderAuth(root, mode, onDone) {
     h('div', { class: 'hero' }, h('div', {}, h('div', { class: 'brand', style: 'padding:0' }, h('div', { class: 'logo', style: 'background:rgba(255,255,255,.12)' }, h('img', { src: '/favicon.svg', alt: '', width: 26, height: 26 })), h('b', { style: 'font-size:24px;color:#fff', text: 'بصيرة' })),
       h('h1', { style: 'margin-top:48px', text: 'أرشيف يفهم المعاملة، لا الملف فقط.' }), h('p', { text: 'منصة أرشفة عربية تقرأ خطاباتك وتربطها ببعضها وتنبهك بما ينتظر الرد.' }),
       h('ul', {}, heroList.map(([i, t, d]) => h('li', {}, icon(i), h('div', {}, h('b', { text: t }), h('div', { style: 'opacity:.8;font-size:14px', text: d })))))),
-      h('p', { style: 'opacity:.6;font-size:13px', text: 'تعمل على جهازك أو خادم جهتك. لا يُرسل أي مستند إلى خدمة خارجية.' })),
+      h('p', { style: 'opacity:.6;font-size:13px', text: 'تعمل على جهازك أو خادم جهتك. لا يُرسل أي مستند إلى خدمة خارجية إلا بإقرار مدير النظام، ولا يُرسل المصنف «سري» أبداً.' })),
     h('div', { class: 'panel' }, form)));
   (fields.userName.value ? (fields.password || fields.fullName) : fields.userName).focus();
 }
