@@ -28,6 +28,21 @@ public class SetupAndSecurityTests
     }
 
     [Fact]
+    public async Task Version_is_announced_and_the_interface_is_revalidated_after_upgrades()
+    {
+        using var f = new PlatformFactory();
+        var anon = f.NewClient();
+        // النسخة الجديدة تقرأ إصدار النسخة العاملة من هنا قبل أن تقرر فتحها أو إغلاقها.
+        var version = (await Get(anon, "/api/setup")).GetProperty("version").GetString();
+        Assert.Matches(@"^\d+\.\d+\.\d+$", version);
+        Assert.Equal(version, (await Get(await f.AdminAsync(), "/api/me")).GetProperty("version").GetString());
+        // نصوص الواجهة لا تُؤخذ من ذاكرة المتصفح دون مطابقة، فلا يبقى إصدار سابق بعد الترقية.
+        var js = await anon.GetAsync("/views2.js");
+        Assert.True(js.Headers.CacheControl?.NoCache);
+        Assert.NotNull(js.Headers.ETag);
+    }
+
+    [Fact]
     public async Task Csrf_header_is_required_and_security_headers_are_sent()
     {
         using var f = new PlatformFactory();

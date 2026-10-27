@@ -14,11 +14,22 @@ var builder = WebApplication.CreateBuilder(args);
 var explicitUrls = builder.Configuration["urls"] ?? Environment.GetEnvironmentVariable("ASPNETCORE_URLS");
 var interactive = !args.Contains("--no-browser") && Environment.GetEnvironmentVariable("BASIRA_NO_BROWSER") != "1" && !args.Any(a => a.StartsWith("--create-admin") || a == "--import-legacy" || a == "--download-model");
 
-// نسخة تعمل بالفعل على الجهاز: افتح نافذتها بدل تشغيل نسخة ثانية.
+// نسخة تعمل بالفعل على الجهاز: من الإصدار نفسه أو أحدث تُفتح نافذتها بدل تشغيل نسخة ثانية.
+// ومن إصدار أقدم (بقيت تعمل في الخلفية بعد تنزيل الجديد) تُغلق لتعمل هذه، وإلا فتح المتصفح الإصدار القديم.
 if (explicitUrls is null && interactive && PortInUse(5280))
 {
-    OpenBrowser(DefaultUrl);
-    return 0;
+    var running = await RunningVersionAsync();
+    var mine = Version.Parse(AuthApi.AppVersion);
+    if (running is not null && running >= mine) { OpenBrowser(DefaultUrl); return 0; }
+    Console.WriteLine($"يعمل إصدار أقدم من بصيرة ({running?.ToString(3) ?? "قبل 3.7.1"})؛ يُغلق لتشغيل الإصدار {AuthApi.AppVersion}.");
+    StopOtherInstances();
+    for (var i = 0; i < 40 && PortInUse(5280); i++) Thread.Sleep(250);
+    if (PortInUse(5280))
+    {
+        Console.WriteLine("تعذر إغلاق النسخة الأقدم: أغلق نافذتها (أو أنهِ Basira.exe من مدير المهام) ثم شغّل البرنامج من جديد.");
+        OpenBrowser(DefaultUrl);
+        return 1;
+    }
 }
 if (explicitUrls is null) builder.WebHost.UseUrls(DefaultUrl);
 
@@ -104,7 +115,8 @@ app.Use(async (ctx, next) =>
 
 var web = new ManifestEmbeddedFileProvider(typeof(Program).Assembly, "wwwroot");
 app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = web });
-app.UseStaticFiles(new StaticFileOptions { FileProvider = web });
+// الواجهة تُعاد مطابقتها مع الخادم في كل تحميل (ETag، فالرد غالباً 304 بلا محتوى)، حتى لا يبقى المتصفح على نصوص إصدار سابق بعد الترقية.
+app.UseStaticFiles(new StaticFileOptions { FileProvider = web, OnPrepareResponse = f => f.Context.Response.Headers.CacheControl = "no-cache" });
 
 var api = app.MapGroup("/api");
 // حماية CSRF: كل طلب تعديل يحمل ترويسة لا ترسلها نماذج المواقع الأخرى.
@@ -144,6 +156,26 @@ static bool PortInUse(int port)
 {
     try { using var c = new TcpClient(); return c.ConnectAsync("127.0.0.1", port).Wait(300) && c.Connected; }
     catch (Exception) { return false; }
+}
+
+// إصدار النسخة العاملة على المنفذ الافتراضي، أو null إن كانت أقدم من أن تعلنه.
+static async Task<Version?> RunningVersionAsync()
+{
+    try
+    {
+        using var http = new HttpClient(new SocketsHttpHandler { UseProxy = false }) { Timeout = TimeSpan.FromSeconds(3) };
+        using var d = System.Text.Json.JsonDocument.Parse(await http.GetStringAsync(DefaultUrl + "/api/setup"));
+        return d.RootElement.TryGetProperty("version", out var v) && Version.TryParse(v.GetString(), out var parsed) ? parsed : null;
+    }
+    catch (Exception) { return null; }
+}
+
+static void StopOtherInstances()
+{
+    var self = Process.GetCurrentProcess();
+    foreach (var p in Process.GetProcessesByName(self.ProcessName).Where(p => p.Id != self.Id))
+        try { p.Kill(); p.WaitForExit(5000); }
+        catch (Exception) { }
 }
 
 static void OpenBrowser(string url)

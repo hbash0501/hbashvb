@@ -378,7 +378,7 @@ function ocrPanel() {
     const pct = x => x == null ? '—' : nf.format(x) + '%';
     const levels = { clean: 'نظيف', mild: 'خفيف', moderate: 'متوسط', severe: 'شديد' };
     mount(box,
-      h('h3', {}, icon('eye'), 'محرك القراءة (OCR)'),
+      h('h3', {}, icon('eye'), 'محرك القراءة (OCR)', state.version ? h('span', { class: 'chip', style: 'margin-inline-start:8px;font-weight:400', text: 'الإصدار ' + state.version }) : null),
       h('p', { class: 'muted small', text: 'Tesseract ضعيف في المسح الرديء. نماذج الرؤية الحديثة أدق بكثير في قراءة العربية: محلياً عبر Ollama أو llama.cpp (يحتاج جهازاً قوياً، ويفضَّل بطاقة رسومية)، أو عبر خدمة سحابية (Gemini أو Claude) بمفتاح API، وهي الأدق والأسرع دون عتاد خاص. في الوضع التلقائي يُقرأ النص بالنموذج المرئي، ويقرأ Tesseract الصفحة قراءةً ثانية: ما اتفقا عليه من رقم وتاريخ وموضوع وإشارات ومهل يُعتمد آلياً، وما اختلفا فيه يُعرض للتحقق.' }),
       h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;margin:8px 0' },
         h('span', { class: 'chip ' + (st.tesseract ? 'ok' : 'warn'), text: st.tesseract ? 'Tesseract: مثبت' : 'Tesseract: غير مثبت' }),

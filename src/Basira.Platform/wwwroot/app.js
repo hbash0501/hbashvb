@@ -30,7 +30,7 @@ function shell() {
   const themeBtn = h('button', { class: 'btn ghost icon-btn', title: 'تبديل المظهر', 'aria-label': 'تبديل المظهر', onclick: () => { theme(isDark() ? 'light' : 'dark'); mount(themeBtn, icon(isDark() ? 'sun' : 'moon')); } }, icon(isDark() ? 'sun' : 'moon'));
   mount(root, h('div', { class: 'shell' },
     h('aside', { class: 'side' },
-      h('a', { class: 'brand', href: '#/', style: 'text-decoration:none;color:inherit' }, h('div', { class: 'logo' }, h('img', { src: '/favicon.svg', alt: '', width: 38, height: 38, style: 'border-radius:11px' })), h('div', {}, h('b', { text: 'بصيرة' }), h('small', { text: state.org || 'منصة الأرشفة الذكية' }))),
+      h('a', { class: 'brand', href: '#/', style: 'text-decoration:none;color:inherit' }, h('div', { class: 'logo' }, h('img', { src: '/favicon.svg', alt: '', width: 38, height: 38, style: 'border-radius:11px' })), h('div', {}, h('b', { text: 'بصيرة' }), h('small', { text: state.org || 'منصة الأرشفة الذكية', title: state.version ? 'الإصدار ' + state.version : '' }))),
       nav, h('div', { class: 'spacer' }), procBox,
       h('div', { class: 'who' }, h('div', { class: 'avatar', text: initials }), h('div', { class: 'meta' }, h('b', { text: state.me.fullName }), h('span', { text: state.me.role })),
         h('button', { class: 'btn ghost icon-btn', title: 'خروج', 'aria-label': 'خروج', onclick: logout }, icon('logout')))),
@@ -117,7 +117,7 @@ document.addEventListener('keydown', e => {
 async function boot() {
   try {
     const me = await api('/me');
-    state.me = me.user; state.org = me.organization;
+    state.me = me.user; state.org = me.organization; state.version = me.version;
   } catch {
     const setup = await api('/setup').catch(() => ({ needsSetup: false }));
     renderAuth(root, setup.needsSetup ? 'setup' : 'login', boot);

@@ -6,6 +6,8 @@ namespace Basira.Platform.Api;
 
 public static class AuthApi
 {
+    public static readonly string AppVersion = typeof(AuthApi).Assembly.GetName().Version?.ToString(3) ?? "";
+
     private sealed record LoginBody(string? UserName, string? Password);
     private sealed record SetupBody(string? FullName, string? UserName, string? Password, string? Organization);
     private static readonly string[] PermissionNames = { "view", "search", "import", "edit", "workflow", "export", "audit", "ai" };
@@ -24,7 +26,7 @@ public static class AuthApi
 
     public static void Map(RouteGroupBuilder api)
     {
-        api.MapGet("/setup", (UserStore users, SettingsStore settings) => Results.Ok(new { needsSetup = users.NeedsSetup(), organization = settings.Get("organization") }));
+        api.MapGet("/setup", (UserStore users, SettingsStore settings) => Results.Ok(new { needsSetup = users.NeedsSetup(), organization = settings.Get("organization"), version = AppVersion }));
 
         api.MapPost("/setup", (SetupBody b, HttpContext ctx, UserStore users, SettingsStore settings, SessionTokens tokens, PlatformOptions o) =>
         {
@@ -71,6 +73,6 @@ public static class AuthApi
         });
 
         var secured = api.MapGroup("").Secured();
-        secured.MapGet("/me", (HttpContext c, SettingsStore s) => Results.Ok(new { user = Me(U(c)), organization = s.Get("organization") }));
+        secured.MapGet("/me", (HttpContext c, SettingsStore s) => Results.Ok(new { user = Me(U(c)), organization = s.Get("organization"), version = AppVersion }));
     }
 }
