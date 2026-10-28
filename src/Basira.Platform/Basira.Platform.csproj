@@ -10,7 +10,7 @@
     <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
     <Version>3.7.1</Version>
     <Product>بصيرة</Product>
-    <ApplicationIcon>../../AIDocumentArchiveVB/Assets/basira.ico</ApplicationIcon>
+    <ApplicationIcon>basira.ico</ApplicationIcon>
     <InvariantGlobalization>false</InvariantGlobalization>
   </PropertyGroup>
   <ItemGroup>

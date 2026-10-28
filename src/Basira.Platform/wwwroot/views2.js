@@ -513,7 +513,7 @@ export function renderAuth(root, mode, onDone) {
     : { userName: h('input', { required: true, autocomplete: 'username', autofocus: true, class: 'ltr' }), password: h('input', { type: 'password', required: true, autocomplete: 'current-password' }) };
   const labels = { organization: 'اسم الجهة', fullName: 'اسمك الكامل', userName: 'اسم المستخدم', password: 'كلمة المرور', confirm: 'تأكيد كلمة المرور' };
   const submit = h('button', { class: 'btn primary', type: 'submit', style: 'padding:11px' }, mode === 'setup' ? 'إنشاء حساب المدير والبدء' : 'دخول');
-  const form = h('form', {}, h('div', {}, h('h2', { text: mode === 'setup' ? 'إعداد المنصة' : 'تسجيل الدخول' }), h('p', { class: 'muted', text: mode === 'setup' ? 'أول تشغيل: أنشئ حساب مدير النظام. لا توجد كلمات مرور افتراضية.' : 'مرحباً بعودتك.' })),
+  const form = h('form', {}, h('div', { class: 'form-brand' }, h('img', { src: '/brand/mark.svg', alt: '' }), h('b', { text: 'بصيرة' })), h('div', {}, h('h2', { text: mode === 'setup' ? 'إعداد المنصة' : 'تسجيل الدخول' }), h('p', { class: 'muted', text: mode === 'setup' ? 'أول تشغيل: أنشئ حساب مدير النظام. لا توجد كلمات مرور افتراضية.' : 'مرحباً بعودتك.' })),
     Object.entries(fields).map(([k, el]) => h('div', {}, h('label', { class: 'f', text: labels[k] }), el, k === 'password' && mode === 'setup' ? h('p', { class: 'hint', text: '10 أحرف فأكثر، غير شائعة، ولا تتضمن اسم المستخدم.' }) : null)), err, submit);
   form.addEventListener('submit', async e => {
     e.preventDefault(); err.textContent = '';
@@ -526,8 +526,8 @@ export function renderAuth(root, mode, onDone) {
     } catch (ex) { err.textContent = ex.message; submit.disabled = false; }
   });
   mount(root, h('div', { class: 'auth' },
-    h('div', { class: 'hero' }, h('div', {}, h('div', { class: 'brand', style: 'padding:0' }, h('div', { class: 'logo', style: 'background:rgba(255,255,255,.12)' }, h('img', { src: '/favicon.svg', alt: '', width: 26, height: 26 })), h('b', { style: 'font-size:24px;color:#fff', text: 'بصيرة' })),
-      h('h1', { style: 'margin-top:48px', text: 'أرشيف يفهم المعاملة، لا الملف فقط.' }), h('p', { text: 'منصة أرشفة عربية تقرأ خطاباتك وتربطها ببعضها وتنبهك بما ينتظر الرد.' }),
+    h('div', { class: 'hero' }, h('div', {}, h('div', { class: 'wordmark' }, h('img', { class: 'mark', src: '/brand/mark.svg', alt: '' }), h('div', {}, h('b', { text: 'بصيرة' }), h('small', { text: 'منصة الأرشفة الذكية' }))),
+      h('h1', { style: 'margin-top:56px' }, 'أرشيف يفهم ', h('em', { text: 'المعاملة' }), '، لا الملف فقط.'), h('p', { text: 'منصة أرشفة عربية تقرأ خطاباتك وتربطها ببعضها وتنبهك بما ينتظر الرد.' }),
       h('ul', {}, heroList.map(([i, t, d]) => h('li', {}, icon(i), h('div', {}, h('b', { text: t }), h('div', { style: 'opacity:.8;font-size:14px', text: d })))))),
       h('p', { style: 'opacity:.6;font-size:13px', text: 'تعمل على جهازك أو خادم جهتك. لا يُرسل أي مستند إلى خدمة خارجية إلا بإقرار مدير النظام، ولا يُرسل المصنف «سري» أبداً.' })),
     h('div', { class: 'panel' }, form)));

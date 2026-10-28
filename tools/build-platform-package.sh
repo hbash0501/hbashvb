@@ -21,6 +21,7 @@ cp "$root/tools/semantic/get-semantic-model.ps1" "$pkg/models/"
 cp "$root/tools/semantic/models-readme-ar.txt" "$pkg/models/semantic/README_AR.txt"
 cp "$root/tools/platform-readme-ar.txt" "$pkg/README_AR.txt"
 cp "$root/tools/platform-third-party.txt" "$pkg/THIRD_PARTY_NOTICES.txt"
+cp "$root/src/Basira.Platform/wwwroot/fonts/OFL.txt" "$pkg/IBM-Plex-Sans-Arabic-OFL.txt"
 mkdir -p "$out"
 rm -f "$out/Basira_${version}_Windows.zip"
 python3 - "$out/Basira_${version}_Windows.zip" "$pkg" <<'PY'
