@@ -17,6 +17,8 @@ public static class ReplyApi
     public sealed record ReplyBody(string? Subject, string? Addressee, string? ReferenceLine, string? Body, string? SignerTitle, string? SignerName,
         string? OutgoingNo, bool Issue, bool MarkDone);
 
+    public sealed record AiBody(string? Stance, string? Tone, string? Instructions, string? PreviousBody, string? Revision);
+
     private sealed record Context(Doc Incoming, string Subject, string Entity, string ExternalNo, string Registration, bool Register, string DateHijri);
 
     private static Context ContextOf(Doc d)
@@ -97,7 +99,44 @@ public static class ReplyApi
                 greeting = ReplyComposer.Greeting,
                 closing = ReplyComposer.Closing,
                 can = new { issue = UserStore.Can(u, "workflow") },
+                ai = AiStatus(settings, d),
             });
+        });
+
+        // الرد بالذكاء الاصطناعي: فهم الخطاب بسياقه ثم كتابة نص الرد، بالموقف والنبرة وتعليمات المستخدم.
+        g.MapPost("/documents/{id}/reply/ai", async (string id, AiBody b, HttpContext c, ArchiveIndex index, SettingsStore settings, SemanticService semantic, AuditStore audit, CancellationToken ct) =>
+        {
+            var u = U(c);
+            if (!UserStore.Can(u, "import")) return Forbidden("صياغة الردود");
+            var s = await index.GetAsync();
+            if (!s.ById.TryGetValue(id, out var d)) return Error("المستند غير موجود.", 404);
+            if (Restricted(d, u)) return Forbidden("الاطلاع على مستند حساس");
+            if (d.Direction != "وارد") return Error("صياغة الرد للخطابات الواردة.");
+            var (options, reason) = WriterApi.Configured(settings);
+            if (options is null) return Error(reason);
+            var cloud = options.IsCloud;
+            bool Sensitive(Doc x) => BasiraEngine.IsSensitive(ArchiveIndex.ToRecord(x, ""));
+            if (cloud && Sensitive(d)) return Error("مستند غير عادي السرية: لا يُرسل إلى خدمة سحابية. اكتب الرد يدوياً أو استخدم نموذجاً محلياً.", 403);
+            var ctx = ContextOf(d);
+            s.EffectiveDue.TryGetValue(d.Id, out var due);
+            // المعاملة: الخطابات السابقة في الخيط نفسه (لا يُرسل منها الحساس إلى السحابة ولا ما لا يحق للمستخدم).
+            var thread = s.ThreadOf.TryGetValue(d.Id, out var tid) && s.Threads.TryGetValue(tid, out var th)
+                ? th.DocumentIds.Where(x => x != d.Id && s.ById.ContainsKey(x)).Select(x => s.ById[x])
+                    .Where(x => !Restricted(x, u) && !(cloud && Sensitive(x)) && Snapshot.DateOf(x) <= Snapshot.DateOf(d).AddDays(1))
+                    .OrderBy(Snapshot.DateOf).TakeLast(6)
+                    .Select(x => (Hijri(x.DocumentDate), x.Direction, x.Title, x.Text)).ToList()
+                : new List<(string, string, string, string)>();
+            var precedents = Precedents(s, d, ctx, u, semantic).Where(p => !(cloud && s.ById.TryGetValue(p.ReplyId, out var r) && Sensitive(r))).Take(2).Select(p => p.Body).ToList();
+            var input = new WriterInput(settings.Get("organization"), ctx.Entity, ctx.Subject, ctx.ExternalNo, ctx.DateHijri, due.Date is null ? "" : Hijri(due.Date),
+                d.Text, thread, precedents, b.Stance ?? "auto", b.Tone ?? "formal", Clip((b.Instructions ?? "").Trim(), 2000),
+                b.PreviousBody is { Length: > 0 } prev ? Clip(prev, 20000) : null, Clip((b.Revision ?? "").Trim(), 500));
+            try
+            {
+                var reply = await AiReplyWriter.WriteAsync(options, input, ct);
+                audit.Append(u.UserName, "صياغة رد بالذكاء الاصطناعي", $"{d.ArchiveNo}: {options.Label} ({options.Model})" + (input.PreviousBody is null ? "" : " — تعديل"));
+                return Results.Ok(reply);
+            }
+            catch (WriterException ex) { return Error(ex.Message, 502); }
         });
 
         g.MapPost("/documents/{id}/reply", async (string id, ReplyBody b, HttpContext c, ArchiveIndex index, DocumentStore docs, SettingsStore settings) =>
@@ -147,6 +186,17 @@ public static class ReplyApi
             await index.GetAsync(TimeSpan.FromSeconds(5));
             return Results.Ok(new { id = reply.Id, archiveNo = reply.ArchiveNo, status = reply.Status, placeholders = missing });
         });
+    }
+
+    private static object AiStatus(SettingsStore settings, Doc d)
+    {
+        var (o, reason) = WriterApi.Configured(settings);
+        var blocked = o is { IsCloud: true } && BasiraEngine.IsSensitive(ArchiveIndex.ToRecord(d, ""));
+        return new
+        {
+            available = o is not null && !blocked, provider = o?.Provider, label = o?.Label, model = o?.Model, cloud = o?.IsCloud ?? false,
+            reason = blocked ? "الخطاب غير عادي السرية فلا يُرسل إلى خدمة سحابية." : reason,
+        };
     }
 
     /// <summary>ردود الجهة الصادرة على خطابات واردة تشبه هذا الخطاب، الأحدث لكل خطاب، والأشبه أولاً (ثلاثة على الأكثر).</summary>

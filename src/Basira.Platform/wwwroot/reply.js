@@ -145,6 +145,66 @@ export async function renderReply(view, id, params) {
       } }, icon('edit'), 'استخدم هذه الصياغة'),
       h('a', { class: 'btn sm ghost', href: docLink(p.incomingId) }, 'الخطاب السابق')));
 
+  // ===== الرد بالذكاء الاصطناعي: فهم الخطاب ثم كتابة الرد =====
+  const aiBox = h('section', { class: 'card pad ai-card' });
+  const STANCES = [['auto', 'يقرره بعد الفهم'], ['fulfil', 'تلبية الطلب'], ['action', 'إفادة بالإجراء'], ['decline', 'اعتذار مسبَّب'], ['clarify', 'طلب إيضاح'], ['refer', 'إحالة للمختص'], ['extension', 'طلب مهلة']];
+  const TONES = [['formal', 'رسمي'], ['concise', 'موجز'], ['warm', 'رسمي ودود']];
+  let aiStance = 'auto', aiTone = 'formal';
+  const aiNote = h('textarea', { rows: 2, style: 'min-height:58px', placeholder: 'ما تريد قوله (اختياري): مثلاً «وافق، وأفدهم أن البيانات تصل خلال أسبوعين عبر البريد الرسمي».', 'aria-label': 'تعليمات للمساعد' });
+  const segOf = (items, get, set) => { const el = h('div', { class: 'seg' }); const draw = () => mount(el, items.map(([k, l]) => h('button', { type: 'button', 'aria-pressed': String(get() === k), onclick: () => { set(k); draw(); } }, l))); draw(); return el; };
+  function aiForm() {
+    mount(aiBox,
+      h('div', { class: 'row', style: 'justify-content:space-between' }, h('h3', {}, icon('spark'), 'الرد بالذكاء الاصطناعي'), h('span', { class: 'chip', text: r.ai.label + (r.ai.model ? ' • ' + r.ai.model : '') })),
+      h('p', { class: 'muted small', style: 'margin:4px 0 10px', text: 'يقرأ الخطاب ومعاملته قراءة عميقة، ثم يكتب رداً بأسلوب بشري يتناول كل طلب، على طريقة ردودكم السابقة. لا يخترع أرقاماً ولا قرارات: ما لا يعرفه يتركه حقلاً بين قوسين لتكمله.' }),
+      h('label', { class: 'f', text: 'موقف الرد' }), segOf(STANCES, () => aiStance, v => { aiStance = v; }),
+      h('label', { class: 'f', style: 'margin-top:10px', text: 'النبرة' }), segOf(TONES, () => aiTone, v => { aiTone = v; }),
+      h('div', { style: 'margin-top:10px' }, aiNote),
+      h('div', { class: 'row', style: 'margin-top:10px' }, h('button', { class: 'btn primary', type: 'button', onclick: () => runAi() }, icon('spark'), 'اقرأ الخطاب واكتب الرد'),
+        r.ai.cloud ? h('span', { class: 'muted small', text: `يُرسل نص الخطاب وسياقه إلى ${r.ai.label}، ويُسجل ذلك في سجل التدقيق.` }) : null));
+  }
+  let busyTimer;
+  function aiBusy(revision) {
+    const steps = revision ? ['يراجع المسودة…', 'يطبق التعديل…', 'يتحقق من الحقائق…'] : ['يقرأ الخطاب ومعاملته…', 'يحدد الغرض والطلبات والمهلة…', 'يكتب الرد بأسلوب جهتكم…', 'يتحقق من الحقائق…'];
+    let i = 0;
+    const line = h('span', { text: steps[0] });
+    mount(aiBox, h('h3', {}, icon('spark'), 'الرد بالذكاء الاصطناعي'), h('p', { class: 'scan-progress ai-thinking' }, h('span', { class: 'spinner' }), line), h('p', { class: 'muted small', text: 'قد يستغرق دقيقة؛ القراءة المتأنية أبطأ من الكتابة.' }));
+    clearInterval(busyTimer);
+    busyTimer = setInterval(() => { if (i < steps.length - 1) line.textContent = steps[++i]; }, 6000);
+  }
+  async function runAi(revision) {
+    const prev = revision ? f.body.value : null;
+    aiBusy(!!revision);
+    try {
+      const res = await api('/documents/' + encodeURIComponent(id) + '/reply/ai', { method: 'POST', body: { stance: aiStance, tone: aiTone, instructions: aiNote.value, previousBody: prev, revision: revision || null } });
+      clearInterval(busyTimer);
+      const replace = revision || !edited || !f.body.value.trim() || confirm('استبدال نص الرد الحالي بما كتبه المساعد؟');
+      if (replace) { f.body.value = res.body; if (!revision && res.subject) f.subject.value = res.subject; edited = true; refresh(); }
+      aiResult(res, replace);
+    } catch (e) { clearInterval(busyTimer); aiForm(); toast(e.message, { error: true }); }
+  }
+  function aiResult(res, applied) {
+    const u = res.understanding;
+    const refine = h('input', { placeholder: 'اطلب تعديلاً: «اجعله أقصر»، «أضف شكراً على تعاونهم»…', 'aria-label': 'تعديل على الرد' });
+    const quick = ['أقصر', 'أكثر رسمية', 'ألطف في الاعتذار', 'أوضح فيما نطلبه منهم'];
+    mount(aiBox,
+      h('div', { class: 'row', style: 'justify-content:space-between' }, h('h3', {}, icon('spark'), 'ما فهمه المساعد من الخطاب'), h('span', { class: 'chip', text: (res.provider === 'claude' ? 'Claude' : res.provider === 'gemini' ? 'Gemini' : 'نموذج محلي') + ' • ' + res.model })),
+      applied ? h('p', { class: 'small ok-text', style: 'margin-top:4px' }, icon('check'), ' كُتب الرد في المحرر؛ راجعه وأكمل الحقول ثم احفظه أو أصدره.') : h('p', { class: 'small muted', text: 'أبقيت نصك الحالي؛ الفهم أدناه للاسترشاد.' }),
+      h('p', { style: 'margin-top:10px', text: u.summary }),
+      u.purpose ? h('p', { class: 'small', style: 'margin-top:6px' }, h('b', { text: 'غرضهم: ' }), u.purpose) : null,
+      h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap;margin-top:8px' }, u.tone ? h('span', { class: 'chip', text: 'النبرة: ' + u.tone }) : null, u.deadline ? h('span', { class: 'chip warn' }, icon('clock'), u.deadline) : null),
+      u.asks.length ? h('div', { class: 'ai-asks' }, h('h4', { class: 'small', text: 'الطلبات وكيف أجاب عنها' }), u.asks.map((a, i) => h('div', { class: 'ai-ask' },
+        h('span', { class: 'num ai-n', text: nf.format(i + 1) }), h('div', {}, h('b', { text: a.request }), h('div', { class: 'muted small', text: a.answer }), a.needsInput ? h('span', { class: 'chip warn', style: 'margin-top:4px' }, icon('edit'), 'يحتاج معلومة منك') : null)))) : null,
+      u.facts.length ? h('details', { style: 'margin-top:8px' }, h('summary', { class: 'small', text: `الحقائق المذكورة في الخطاب (${nf.format(u.facts.length)})` }), h('ul', { class: 'small' }, u.facts.map(x => h('li', { text: x })))) : null,
+      res.cautions.length ? h('div', { class: 'ai-cautions' }, res.cautions.map(c => h('p', { class: 'small' }, icon('alert'), ' ', c))) : null,
+      res.gaps.length ? h('p', { class: 'small', style: 'margin-top:8px' }, h('b', { text: 'حقول تكملها: ' }), res.gaps.join('، ')) : null,
+      h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap;margin-top:12px' }, quick.map(q => h('button', { class: 'btn sm', type: 'button', onclick: () => runAi(q) }, q))),
+      h('div', { class: 'row', style: 'gap:6px;margin-top:8px;flex-wrap:nowrap' }, refine, h('button', { class: 'btn', type: 'button', onclick: () => refine.value.trim() && runAi(refine.value.trim()) }, icon('edit'), 'عدّل'),
+        h('button', { class: 'btn ghost', type: 'button', title: 'كتابة جديدة بموقف أو تعليمات أخرى', onclick: aiForm }, icon('refresh'))));
+  }
+  if (r.ai.available) aiForm();
+  else mount(aiBox, h('h3', {}, icon('spark'), 'الرد بالذكاء الاصطناعي'), h('p', { class: 'muted small', style: 'margin-top:6px', text: r.ai.reason }),
+    state.me?.isAdmin && !r.ai.reason.includes('السرية') ? h('a', { class: 'btn sm', style: 'margin-top:8px', href: '#/admin/settings' }, icon('sliders'), 'إعداد المساعد') : null);
+
   const field = (label, el, hint, cls = '') => h('div', { class: cls }, h('label', { class: 'f', text: label }), el, hint ? h('p', { class: 'hint', text: hint }) : null);
 
   mount(view,
@@ -162,6 +222,7 @@ export async function renderReply(view, id, params) {
       h('span', { text: 'لهذا الخطاب رد محفوظ:' }), r.existing.map(e => h('a', { class: 'chip ' + (e.pending ? 'warn' : 'ok'), href: docLink(e.id), text: `${e.archiveNo} — ${e.pending ? 'بانتظار الاعتماد' : e.status}` })))) : null,
     h('div', { class: 'studio' },
       h('div', { class: 'stack' },
+        aiBox,
         h('section', { class: 'card pad' },
           h('h3', {}, icon('edit'), 'الرد'),
           h('label', { class: 'f', text: 'نوع الرد' }), intentBar,

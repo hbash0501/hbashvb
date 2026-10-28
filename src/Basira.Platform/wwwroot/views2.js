@@ -344,7 +344,7 @@ async function adminSettings(body) {
     try { await api('/admin/settings', { method: 'PUT', body: Object.fromEntries(Object.entries(inputs).map(([k, v]) => [k, v.value])) }); toast('حُفظت الإعدادات'); state.org = inputs.organization.value; adminSettings(body); }
     catch (ex) { err.textContent = ex.message; }
   });
-  mount(body, form, ocrPanel(), backupPanel());
+  mount(body, form, ocrPanel(), writerPanel(), backupPanel());
 }
 
 // ===== محرك القراءة: Tesseract، والمحرك المرئي (محلي أو سحابي)، وقياسهما على العينات المضمّنة =====
@@ -490,6 +490,61 @@ function ocrPanel() {
     if (st.running) timer = setTimeout(() => box.isConnected && load(), 2000);
   }
   mount(box, h('p', { class: 'muted small', text: 'جارٍ فحص محركات القراءة…' }));
+  load();
+  return box;
+}
+
+// ===== مساعد الكتابة بالذكاء الاصطناعي (الرد على الخطابات) =====
+function writerPanel() {
+  const box = h('section', { class: 'card pad', style: 'margin-top:16px' });
+  const load = () => api('/admin/writer').then(draw).catch(e => mount(box, h('p', { class: 'error', text: e.message })));
+  function draw(st) {
+    const provider = h('select', {}, [['', 'معطل'], ['claude', 'Anthropic Claude (سحابي، الأفضل للعربية الرسمية)'], ['gemini', 'Google Gemini (سحابي)'], ['local', 'نموذج محلي (خادم القراءة نفسه)']].map(([v, l]) => h('option', { value: v, text: l, selected: v === st.provider })));
+    const model = h('input', { class: 'ltr', value: st.model || '' });
+    const key = h('input', { type: 'password', class: 'ltr', autocomplete: 'off' });
+    const consent = h('input', { type: 'checkbox', style: 'width:auto;flex:none;margin-top:3px' });
+    const cloudBox = h('div', { class: 'full' });
+    const err = h('p', { class: 'error', role: 'alert' });
+    const cloudOf = p => st.cloud.find(c => c.provider === p);
+    const show = () => {
+      const p = provider.value, c = cloudOf(p);
+      model.placeholder = p === 'claude' ? st.defaults.claude : p === 'gemini' ? st.defaults.gemini : p === 'local' ? 'مثل qwen3:8b' : '';
+      if (model.value && p && p !== 'local' && !model.value.startsWith(p)) model.value = '';
+      if (!c) { mount(cloudBox, p === 'local' ? h('p', { class: 'hint', text: st.localUrl ? `يستخدم الخادم ${st.localUrl}. اختر نموذج نص قوياً بالعربية؛ النماذج الصغيرة تكتب بجودة أقل.` : 'اضبط عنوان الخادم المحلي في «محرك القراءة» أعلاه.' }) : null); return; }
+      key.placeholder = c.hasKey ? 'المفتاح محفوظ (من محرك القراءة)؛ اكتب جديداً لاستبداله' : 'مفتاح API';
+      consent.checked = !!c.consentBy; consent.disabled = !!c.consentBy;
+      mount(cloudBox,
+        h('label', { class: 'f', text: 'مفتاح API' }), key,
+        h('label', { class: 'row', style: 'gap:8px;align-items:flex-start;flex-wrap:nowrap;margin-top:10px' }, consent,
+          h('span', { class: 'small' }, `أقرّ بأن نصوص الخطابات «العادية» وسياق معاملاتها سترسل إلى ${p === 'claude' ? 'Anthropic Claude' : 'Google Gemini'} عند طلب الرد بالذكاء الاصطناعي، بما يتوافق مع سياسة جهتنا. المستندات المقيدة والسرية لا تُرسل أبداً.`,
+            c.consentBy ? h('span', { class: 'muted' }, ` — أقرّه ${c.consentBy} في ${fmt.time(c.consentAt)} `, h('button', { class: 'btn sm ghost', type: 'button', onclick: async () => { await api('/admin/writer/consent', { method: 'POST', body: { provider: p, consent: false } }); toast('سُحب الإقرار'); load(); } }, 'سحب الإقرار')) : null)));
+    };
+    provider.addEventListener('change', show);
+    const save = async () => {
+      err.textContent = '';
+      const p = provider.value;
+      try {
+        if (p === 'claude' || p === 'gemini') {
+          if (key.value.trim()) await api('/admin/ocr/cloud', { method: 'POST', body: { provider: p, key: key.value.trim() } });
+          if (!consent.checked) { err.textContent = 'اختيار خدمة سحابية للكتابة يتطلب الإقرار.'; return; }
+          if (!cloudOf(p).consentBy) await api('/admin/writer/consent', { method: 'POST', body: { provider: p, consent: true } });
+        }
+        await api('/admin/settings', { method: 'PUT', body: { writer_provider: p, writer_model: model.value.trim() } });
+        toast('حُفظ إعداد مساعد الكتابة'); load();
+      } catch (e) { err.textContent = e.message; }
+    };
+    mount(box,
+      h('h3', {}, icon('spark'), 'مساعد الكتابة بالذكاء الاصطناعي'),
+      h('p', { class: 'muted small', style: 'margin-top:6px', text: 'في استوديو الرد: يقرأ الخطاب ومعاملته قراءة عميقة، ثم يكتب رداً بشرياً يتناول كل طلب على طريقة ردودكم السابقة، ويترك ما لا يعرفه حقولاً تكملها. يمكن طلب تعديلات عليه بالكلام.' }),
+      h('div', { class: 'row', style: 'gap:8px;margin:8px 0' }, h('span', { class: 'chip ' + (st.available ? 'ok' : st.provider ? 'danger' : ''), text: st.available ? 'المساعد جاهز' : st.provider ? 'غير جاهز' : 'معطل' }), !st.available && st.provider ? h('span', { class: 'small muted', text: st.reason }) : null),
+      h('div', { class: 'form' },
+        h('div', {}, h('label', { class: 'f', text: 'المزوّد' }), provider),
+        h('div', {}, h('label', { class: 'f', text: 'النموذج' }), model, h('p', { class: 'hint', text: 'اتركه فارغاً للموصى به.' })),
+        cloudBox),
+      h('div', { class: 'row', style: 'margin-top:12px' }, h('button', { class: 'btn primary', type: 'button', onclick: save }, icon('check'), 'حفظ')), err);
+    show();
+  }
+  mount(box, h('p', { class: 'muted small', text: 'جارٍ التحميل…' }));
   load();
   return box;
 }

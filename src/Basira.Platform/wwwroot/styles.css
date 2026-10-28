@@ -262,6 +262,16 @@ img.preview { object-fit: contain; height: auto; max-height: 72vh; display: bloc
 .job .row { justify-content: space-between; }
 .camera video, .camera canvas { width: 100%; border-radius: var(--r); background: #000; max-height: 420px; }
 
+/* ===== الرد بالذكاء الاصطناعي ===== */
+.ai-card { border-color: color-mix(in srgb, var(--brand) 35%, var(--line)); background: linear-gradient(180deg, color-mix(in srgb, var(--brand-soft) 55%, var(--surface)), var(--surface) 140px); }
+.ai-asks { margin-top: 12px; display: grid; gap: 8px; }
+.ai-ask { display: grid; grid-template-columns: 26px 1fr; gap: 8px; align-items: start; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.ai-n { width: 24px; height: 24px; border-radius: 50%; background: var(--brand-soft); color: var(--brand); display: grid; place-items: center; font-weight: 700; font-size: 12.5px; }
+.ai-cautions { margin-top: 10px; padding: 8px 12px; border-radius: 10px; background: var(--accent-soft); color: var(--ink); display: grid; gap: 4px; }
+.ai-cautions svg.i { color: var(--accent); width: 16px; height: 16px; vertical-align: -3px; }
+.ok-text { color: var(--ok); } .ok-text svg.i { width: 16px; height: 16px; vertical-align: -3px; }
+.ai-card input { flex: 1; min-width: 0; }
+
 /* ===== مرصد الجهات ===== */
 .observatory { grid-template-columns: minmax(0, 1.65fr) minmax(300px, 1fr); align-items: start; }
 .constellation { width: 100%; height: auto; display: block; margin-top: 6px; }

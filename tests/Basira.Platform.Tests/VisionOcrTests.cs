@@ -32,6 +32,8 @@ public sealed class FakeVisionServer : IDisposable
     public string LastModel = "";
     public bool RejectKey { get; set; }
     public string LastReasoning = "";
+    /// <summary>جسم آخر طلب كما وصل (للتحقق من المخطط والنموذج والتعليمات).</summary>
+    public string LastBody = "";
 
     public FakeVisionServer()
     {
@@ -72,11 +74,17 @@ public sealed class FakeVisionServer : IDisposable
                 LastPath = path;
                 LastBeta = ctx.Request.Headers["anthropic-beta"] ?? "";
                 using var reader = new StreamReader(ctx.Request.InputStream);
-                using var body = JsonDocument.Parse(await reader.ReadToEndAsync());
+                LastBody = await reader.ReadToEndAsync();
+                using var body = JsonDocument.Parse(LastBody);
                 LastModel = body.RootElement.GetProperty("model").GetString()!;
-                var parts = body.RootElement.GetProperty("messages")[0].GetProperty("content").EnumerateArray().ToList();
-                LastPrompt = parts.First(p => p.GetProperty("type").GetString() == "text").GetProperty("text").GetString()!;
-                LastImageBytes = Convert.FromBase64String(parts.First(p => p.GetProperty("type").GetString() == "image").GetProperty("source").GetProperty("data").GetString()!).Length;
+                var content = body.RootElement.GetProperty("messages")[0].GetProperty("content");
+                if (content.ValueKind == JsonValueKind.String) LastPrompt = content.GetString()!;
+                else
+                {
+                    var parts = content.EnumerateArray().ToList();
+                    LastPrompt = parts.First(p => p.GetProperty("type").GetString() == "text").GetProperty("text").GetString()!;
+                    LastImageBytes = Convert.FromBase64String(parts.First(p => p.GetProperty("type").GetString() == "image").GetProperty("source").GetProperty("data").GetString()!).Length;
+                }
                 var n = Interlocked.Increment(ref Requests);
                 json = JsonSerializer.Serialize(new
                 {
@@ -110,12 +118,19 @@ public sealed class FakeVisionServer : IDisposable
             {
                 LastPath = path;
                 using var reader = new StreamReader(ctx.Request.InputStream);
-                using var body = JsonDocument.Parse(await reader.ReadToEndAsync());
-                var parts = body.RootElement.GetProperty("messages")[0].GetProperty("content").EnumerateArray().ToList();
+                LastBody = await reader.ReadToEndAsync();
+                using var body = JsonDocument.Parse(LastBody);
                 LastReasoning = body.RootElement.TryGetProperty("reasoning_effort", out var re) ? re.GetString()! : "";
-                LastPrompt = parts.First(p => p.GetProperty("type").GetString() == "text").GetProperty("text").GetString()!;
-                var url = parts.First(p => p.GetProperty("type").GetString() == "image_url").GetProperty("image_url").GetProperty("url").GetString()!;
-                LastImageBytes = Convert.FromBase64String(url[(url.IndexOf(',') + 1)..]).Length;
+                var messages = body.RootElement.GetProperty("messages");
+                var last = messages[messages.GetArrayLength() - 1].GetProperty("content");
+                if (last.ValueKind == JsonValueKind.String) LastPrompt = last.GetString()!;
+                else
+                {
+                    var parts = last.EnumerateArray().ToList();
+                    LastPrompt = parts.First(p => p.GetProperty("type").GetString() == "text").GetProperty("text").GetString()!;
+                    var url = parts.First(p => p.GetProperty("type").GetString() == "image_url").GetProperty("image_url").GetProperty("url").GetString()!;
+                    LastImageBytes = Convert.FromBase64String(url[(url.IndexOf(',') + 1)..]).Length;
+                }
                 var n = Interlocked.Increment(ref Requests);
                 if (DelayMs > 0) await Task.Delay(DelayMs);
                 json = JsonSerializer.Serialize(new { choices = new[] { new { message = new { role = "assistant", content = Reply(n) } } } });

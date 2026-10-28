@@ -132,7 +132,7 @@ public static class VisionOcr
     // خوادم Ollama تُكتشف مرة لكل عنوان: واجهتها الأصلية تقبل حجم السياق وإبقاء النموذج محمّلاً بين الصفحات.
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> OllamaServers = new();
 
-    private static string Root(string url) => Regex.Replace(url.TrimEnd('/'), @"/v1$", "");
+    internal static string Root(string url) => Regex.Replace(url.TrimEnd('/'), @"/v1$", "");
 
     public static async Task<bool> IsOllamaAsync(string url, CancellationToken ct)
     {
