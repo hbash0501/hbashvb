@@ -5,6 +5,7 @@ import { renderInbox, renderAsk, renderAdmin, renderAuth, openPalette } from './
 import { renderReview } from './review.js';
 import { renderReply } from './reply.js';
 import { renderCommitments } from './commitments.js';
+import { renderScan } from './scan.js';
 
 const root = document.getElementById('root');
 let view, navEls = {}, procBox, awaitingBadge, reviewBadge;
@@ -53,10 +54,10 @@ async function route() {
   const [path, query] = location.hash.replace(/^#\/?/, '').split('?');
   const params = new URLSearchParams(query || '');
   const [section, arg] = path.split('/').map(decodeURIComponent);
-  const key = section === 'doc' || section === 'reply' ? 'docs' : section === 'thread' ? 'threads' : section || '';
+  const key = section === 'doc' || section === 'reply' ? 'docs' : section === 'thread' ? 'threads' : section === 'scan' ? 'inbox' : section || '';
   for (const [k, el] of Object.entries(navEls)) el.setAttribute('aria-current', k === key ? 'page' : 'false');
   mount(view, h('div', { class: 'grid' }, h('div', { class: 'skeleton' }), h('div', { class: 'skeleton', style: 'min-height:240px' })));
-  const titles = { '': 'لوحة القيادة', threads: 'المعاملات', thread: 'معاملة', docs: 'المستندات', doc: 'مستند', reply: 'استوديو الرد', commitments: 'الالتزامات', review: 'التحقق من القراءة', inbox: 'الإدراج', ask: 'اسأل بصيرة', admin: 'الإدارة' };
+  const titles = { '': 'لوحة القيادة', threads: 'المعاملات', thread: 'معاملة', docs: 'المستندات', doc: 'مستند', reply: 'استوديو الرد', commitments: 'الالتزامات', review: 'التحقق من القراءة', inbox: 'الإدراج', scan: 'المسح الضوئي', ask: 'اسأل بصيرة', admin: 'الإدارة' };
   document.title = (titles[section || ''] || 'بصيرة') + ' | بصيرة';
   try {
     if (!section) await renderDashboard(view);
@@ -68,6 +69,7 @@ async function route() {
     else if (section === 'commitments') await renderCommitments(view, params);
     else if (section === 'review') await renderReview(view, setReviewCount);
     else if (section === 'inbox') await renderInbox(view);
+    else if (section === 'scan') await renderScan(view);
     else if (section === 'ask') await renderAsk(view, params);
     else if (section === 'admin') await renderAdmin(view, arg);
     else mount(view, empty('alert', 'الصفحة غير موجودة.'));

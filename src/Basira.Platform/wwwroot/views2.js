@@ -84,7 +84,10 @@ export async function renderInbox(view) {
           h('div', {}, h('label', { class: 'f', text: 'السرية' }), conf),
           h('div', { class: 'full' }, h('label', { class: 'f', text: 'التصنيف' }), category, h('datalist', { id: 'inbox-cats' }, (meta.categories || []).map(c => h('option', { value: c })))))),
         drop, fileInput,
-        h('div', { class: 'row' }, h('button', { class: 'btn', onclick: openCamera }, icon('camera'), 'التقاط بالكاميرا'), h('span', { class: 'muted small', text: 'للسكانر: اضبطه ليحفظ في «مجلد الإدراج» المحدد في الإدارة، فتُدرج الملفات تلقائياً.' })),
+        h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' },
+          can('scan') ? h('a', { class: 'btn', href: '#/scan' }, icon('scanner'), 'المسح الضوئي') : null,
+          h('button', { class: 'btn', onclick: openCamera }, icon('camera'), 'التقاط بالكاميرا'),
+          h('span', { class: 'muted small', text: 'ماسح على جهاز آخر: اضبطه ليحفظ في «مجلد الإدراج» المحدد في الإدارة، فتُدرج الملفات تلقائياً.' })),
         camBox, results),
       h('section', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, icon('refresh'), 'المعالجة')), h('div', { class: 'card-body' }, jobsBox))));
   await loadJobs();
