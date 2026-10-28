@@ -15,6 +15,7 @@ public static class DocumentsApi
         string? DueDate, string? Tags, string? Summary, string? Text);
     private sealed record StatusBody(int Version, string? Status, string? Note);
     private sealed record CommentBody(string? Body);
+    private sealed record DeleteBody(int? Version, string? Reason);
 
     private static readonly HashSet<string> InlineTypes = new(StringComparer.OrdinalIgnoreCase) { ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".txt" };
 
@@ -131,7 +132,7 @@ public static class DocumentsApi
                 awaitingDays = awaiting?.DaysWaiting,
                 comments = docs.Comments(id),
                 revisions = docs.Revisions(id),
-                can = new { edit = UserStore.Can(u, "edit"), workflow = UserStore.Can(u, "workflow"), file = !restricted && d.FileId != "" },
+                can = new { edit = UserStore.Can(u, "edit"), workflow = UserStore.Can(u, "workflow"), file = !restricted && d.FileId != "", delete = UserStore.CanDelete(u) && !restricted },
             });
         });
 
@@ -223,6 +224,47 @@ public static class DocumentsApi
             d = docs.Update(id, null, x => { x.Processing = "queued"; x.ProcessingError = ""; }, u.UserName, "طلب إعادة المعالجة", "إعادة معالجة");
             queue.Enqueue(d);
             return Results.Ok(new { ok = true });
+        });
+
+        // ===== الحذف: إلى المحذوفات أولاً، ثم استعادة أو حذف نهائي =====
+        g.MapPost("/documents/{id}/delete", (string id, DeleteBody b, HttpContext c, DocumentStore docs) =>
+        {
+            var u = U(c);
+            if (!UserStore.CanDelete(u)) return Forbidden("حذف المستندات");
+            var d = docs.Get(id);
+            if (d is null) return Error("المستند غير موجود.", 404);
+            if (Restricted(d, u)) return Forbidden("حذف هذا المستند الحساس");
+            try
+            {
+                var item = docs.MoveToTrash(id, b.Version, u.UserName, Clip(b.Reason ?? "", 300));
+                return Results.Ok(new { ok = true, archiveNo = item.ArchiveNo });
+            }
+            catch (ConcurrencyException ex) { return Error(ex.Message, 409); }
+            catch (KeyNotFoundException ex) { return Error(ex.Message, 404); }
+        });
+
+        g.MapGet("/trash", (HttpContext c, DocumentStore docs) =>
+            UserStore.CanDelete(U(c)) ? Results.Ok(new { items = docs.TrashList(), canPurge = UserStore.IsAdmin(U(c)) }) : Forbidden("عرض المحذوفات"));
+
+        g.MapPost("/trash/{id}/restore", (string id, HttpContext c, DocumentStore docs) =>
+        {
+            var u = U(c);
+            if (!UserStore.CanDelete(u)) return Forbidden("استعادة المستندات");
+            try { var d = docs.Restore(id, u.UserName); return Results.Ok(new { id = d.Id, archiveNo = d.ArchiveNo }); }
+            catch (KeyNotFoundException ex) { return Error(ex.Message, 404); }
+            catch (Microsoft.Data.Sqlite.SqliteException) { return Error("تعذرت الاستعادة: يوجد في الأرشيف مستند بالرقم نفسه.", 409); }
+        });
+
+        g.MapPost("/trash/{id}/purge", (string id, HttpContext c, DocumentStore docs, FileStore files) =>
+        {
+            var u = U(c);
+            if (!UserStore.IsAdmin(u)) return Forbidden("الحذف النهائي");
+            try
+            {
+                foreach (var sha in docs.Purge(id, u.UserName)) files.Delete(sha);
+                return Results.Ok(new { ok = true });
+            }
+            catch (KeyNotFoundException ex) { return Error(ex.Message, 404); }
         });
 
         g.MapGet("/documents/{id}/revisions/{version:int}", (string id, int version, HttpContext c, DocumentStore docs) =>

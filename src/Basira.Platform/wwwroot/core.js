@@ -69,6 +69,13 @@ const ICONS = {
   folder: [['p', 'M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z']],
   report: [['p', 'M4 20V10'], ['p', 'M10 20V4'], ['p', 'M16 20v-7'], ['p', 'M22 20H2']],
   arrow: [['p', 'M19 12H5'], ['p', 'M11 18l-6-6 6-6']],
+  trash: [['p', 'M4 7h16'], ['p', 'M10 11v6'], ['p', 'M14 11v6'], ['p', 'M6 7l1 13h10l1-13'], ['p', 'M9 7V4h6v3']],
+  restore: [['p', 'M3 12a9 9 0 1 0 3-6.7'], ['p', 'M3 4v5h5']],
+  scanner: [['r', 3, 12, 18, 7, 2], ['p', 'M5 12l12-7'], ['p', 'M7 16h4']],
+  key: [['c', 8, 15, 4], ['p', 'M11 12l9-9'], ['p', 'M17 6l3 3']],
+  archive: [['r', 3, 4, 18, 4, 1], ['p', 'M5 8v11h14V8'], ['p', 'M10 12h4']],
+  table: [['r', 3, 4, 18, 16, 2], ['p', 'M3 10h18'], ['p', 'M9 10v10']],
+  user: [['c', 12, 8, 4], ['p', 'M4 21a8 8 0 0 1 16 0']],
 };
 
 export function icon(name, cls = '') {
@@ -164,10 +171,31 @@ export function markTerms(text, terms) {
 }
 
 // ===== تنبيهات قصيرة =====
+/**
+ * نافذة تأكيد: عنوان ونص، ومع input حقل نصي (سبب مثلاً). تعيد قيمة الحقل (أو '') عند التأكيد، وnull عند الإلغاء.
+ * danger: زر التأكيد بلون التحذير.
+ */
+export function confirmDialog({ title, message, confirm = 'تأكيد', danger = false, input = null }) {
+  return new Promise(resolve => {
+    const field = input ? h('textarea', { placeholder: input, rows: 2, style: 'margin-top:12px', 'aria-label': input }) : null;
+    const close = v => { overlay.remove(); document.removeEventListener('keydown', onKey); resolve(v); };
+    const onKey = e => { if (e.key === 'Escape') close(null); };
+    const ok = h('button', { class: 'btn ' + (danger ? 'danger-solid' : 'primary'), type: 'button', onclick: () => close(field ? field.value.trim() : '') }, confirm);
+    const overlay = h('div', { class: 'overlay', onclick: e => { if (e.target === overlay) close(null); } },
+      h('div', { class: 'modal', role: 'alertdialog', 'aria-modal': 'true', 'aria-label': title },
+        h('h3', { text: title }), h('p', { class: 'muted', style: 'margin-top:8px', text: message }), field,
+        h('div', { class: 'row', style: 'gap:8px;justify-content:flex-end;margin-top:18px' }, h('button', { class: 'btn', type: 'button', onclick: () => close(null) }, 'إلغاء'), ok)));
+    document.addEventListener('keydown', onKey);
+    document.body.append(overlay);
+    (field || ok).focus();
+  });
+}
+
 export function toast(msg, opts = {}) {
-  const t = h('div', { class: 'toast' + (opts.error ? ' err' : '') }, msg, opts.link ? [' ', h('a', { href: opts.link, style: 'color:inherit;text-decoration:underline', text: opts.linkText || 'فتح' })] : null);
+  const t = h('div', { class: 'toast' + (opts.error ? ' err' : '') }, msg, opts.link ? [' ', h('a', { href: opts.link, style: 'color:inherit;text-decoration:underline', text: opts.linkText || 'فتح' })] : null,
+    opts.action ? [' ', h('button', { class: 'toast-action', type: 'button', onclick: async () => { t.remove(); try { await opts.action.run(); } catch (e) { toast(e.message, { error: true }); } } }, opts.action.label)] : null);
   document.getElementById('toasts').append(t);
-  setTimeout(() => t.remove(), opts.error ? 6000 : 4200);
+  setTimeout(() => t.remove(), opts.error ? 6000 : opts.action ? 8000 : 4200);
 }
 
 // ===== الأحداث الحية =====

@@ -18,6 +18,12 @@ public sealed class FileStore
 
     public bool Exists(string sha) => sha.Length == 64 && File.Exists(PathOf(sha));
 
+    /// <summary>حذف ملف من المخزن (عند الحذف النهائي لمستند لا يشاركه غيره في الملف).</summary>
+    public void Delete(string sha)
+    {
+        if (Exists(sha)) File.Delete(PathOf(sha));
+    }
+
     public async Task<(string Sha, long Size)> SaveAsync(Stream input, CancellationToken ct = default)
     {
         var temp = Path.Combine(_root, "tmp-" + Guid.NewGuid().ToString("N"));

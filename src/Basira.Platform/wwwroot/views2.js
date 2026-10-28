@@ -1,5 +1,5 @@
 // بصيرة — الإدراج، الأسئلة، الإدارة، الدخول، ولوحة الأوامر.
-import { h, icon, api, fmt, nf, mount, markTerms, toast, can, state, onEvent } from './core.js';
+import { h, icon, api, fmt, nf, mount, markTerms, toast, can, state, onEvent, confirmDialog } from './core.js';
 import { pageHead, empty, docRow } from './views.js';
 
 // ======================= الإدراج =======================
@@ -116,8 +116,8 @@ export async function renderAsk(view, params) {
 
 // ======================= الإدارة =======================
 export async function renderAdmin(view, tab) {
-  const tabs = [['users', 'المستخدمون', 'users'], ['settings', 'الإعدادات', 'sliders'], ['taxonomy', 'التصنيفات', 'folder'], ['migrate', 'ترحيل النسخة السابقة', 'folder'], ['audit', 'سجل التدقيق', 'shield'], ['report', 'تقرير الصحة', 'report']]
-    .filter(([k]) => state.me.isAdmin || k === 'audit' && can('audit') || k === 'report' && can('export') || k === 'taxonomy' && can('manage_categories'));
+  const tabs = [['users', 'المستخدمون', 'users'], ['settings', 'الإعدادات', 'sliders'], ['taxonomy', 'التصنيفات', 'folder'], ['trash', 'المحذوفات', 'trash'], ['migrate', 'ترحيل النسخة السابقة', 'folder'], ['audit', 'سجل التدقيق', 'shield'], ['report', 'تقرير الصحة', 'report']]
+    .filter(([k]) => state.me.isAdmin || k === 'audit' && can('audit') || k === 'report' && can('export') || k === 'taxonomy' && can('manage_categories') || k === 'trash' && can('maintenance'));
   if (!tabs.length) { mount(view, empty('shield', 'لا تملك صلاحيات إدارية.')); return; }
   if (!tabs.some(t => t[0] === tab)) tab = tabs[0][0];
   const body = h('div');
@@ -128,7 +128,33 @@ export async function renderAdmin(view, tab) {
   else if (tab === 'migrate') adminMigrate(body);
   else if (tab === 'taxonomy') await adminTaxonomy(body);
   else if (tab === 'audit') await adminAudit(body);
+  else if (tab === 'trash') await adminTrash(body);
   else adminReport(body);
+}
+
+// ===== المحذوفات: استعادة برقم الأرشيف نفسه، أو حذف نهائي (لمدير النظام) =====
+async function adminTrash(body) {
+  const r = await api('/trash');
+  const restore = async t => {
+    try { await api(`/trash/${encodeURIComponent(t.id)}/restore`, { method: 'POST' }); toast(`استُعيد ${t.archiveNo}`, { link: '#/doc/' + encodeURIComponent(t.id) }); adminTrash(body); }
+    catch (e) { toast(e.message, { error: true }); }
+  };
+  const purge = async t => {
+    const ok = await confirmDialog({ title: 'حذف نهائي', message: `سيُحذف «${t.title}» (${t.archiveNo}) نهائياً مع ملفه الأصلي وسجل إصداراته وملاحظاته، ولا يمكن التراجع. يبقى أثر الحذف في سجل التدقيق.`, confirm: 'حذف نهائياً', danger: true });
+    if (ok === null) return;
+    try { await api(`/trash/${encodeURIComponent(t.id)}/purge`, { method: 'POST' }); toast('حُذف نهائياً'); adminTrash(body); }
+    catch (e) { toast(e.message, { error: true }); }
+  };
+  mount(body, h('section', { class: 'card' },
+    h('div', { class: 'pad', style: 'padding-bottom:0' }, h('h3', {}, icon('trash'), 'المحذوفات'),
+      h('p', { class: 'muted small', text: 'المستند المحذوف لا يظهر في الأرشيف ولا البحث ولا المعاملات ولا التنبيهات، ويبقى هنا بكامل بياناته حتى يُستعاد أو يُحذف نهائياً.' + (r.canPurge ? '' : ' الحذف النهائي لمدير النظام.') })),
+    r.items.length ? h('div', { class: 'table-wrap' }, h('table', {},
+      h('thead', {}, h('tr', {}, ['رقم الأرشيف', 'العنوان', 'حُذف', 'بواسطة', 'السبب', ''].map(x => h('th', { text: x })))),
+      h('tbody', {}, r.items.map(t => h('tr', {},
+        h('td', { class: 'num', text: t.archiveNo }), h('td', { text: t.title }), h('td', { class: 'small', text: fmt.time(t.deletedAt) }), h('td', { text: t.deletedBy }), h('td', { class: 'muted small', text: t.reason || '—' }),
+        h('td', {}, h('div', { class: 'row', style: 'gap:6px;justify-content:flex-end' },
+          h('button', { class: 'btn sm', onclick: () => restore(t) }, icon('restore'), 'استعادة'),
+          r.canPurge ? h('button', { class: 'btn sm danger', onclick: () => purge(t) }, icon('trash'), 'حذف نهائي') : null))))))) : empty('trash', 'لا مستندات محذوفة.')));
 }
 
 // ===== التصنيفات: الشجرة، والدقة الفعلية من قرارات المستخدمين، وتصنيف الأرشيف =====

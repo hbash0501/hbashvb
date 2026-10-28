@@ -130,7 +130,7 @@ public sealed class SemanticService : IDisposable
     public Dictionary<string, float[]> StoredAll(string modelId)
     {
         using var c = _db.Open();
-        return c.Query("SELECT document_id, vector FROM doc_embeddings WHERE model_id=@modelId", r => (r.GetString(0), FromBytes((byte[])r.GetValue(1))), new { modelId })
+        return c.Query("SELECT document_id, vector FROM doc_embeddings WHERE model_id=@modelId AND document_id IN (SELECT id FROM documents)", r => (r.GetString(0), FromBytes((byte[])r.GetValue(1))), new { modelId })
             .ToDictionary(x => x.Item1, x => x.Item2);
     }
 

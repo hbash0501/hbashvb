@@ -93,6 +93,12 @@ public sealed class Db
         CREATE TABLE commitment_decisions(
           key TEXT PRIMARY KEY, document_id TEXT NOT NULL, state TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', actor TEXT NOT NULL, at TEXT NOT NULL);
         """,
+        // المحذوفات: المستند ينتقل إليها بكامل بياناته فيختفي من الأرشيف ويبقى قابلاً للاستعادة حتى يُحذف نهائياً.
+        """
+        CREATE TABLE trash(
+          id TEXT PRIMARY KEY, archive_no TEXT NOT NULL, title TEXT NOT NULL, direction TEXT NOT NULL, file_id TEXT NOT NULL,
+          snapshot TEXT NOT NULL, deleted_at TEXT NOT NULL, deleted_by TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '');
+        """,
     };
 
     private void Migrate()

@@ -10,7 +10,7 @@ public static class AuthApi
 
     private sealed record LoginBody(string? UserName, string? Password);
     private sealed record SetupBody(string? FullName, string? UserName, string? Password, string? Organization);
-    private static readonly string[] PermissionNames = { "view", "search", "import", "edit", "workflow", "export", "audit", "ai" };
+    private static readonly string[] PermissionNames = { "view", "search", "import", "edit", "workflow", "export", "audit", "ai", "scan", "manage_categories", "maintenance" };
 
     public static object Me(User u) => new
     {

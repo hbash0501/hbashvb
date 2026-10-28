@@ -19,6 +19,8 @@ public sealed class UserStore
     public static bool Can(User u, string permission) => AuthService.RoleHasPermission(u.Role, permission);
     public static bool CanReadSensitive(User u) => Can(u, "audit");
     public static bool IsAdmin(User u) => u.Role == Roles.Admin;
+    /// <summary>نقل المستندات إلى المحذوفات واستعادتها: مدير النظام ومدير الأرشيف. والحذف النهائي لمدير النظام وحده.</summary>
+    public static bool CanDelete(User u) => Can(u, "maintenance");
 
     private static string NewSalt() => Convert.ToBase64String(RandomNumberGenerator.GetBytes(16));
     private static string NewStamp() => Convert.ToHexString(RandomNumberGenerator.GetBytes(8));

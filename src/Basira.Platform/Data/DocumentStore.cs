@@ -129,6 +129,80 @@ public sealed class DocumentStore
         return json is null ? null : JsonSerializer.Deserialize<Doc>(json);
     }
 
+    // ===== المحذوفات =====
+
+    /// <summary>نقل مستند إلى المحذوفات: يختفي من الأرشيف والبحث والمعاملات، ويبقى بكامل بياناته وسجله قابلاً للاستعادة.</summary>
+    public TrashItem MoveToTrash(string id, int? expectedVersion, string actor, string reason)
+    {
+        TrashItem item;
+        using (var c = _db.Open())
+        using (var tx = c.BeginTransaction())
+        {
+            var d = c.Query("SELECT * FROM documents WHERE id=@id", Map, new { id }, tx).FirstOrDefault() ?? throw new KeyNotFoundException("المستند غير موجود.");
+            if (expectedVersion is not null && expectedVersion.Value != d.Version) throw new ConcurrencyException();
+            item = new TrashItem(d.Id, d.ArchiveNo, d.Title, d.Direction, d.FileId, Clock.Now(), actor, reason.Trim());
+            c.Exec("INSERT INTO trash(id, archive_no, title, direction, file_id, snapshot, deleted_at, deleted_by, reason) VALUES(@Id,@ArchiveNo,@Title,@Direction,@FileId,@snap,@DeletedAt,@DeletedBy,@Reason)",
+                new { item.Id, item.ArchiveNo, item.Title, item.Direction, item.FileId, snap = JsonSerializer.Serialize(d), item.DeletedAt, item.DeletedBy, item.Reason }, tx);
+            c.Exec("DELETE FROM documents WHERE id=@id", new { id }, tx);
+            AuditStore.Append(c, tx, actor, "نقل مستند إلى المحذوفات", d.ArchiveNo + " | " + d.Title + (item.Reason == "" ? "" : " | السبب: " + item.Reason));
+            tx.Commit();
+        }
+        Changed?.Invoke();
+        return item;
+    }
+
+    public List<TrashItem> TrashList()
+    {
+        using var c = _db.Open();
+        return c.Query("SELECT id, archive_no, title, direction, file_id, deleted_at, deleted_by, reason FROM trash ORDER BY deleted_at DESC",
+            r => new TrashItem(r.Str("id"), r.Str("archive_no"), r.Str("title"), r.Str("direction"), r.Str("file_id"), r.Str("deleted_at"), r.Str("deleted_by"), r.Str("reason")));
+    }
+
+    /// <summary>استعادة مستند من المحذوفات برقمه الأرشيفي نفسه، بإصدار جديد في سجله.</summary>
+    public Doc Restore(string id, string actor)
+    {
+        Doc d;
+        using (var c = _db.Open())
+        using (var tx = c.BeginTransaction())
+        {
+            var json = c.Scalar("SELECT snapshot FROM trash WHERE id=@id", new { id }, tx) as string ?? throw new KeyNotFoundException("المستند غير موجود في المحذوفات.");
+            d = JsonSerializer.Deserialize<Doc>(json)!;
+            d.Version++; d.UpdatedAt = Clock.Now(); d.UpdatedBy = actor;
+            c.Exec($"INSERT INTO documents({Columns}) VALUES({Values})", d, tx);
+            c.Exec("DELETE FROM trash WHERE id=@id", new { id }, tx);
+            SaveRevision(c, tx, d, actor, "استعادة من المحذوفات");
+            AuditStore.Append(c, tx, actor, "استعادة مستند من المحذوفات", d.ArchiveNo + " | " + d.Title);
+            tx.Commit();
+        }
+        Changed?.Invoke();
+        return d;
+    }
+
+    /// <summary>
+    /// حذف نهائي من المحذوفات: المستند وسجله وملاحظاته وفحوصه. يُعاد ما لم يعد يشير إليه شيء من ملفات المخزن
+    /// (الأصل ومقتطعات التحقق) ليحذفها المستدعي. يبقى أثر الحذف في سجل التدقيق.
+    /// </summary>
+    public List<string> Purge(string id, string actor)
+    {
+        var orphans = new List<string>();
+        using var c = _db.Open();
+        using var tx = c.BeginTransaction();
+        var row = c.Query("SELECT archive_no, title, file_id FROM trash WHERE id=@id", r => (No: r.GetString(0), Title: r.GetString(1), File: r.GetString(2)), new { id }, tx).FirstOrDefault();
+        if (row == default) throw new KeyNotFoundException("المستند غير موجود في المحذوفات.");
+        var files = c.Query("SELECT crop_id FROM field_checks WHERE document_id=@id AND crop_id<>''", r => r.GetString(0), new { id }, tx);
+        if (row.File != "") files.Add(row.File);
+        foreach (var t in new[] { "trash WHERE id", "revisions WHERE document_id", "comments WHERE document_id", "field_checks WHERE document_id", "doc_embeddings WHERE document_id", "commitment_decisions WHERE document_id" })
+            c.Exec($"DELETE FROM {t}=@id", new { id }, tx);
+        foreach (var sha in files.Distinct())
+        {
+            var used = Convert.ToInt64(c.Scalar("SELECT (SELECT COUNT(*) FROM documents WHERE file_id=@sha) + (SELECT COUNT(*) FROM trash WHERE file_id=@sha) + (SELECT COUNT(*) FROM field_checks WHERE crop_id=@sha)", new { sha }, tx));
+            if (used == 0) orphans.Add(sha);
+        }
+        AuditStore.Append(c, tx, actor, "حذف نهائي لمستند", row.No + " | " + row.Title);
+        tx.Commit();
+        return orphans;
+    }
+
     public List<Comment> Comments(string id)
     {
         using var c = _db.Open();

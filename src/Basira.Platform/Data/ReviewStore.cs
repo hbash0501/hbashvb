@@ -65,13 +65,13 @@ public sealed class ReviewStore
     public List<FieldCheckRow> PendingAll(int take = 500)
     {
         using var c = _db.Open();
-        return c.Query("SELECT * FROM field_checks WHERE state='pending' ORDER BY created_at, document_id, text_offset LIMIT @take", Map, new { take });
+        return c.Query("SELECT * FROM field_checks WHERE state='pending' AND document_id IN (SELECT id FROM documents) ORDER BY created_at, document_id, text_offset LIMIT @take", Map, new { take });
     }
 
     public int PendingCount()
     {
         using var c = _db.Open();
-        return Convert.ToInt32(c.Scalar("SELECT COUNT(*) FROM field_checks WHERE state='pending'"));
+        return Convert.ToInt32(c.Scalar("SELECT COUNT(*) FROM field_checks WHERE state='pending' AND document_id IN (SELECT id FROM documents)"));
     }
 
     /// <summary>الفحوص المعلقة لكل مستند؛ تقرأها لقطة الأرشيف لتعليق القرارات المبنية عليها.</summary>

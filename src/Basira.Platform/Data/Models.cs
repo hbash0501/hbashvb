@@ -78,6 +78,8 @@ public sealed class ConcurrencyException : Exception
     public ConcurrencyException() : base("عدّل مستخدم آخر هذا المستند بعد فتحك له. أعد التحميل لترى آخر نسخة ثم أعد التعديل.") { }
 }
 
+public sealed record TrashItem(string Id, string ArchiveNo, string Title, string Direction, string FileId, string DeletedAt, string DeletedBy, string Reason);
+
 public static class Roles
 {
     public const string Admin = "مدير النظام";

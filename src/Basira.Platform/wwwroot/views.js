@@ -1,5 +1,5 @@
 // بصيرة — الصفحات الرئيسية: لوحة القيادة، المعاملات، المستندات.
-import { h, s, icon, api, fmt, nf, mount, highlight, markTerms, toast, can, state, dirClass, dirIcon, docChips, statusChip, dueChip, onEvent } from './core.js';
+import { h, s, icon, api, fmt, nf, mount, highlight, markTerms, toast, can, state, dirClass, dirIcon, docChips, statusChip, dueChip, onEvent, confirmDialog } from './core.js';
 import { checkCard } from './review.js';
 import { commitmentCard } from './commitments.js';
 
@@ -185,6 +185,23 @@ export async function renderDocs(view, params) {
   await load();
 }
 
+// ======================= الحذف =======================
+// المستند ينتقل إلى المحذوفات (قابلاً للاستعادة)، والحذف النهائي من الإدارة ← المحذوفات لمدير النظام.
+export async function deleteDoc(doc, after = () => { location.hash = '#/docs'; }) {
+  const reason = await confirmDialog({
+    title: 'نقل المستند إلى المحذوفات',
+    message: `سيختفي «${doc.title}» (${doc.archiveNo}) من الأرشيف والبحث والمعاملات والتنبيهات. يمكن استعادته برقمه نفسه من الإدارة ← المحذوفات.`,
+    confirm: 'نقل إلى المحذوفات', danger: true, input: 'سبب الحذف (اختياري، يُحفظ في سجل التدقيق)',
+  });
+  if (reason === null) return false;
+  try {
+    await api(`/documents/${encodeURIComponent(doc.id)}/delete`, { method: 'POST', body: { version: doc.version, reason } });
+    toast(`نُقل ${doc.archiveNo} إلى المحذوفات`, { action: { label: 'تراجع', run: async () => { await api(`/trash/${encodeURIComponent(doc.id)}/restore`, { method: 'POST' }); toast('استُعيد المستند'); location.hash = '#/doc/' + encodeURIComponent(doc.id); } } });
+    after();
+    return true;
+  } catch (e) { toast(e.message, { error: true }); return false; }
+}
+
 // ======================= صفحة المستند =======================
 export async function renderDoc(view, id, onCount) {
   const d = await api('/documents/' + encodeURIComponent(id));
@@ -358,7 +375,8 @@ export async function renderDoc(view, id, onCount) {
         doc.direction === 'وارد' && can('import') && !d.restricted ? h('a', { class: 'btn primary', href: '#/reply/' + encodeURIComponent(id) }, icon('edit'), 'صياغة الرد') : null,
         d.can.workflow ? statusBtn : null,
         d.can.edit && doc.hasFile ? h('button', { class: 'btn', onclick: async () => { await api(`/documents/${encodeURIComponent(id)}/reprocess`, { method: 'POST' }); toast('أُرسل المستند لإعادة المعالجة'); } }, icon('refresh'), 'إعادة المعالجة') : null,
-        d.can.file ? h('a', { class: 'btn', href: `/api/documents/${encodeURIComponent(id)}/file?download=true` }, icon('download'), 'الأصل') : null)),
+        d.can.file ? h('a', { class: 'btn', href: `/api/documents/${encodeURIComponent(id)}/file?download=true` }, icon('download'), 'الأصل') : null,
+        d.can.delete ? h('button', { class: 'btn danger', title: 'نقل إلى المحذوفات', onclick: () => deleteDoc(doc) }, icon('trash'), 'حذف') : null)),
     doc.processing === 'failed' || d.processingError ? h('div', { class: 'card pad', style: 'margin-bottom:14px;border-color:var(--accent)' }, h('div', { class: 'row' }, icon('alert'), h('span', { text: d.processingError || 'تعذرت المعالجة.' }))) : null,
     d.scanQuality && !d.processingError ? h('div', { class: 'card pad', style: 'margin-bottom:14px;border-color:var(--accent)' }, h('div', { class: 'row' }, icon('alert'), h('span', { text: 'جودة المسح دون الحد المقبول: ' + d.scanQuality + '. يُنصح بإعادة المسح بدقة 300 نقطة/بوصة.' }))) : null,
     h('div', { class: 'doc-layout' },

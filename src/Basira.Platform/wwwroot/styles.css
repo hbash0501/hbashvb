@@ -95,6 +95,8 @@ kbd { font: 12px var(--font); border: 1px solid var(--line); border-bottom-width
 .btn.ghost { border-color: transparent; background: transparent; }
 .btn.ghost:hover { background: var(--line-2); }
 .btn.danger { color: var(--danger); }
+.btn.danger-solid { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn.danger-solid:hover { filter: brightness(1.06); }
 .btn.sm { padding: 5px 10px; font-size: 13px; border-radius: 8px; }
 .btn[disabled] { opacity: .5; cursor: default; }
 .icon-btn { width: 38px; height: 38px; padding: 0; border-radius: 10px; }
@@ -244,6 +246,7 @@ img.preview { object-fit: contain; height: auto; max-height: 72vh; display: bloc
 .toasts { position: fixed; bottom: 22px; inset-inline-start: 22px; z-index: 200; display: flex; flex-direction: column; gap: 8px; }
 .toast { background: var(--ink); color: var(--bg); padding: 11px 16px; border-radius: 12px; box-shadow: var(--shadow-2); max-width: 380px; font-size: 14px; animation: up .2s ease-out; }
 .toast.err { background: var(--danger); color: #fff; }
+.toast-action { background: none; border: 0; color: inherit; font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; padding: 0 4px; }
 @keyframes up { from { transform: translateY(10px); opacity: 0; } }
 
 /* ===== الدخول ===== */
