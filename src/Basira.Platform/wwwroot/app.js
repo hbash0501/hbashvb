@@ -6,6 +6,7 @@ import { renderReview } from './review.js';
 import { renderReply } from './reply.js';
 import { renderCommitments } from './commitments.js';
 import { renderScan } from './scan.js';
+import { renderEntities, renderEntity } from './entities.js';
 
 const root = document.getElementById('root');
 let view, navEls = {}, procBox, awaitingBadge, reviewBadge;
@@ -18,8 +19,8 @@ function theme(set) {
 theme();
 const isDark = () => document.documentElement.dataset.theme === 'dark' || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
 
-const SHORT = { '': 'الرئيسية', threads: 'المعاملات', docs: 'المستندات', review: 'التحقق', inbox: 'إدراج', ask: 'اسأل', admin: 'الإدارة' };
-const NAV = [['', 'لوحة القيادة', 'home'], ['threads', 'المعاملات', 'thread'], ['docs', 'المستندات', 'docs'], ['commitments', 'الالتزامات', 'flag'], ['review', 'التحقق من القراءة', 'eye'], ['inbox', 'الإدراج', 'upload'], ['ask', 'اسأل بصيرة', 'spark'], ['admin', 'الإدارة', 'sliders']];
+const SHORT = { '': 'الرئيسية', threads: 'المعاملات', entities: 'الجهات', docs: 'المستندات', review: 'التحقق', inbox: 'إدراج', ask: 'اسأل', admin: 'الإدارة' };
+const NAV = [['', 'لوحة القيادة', 'home'], ['threads', 'المعاملات', 'thread'], ['entities', 'مرصد الجهات', 'network'], ['docs', 'المستندات', 'docs'], ['commitments', 'الالتزامات', 'flag'], ['review', 'التحقق من القراءة', 'eye'], ['inbox', 'الإدراج', 'upload'], ['ask', 'اسأل بصيرة', 'spark'], ['admin', 'الإدارة', 'sliders']];
 const setReviewCount = n => { if (reviewBadge) { reviewBadge.textContent = nf.format(n); reviewBadge.hidden = !n; reviewBadge.title = 'حقول بانتظار التحقق'; } };
 
 function shell() {
@@ -57,7 +58,7 @@ async function route() {
   const key = section === 'doc' || section === 'reply' ? 'docs' : section === 'thread' ? 'threads' : section === 'scan' ? 'inbox' : section || '';
   for (const [k, el] of Object.entries(navEls)) el.setAttribute('aria-current', k === key ? 'page' : 'false');
   mount(view, h('div', { class: 'grid' }, h('div', { class: 'skeleton' }), h('div', { class: 'skeleton', style: 'min-height:240px' })));
-  const titles = { '': 'لوحة القيادة', threads: 'المعاملات', thread: 'معاملة', docs: 'المستندات', doc: 'مستند', reply: 'استوديو الرد', commitments: 'الالتزامات', review: 'التحقق من القراءة', inbox: 'الإدراج', scan: 'المسح الضوئي', account: 'حسابي', ask: 'اسأل بصيرة', admin: 'الإدارة' };
+  const titles = { '': 'لوحة القيادة', threads: 'المعاملات', thread: 'معاملة', docs: 'المستندات', doc: 'مستند', reply: 'استوديو الرد', commitments: 'الالتزامات', review: 'التحقق من القراءة', inbox: 'الإدراج', scan: 'المسح الضوئي', account: 'حسابي', entities: 'مرصد الجهات', ask: 'اسأل بصيرة', admin: 'الإدارة' };
   document.title = (titles[section || ''] || 'بصيرة') + ' | بصيرة';
   try {
     if (!section) await renderDashboard(view);
@@ -71,6 +72,7 @@ async function route() {
     else if (section === 'inbox') await renderInbox(view);
     else if (section === 'scan') await renderScan(view);
     else if (section === 'account') renderAccount(view);
+    else if (section === 'entities') await (arg ? renderEntity(view, arg) : renderEntities(view));
     else if (section === 'ask') await renderAsk(view, params);
     else if (section === 'admin') await renderAdmin(view, arg);
     else mount(view, empty('alert', 'الصفحة غير موجودة.'));

@@ -11,6 +11,7 @@
   --bg: #f3f5f4; --surface: #ffffff; --surface-2: #f8faf9; --ink: #0f1f1c; --ink-2: #364945; --muted: #667975; --line: #dfe6e4; --line-2: #edf1f0;
   --brand: #0e6b5e; --brand-ink: #ffffff; --brand-soft: #e2f1ee; --brand-deep: #0a4d44; --accent: #b8862e; --accent-soft: #f8eedb;
   --side-bg: #0b2f2a; --side-ink: #d3e5e1; --side-muted: #8baca6; --side-line: rgba(255, 255, 255, .08);
+  --chart-in: #2d5fa8; --chart-out: #b8862e;
   --in: #2d5fa8; --in-soft: #e5edf9; --out: #0f6b5f; --out-soft: #e3f2ef; --internal: #6a5aa8; --internal-soft: #eeebf8;
   --danger: #b4443b; --danger-soft: #fbe9e7; --ok: #2e7d4f; --ok-soft: #e4f3ea;
   --shadow-1: 0 1px 2px rgba(16, 32, 29, .05); --shadow-2: 0 8px 28px rgba(16, 32, 29, .08); --shadow-3: 0 24px 60px rgba(16, 32, 29, .18);
@@ -22,6 +23,7 @@
   --bg: #0c1614; --surface: #13211e; --surface-2: #172824; --ink: #e5efec; --ink-2: #c3d2ce; --muted: #8fa5a0; --line: #243834; --line-2: #1c2e2a;
   --brand: #43b3a1; --brand-ink: #062019; --brand-soft: #173a34; --brand-deep: #0a4d44; --accent: #e2b45c; --accent-soft: #3a2f17;
   --side-bg: #08201d; --side-ink: #cfe0dc; --side-muted: #7f9b95; --side-line: rgba(255, 255, 255, .07);
+  --chart-in: #5588d6; --chart-out: #bf8a2c;
   --in: #7ea6ea; --in-soft: #1b2a44; --out: #43b3a1; --out-soft: #173a34; --internal: #a99be6; --internal-soft: #2a2545;
   --danger: #e57f74; --danger-soft: #3e1f1c; --ok: #6cc592; --ok-soft: #173525;
   --shadow-1: 0 1px 2px rgba(0, 0, 0, .3); --shadow-2: 0 8px 28px rgba(0, 0, 0, .3); --shadow-3: 0 24px 60px rgba(0, 0, 0, .5);
@@ -32,6 +34,7 @@
     --bg: #0c1614; --surface: #13211e; --surface-2: #172824; --ink: #e5efec; --ink-2: #c3d2ce; --muted: #8fa5a0; --line: #243834; --line-2: #1c2e2a;
     --brand: #43b3a1; --brand-ink: #062019; --brand-soft: #173a34; --brand-deep: #0a4d44; --accent: #e2b45c; --accent-soft: #3a2f17;
     --side-bg: #08201d; --side-ink: #cfe0dc; --side-muted: #7f9b95; --side-line: rgba(255, 255, 255, .07);
+  --chart-in: #5588d6; --chart-out: #bf8a2c;
     --in: #7ea6ea; --in-soft: #1b2a44; --out: #43b3a1; --out-soft: #173a34; --internal: #a99be6; --internal-soft: #2a2545;
     --danger: #e57f74; --danger-soft: #3e1f1c; --ok: #6cc592; --ok-soft: #173525;
     --shadow-1: 0 1px 2px rgba(0, 0, 0, .3); --shadow-2: 0 8px 28px rgba(0, 0, 0, .3); --shadow-3: 0 24px 60px rgba(0, 0, 0, .5);
@@ -258,6 +261,58 @@ img.preview { object-fit: contain; height: auto; max-height: 72vh; display: bloc
 .job:last-child { border-bottom: 0; }
 .job .row { justify-content: space-between; }
 .camera video, .camera canvas { width: 100%; border-radius: var(--r); background: #000; max-height: 420px; }
+
+/* ===== مرصد الجهات ===== */
+.observatory { grid-template-columns: minmax(0, 1.65fr) minmax(300px, 1fr); align-items: start; }
+.constellation { width: 100%; height: auto; display: block; margin-top: 6px; }
+.constellation .orbit { fill: none; stroke: var(--line); stroke-dasharray: 3 6; }
+.constellation .link { stroke: var(--line); stroke-linecap: round; }
+.constellation .node { cursor: pointer; outline: none; }
+.constellation .node .hit { fill: transparent; }
+.constellation .node .dot { fill: var(--surface); stroke-width: 3; transition: r .15s; }
+.constellation .node.ok .dot { stroke: var(--ok); } .constellation .node.ok .glyph { fill: var(--ok); }
+.constellation .node.warn .dot { stroke: var(--accent); } .constellation .node.warn .glyph { fill: var(--accent); }
+.constellation .node.danger .dot { stroke: var(--danger); } .constellation .node.danger .glyph { fill: var(--danger); }
+.constellation .node:hover .dot, .constellation .node:focus-visible .dot { stroke-width: 5; filter: drop-shadow(0 4px 10px rgba(0, 0, 0, .15)); }
+.constellation .glyph { font: 700 14px var(--font); pointer-events: none; }
+.constellation .name { font: 600 13px var(--font); fill: var(--ink-2); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; }
+.constellation .badge { fill: var(--danger); stroke: var(--surface); stroke-width: 2; }
+.constellation .badge-t { font: 700 11px var(--font); fill: #fff; pointer-events: none; }
+.constellation .core { fill: var(--brand-soft); stroke: var(--brand); stroke-width: 2; }
+.constellation .org { font: 700 13px var(--font); fill: var(--ink); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; color: var(--ink-2); }
+.legend .lg { display: inline-flex; align-items: center; gap: 5px; }
+.legend .lg i { font-style: normal; font-weight: 700; width: 18px; height: 18px; border-radius: 50%; border: 2.5px solid; display: inline-grid; place-items: center; font-size: 11px; }
+.legend .lg.ok i { color: var(--ok); } .legend .lg.warn i { color: var(--accent); } .legend .lg.danger i { color: var(--danger); }
+.sw { display: inline-block; width: 11px; height: 11px; border-radius: 3px; vertical-align: -1px; margin-inline-end: 4px; }
+.sw.in { background: var(--chart-in); } .sw.out { background: var(--chart-out); }
+.viz-tip { position: fixed; z-index: 300; pointer-events: none; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; font-size: 13px; box-shadow: var(--shadow-2); max-width: 300px; line-height: 1.6; }
+.radar { max-height: 760px; overflow: auto; }
+.risk-item { border: 1px solid var(--line); border-radius: var(--r); padding: 10px 12px; background: var(--surface); }
+.risk-item.late, .risk-item.high { border-inline-start: 4px solid var(--danger); }
+.risk-item.medium { border-inline-start: 4px solid var(--accent); }
+.risk-title { display: block; font-weight: 600; margin: 6px 0 2px; color: var(--ink); }
+.risk-bar { height: 5px; background: var(--line-2); border-radius: 9px; margin: 6px 0 4px; overflow: hidden; }
+.risk-bar i { display: block; height: 100%; border-radius: 9px; background: var(--accent); }
+.risk-item.high .risk-bar i { background: var(--danger); } .risk-item.low .risk-bar i { background: var(--ok); }
+.th-sort { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; white-space: nowrap; }
+.entities-table td { vertical-align: middle; }
+.entity-top { grid-template-columns: minmax(260px, 1fr) minmax(0, 2fr); align-items: stretch; }
+.entity-health { display: flex; gap: 16px; align-items: center; }
+.entity-health .ring { width: 92px; height: 92px; }
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 18px; }
+.stat { display: flex; flex-direction: column; gap: 2px; }
+.stat b { font-size: 22px; font-weight: 700; letter-spacing: -.3px; }
+.month-chart { width: 100%; height: auto; display: block; margin-top: 10px; }
+.month-chart .in { fill: var(--chart-in); } .month-chart .out { fill: var(--chart-out); }
+.month-chart .grid { stroke: var(--line-2); } .month-chart .axis { stroke: var(--line); }
+.month-chart .tick { font: 11px var(--font); fill: var(--muted); }
+.month-chart .hit { fill: transparent; } .month-chart .month:hover .hit { fill: var(--line-2); }
+.chip-x { background: none; border: 0; cursor: pointer; color: inherit; font-weight: 700; padding: 0 0 0 2px; }
+@media (max-width: 1100px) { .observatory, .entity-top { grid-template-columns: 1fr; } .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.kpis.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+/* على الهاتف: الخريطة لا تُقرأ بهذا العرض؛ الرادار والجدول يحملان المعلومات نفسها. */
+@media (max-width: 700px) { .kpis.four { grid-template-columns: repeat(2, minmax(0, 1fr)); } .map-card { display: none; } }
 
 /* ===== التحديد الجماعي ===== */
 .bulk-bar { position: sticky; top: 66px; z-index: 20; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; margin-bottom: 12px; border-radius: var(--r); background: var(--side-bg); color: #fff; box-shadow: var(--shadow-2); }

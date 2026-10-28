@@ -606,7 +606,7 @@ export function renderAuth(root, mode, onDone) {
 // ======================= لوحة الأوامر =======================
 const COMMANDS = [['لوحة القيادة', '#/', 'home'], ['المعاملات', '#/threads', 'thread'], ['المعاملات بانتظار رد', '#/threads?state=بانتظار رد', 'alert'], ['المستندات', '#/docs', 'docs'],
   ['مستندات بانتظار الرد', '#/docs?filter=awaiting', 'alert'], ['مواعيد متأخرة', '#/docs?filter=overdue', 'clock'], ['إدراج ملفات', '#/inbox', 'upload'], ['اسأل بصيرة', '#/ask', 'spark'],
-  ['خطابات غير مؤرشفة', '#/threads?missing=1', 'ghost'], ['المسح الضوئي', '#/scan', 'scanner'], ['حسابي وكلمة المرور', '#/account', 'user'], ['المحذوفات', '#/admin/trash', 'trash'], ['الإدارة', '#/admin', 'sliders'], ['سجل التدقيق', '#/admin/audit', 'shield'], ['تقرير صحة الأرشيف', '#/admin/report', 'report']];
+  ['خطابات غير مؤرشفة', '#/threads?missing=1', 'ghost'], ['مرصد الجهات ورادار المهل', '#/entities', 'network'], ['المسح الضوئي', '#/scan', 'scanner'], ['حسابي وكلمة المرور', '#/account', 'user'], ['المحذوفات', '#/admin/trash', 'trash'], ['الإدارة', '#/admin', 'sliders'], ['سجل التدقيق', '#/admin/audit', 'shield'], ['تقرير صحة الأرشيف', '#/admin/report', 'report']];
 
 export function openPalette() {
   if (document.querySelector('.overlay')) return;

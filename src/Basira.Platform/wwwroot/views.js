@@ -8,7 +8,7 @@ export const empty = (iconName, text, action) => h('div', { class: 'empty' }, ic
 const docLink = id => '#/doc/' + encodeURIComponent(id);
 
 // ======================= لوحة القيادة =======================
-function ring(score) {
+export function ring(score) {
   const C = 2 * Math.PI * 26, color = score >= 80 ? 'var(--ok)' : score >= 50 ? 'var(--accent)' : 'var(--danger)';
   const t = s('text', { x: 32, y: 39, 'text-anchor': 'middle' }); t.textContent = score;
   return s('svg', { class: 'ring', viewBox: '0 0 64 64', role: 'img', 'aria-label': `مؤشر الصحة ${score}` },

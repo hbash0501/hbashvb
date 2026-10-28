@@ -156,6 +156,7 @@ ReviewApi.Map(secured);
 ClassificationApi.Map(secured);
 ReplyApi.Map(secured);
 CommitmentsApi.Map(secured);
+EntitiesApi.Map(secured);
 app.MapGet("/healthz", () => Results.Text("ok"));
 app.MapFallback(async ctx =>
 {
