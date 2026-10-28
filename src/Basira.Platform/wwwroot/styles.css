@@ -87,6 +87,8 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 .who .meta b { display: block; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #fff; }
 .who .meta span { font-size: 12px; color: var(--side-muted); }
 .who .btn.ghost { color: var(--side-ink); }
+.who-link { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; color: inherit; text-decoration: none; border-radius: 10px; padding: 2px; }
+.who-link:hover { background: rgba(255, 255, 255, .06); text-decoration: none; }
 .who .btn.ghost:hover { background: rgba(255, 255, 255, .08); }
 .main { min-width: 0; display: flex; flex-direction: column; }
 .top { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 12px; padding: 12px 28px; background: color-mix(in srgb, var(--surface) 90%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
@@ -257,6 +259,17 @@ img.preview { object-fit: contain; height: auto; max-height: 72vh; display: bloc
 .job .row { justify-content: space-between; }
 .camera video, .camera canvas { width: 100%; border-radius: var(--r); background: #000; max-height: 420px; }
 
+/* ===== التحديد الجماعي ===== */
+.bulk-bar { position: sticky; top: 66px; z-index: 20; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; margin-bottom: 12px; border-radius: var(--r); background: var(--side-bg); color: #fff; box-shadow: var(--shadow-2); }
+.bulk-bar select, .bulk-bar input { padding: 5px 10px; font-size: 13px; color: var(--ink); }
+.bulk-bar .btn { background: rgba(255, 255, 255, .08); border-color: rgba(255, 255, 255, .15); color: #fff; }
+.bulk-bar .btn.danger { color: #ffb4ab; }
+.pick-row { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px; padding-inline-start: 14px; border-bottom: 1px solid var(--line-2); cursor: pointer; }
+.pick-row .doc-row { border-bottom: 0; }
+.pick-row.on { background: var(--brand-soft); }
+.pick-row input, .pick-all input { width: 18px; height: 18px; accent-color: var(--brand); }
+.pick-all { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); color: var(--muted); cursor: pointer; }
+
 /* ===== المسح الضوئي ===== */
 .scan-layout { display: grid; grid-template-columns: minmax(320px, 420px) minmax(0, 1fr); gap: 16px; align-items: start; }
 .preview-frame { position: relative; margin-top: 10px; cursor: crosshair; user-select: none; touch-action: none; border-radius: var(--r); overflow: hidden; border: 1px solid var(--line); background: var(--line-2); }
@@ -293,7 +306,7 @@ input[type=range] { padding: 0; border: 0; background: none; box-shadow: none; a
 .palette .item .grow b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
 .palette .group { font-size: 12px; color: var(--muted); padding: 8px 12px 4px; font-weight: 600; }
 .modal { width: min(560px, 100%); background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow-3); padding: 22px; border: 1px solid var(--line); }
-.toasts { position: fixed; bottom: 22px; inset-inline-start: 22px; z-index: 200; display: flex; flex-direction: column; gap: 8px; }
+.toasts { position: fixed; bottom: 22px; inset-inline-end: 22px; z-index: 200; display: flex; flex-direction: column; gap: 8px; }
 .toast { background: var(--ink); color: var(--bg); padding: 11px 16px; border-radius: 12px; box-shadow: var(--shadow-2); max-width: 380px; font-size: 14px; animation: up .2s ease-out; }
 .toast.err { background: var(--danger); color: #fff; }
 .toast-action { background: none; border: 0; color: inherit; font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; padding: 0 4px; }
@@ -347,6 +360,8 @@ input[type=range] { padding: 0; border: 0; background: none; box-shadow: none; a
   .doc-row { grid-template-columns: auto 1fr; }
   .doc-row .side-info { grid-column: 2; align-items: flex-start; flex-direction: row; flex-wrap: wrap; }
   .hide-sm { display: none !important; }
+  .toasts { bottom: 84px; inset-inline: 12px; }
+  .bulk-bar { top: 58px; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 @media print { .side, .top, .tabs, .btn { display: none !important; } .shell { display: block; } .card { box-shadow: none; } }

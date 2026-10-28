@@ -9,6 +9,7 @@ public static class AuthApi
     public static readonly string AppVersion = typeof(AuthApi).Assembly.GetName().Version?.ToString(3) ?? "";
 
     private sealed record LoginBody(string? UserName, string? Password);
+    private sealed record PasswordBody(string? Current, string? Next);
     private sealed record SetupBody(string? FullName, string? UserName, string? Password, string? Organization);
     private static readonly string[] PermissionNames = { "view", "search", "import", "edit", "workflow", "export", "audit", "ai", "scan", "manage_categories", "maintenance" };
 
@@ -74,5 +75,27 @@ public static class AuthApi
 
         var secured = api.MapGroup("").Secured();
         secured.MapGet("/me", (HttpContext c, SettingsStore s) => Results.Ok(new { user = Me(U(c)), organization = s.Get("organization"), version = AppVersion }));
+
+        // تغيير كلمة المرور: بالكلمة الحالية (ومحاولاتها الفاشلة تُحتسب كمحاولات الدخول)، ثم جلسة جديدة وتنتهي الجلسات الأخرى.
+        secured.MapPost("/me/password", (PasswordBody b, HttpContext ctx, UserStore users, SessionTokens tokens, LoginThrottle throttle, AuditStore audit, PlatformOptions o) =>
+        {
+            var me = U(ctx);
+            var ip = Ip(ctx);
+            if (throttle.LockedFor(me.UserName, ip) is { } wait) return Error($"تجاوزت عدد المحاولات. أعد المحاولة بعد {(int)Math.Ceiling(wait.TotalMinutes)} دقيقة.", 429);
+            try
+            {
+                var u = users.ChangeOwnPassword(me.UserName, b.Current ?? "", b.Next ?? "");
+                throttle.Success(me.UserName, ip);
+                SignIn(ctx, u, tokens, o);
+                return Results.Ok(new { ok = true });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                throttle.Failure(me.UserName, ip);
+                audit.Append(me.UserName, "فشل تغيير كلمة المرور", "العنوان: " + ip);
+                return Error(ex.Message, 400);
+            }
+            catch (ArgumentException ex) { return Error(ex.Message); }
+        });
     }
 }

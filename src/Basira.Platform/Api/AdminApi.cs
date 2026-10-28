@@ -50,6 +50,8 @@ public static class AdminApi
             if (body.TryGetValue("semantic_model_url", out var url) && url.Trim() != "" && !(Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri) && uri.Scheme is "https" or "http"))
                 return Error("مصدر النموذج يجب أن يكون رابط http أو https.");
             if (OcrApi.Validate(body, settings) is { } ocrError) return Error(ocrError);
+            if (body.TryGetValue("backup_folder", out var bf) && bf.Trim() != "" && !Path.IsPathFullyQualified(bf.Trim())) return Error("اكتب مسار مجلد النسخ الاحتياطية كاملاً، مثل D:\\BasiraBackups.");
+            if (body.TryGetValue("backup_keep", out var bk) && (!int.TryParse(bk, out var bkn) || bkn is < 1 or > 365)) return Error("عدد النسخ المحفوظة بين 1 و365.");
             var modelPathChanged = body.TryGetValue("semantic_model_path", out var mp) && mp.Trim() != settings.Get("semantic_model_path");
             settings.Set(body, U(c).UserName);
             if (modelPathChanged) semantic.Reset();
@@ -57,6 +59,7 @@ public static class AdminApi
         });
         SemanticApi.Map(admin);
         OcrApi.Map(admin);
+        BackupApi.Map(admin);
 
         admin.MapPost("/import-legacy", async (ImportBody b, HttpContext c, LegacyImporter importer) =>
         {

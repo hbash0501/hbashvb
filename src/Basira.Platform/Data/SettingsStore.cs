@@ -28,6 +28,8 @@ public sealed class SettingsStore
         ["vision_ocr_timeout"] = "600",
         ["vision_provider"] = "local",
         ["vision_cloud_model"] = "",
+        ["backup_folder"] = "",
+        ["backup_keep"] = "14",
         ["semantic_model_path"] = "",
         ["semantic_model_url"] = "",
     };

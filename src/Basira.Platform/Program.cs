@@ -12,7 +12,7 @@ using Microsoft.Extensions.FileProviders;
 const string DefaultUrl = "http://127.0.0.1:5280";
 var builder = WebApplication.CreateBuilder(args);
 var explicitUrls = builder.Configuration["urls"] ?? Environment.GetEnvironmentVariable("ASPNETCORE_URLS");
-var interactive = !args.Contains("--no-browser") && Environment.GetEnvironmentVariable("BASIRA_NO_BROWSER") != "1" && !args.Any(a => a.StartsWith("--create-admin") || a == "--import-legacy" || a == "--download-model");
+var interactive = !args.Contains("--no-browser") && Environment.GetEnvironmentVariable("BASIRA_NO_BROWSER") != "1" && !args.Any(a => a.StartsWith("--create-admin") || a == "--import-legacy" || a == "--download-model" || a == "--restore");
 
 // نسخة تعمل بالفعل على الجهاز: من الإصدار نفسه أو أحدث تُفتح نافذتها بدل تشغيل نسخة ثانية.
 // ومن إصدار أقدم (بقيت تعمل في الخلفية بعد تنزيل الجديد) تُغلق لتعمل هذه، وإلا فتح المتصفح الإصدار القديم.
@@ -34,6 +34,20 @@ if (explicitUrls is null && interactive && PortInUse(5280))
 if (explicitUrls is null) builder.WebHost.UseUrls(DefaultUrl);
 
 var options = PlatformOptions.From(builder.Configuration);
+
+// استعادة نسخة احتياطية: من سطر الأوامر، أو مجهزة من الإدارة؛ تُطبَّق قبل فتح قاعدة البيانات.
+if (Array.IndexOf(args, "--restore") is var ri and >= 0)
+{
+    if (ri + 1 >= args.Length) { Console.Error.WriteLine("حدّد ملف النسخة الاحتياطية."); return 2; }
+    if (PortInUse(5280)) { Console.Error.WriteLine("أغلق بصيرة أولاً ثم أعد الأمر."); return 2; }
+    try { BackupService.Inspect(args[ri + 1]); }
+    catch (Exception ex) when (ex is InvalidDataException or IOException) { Console.Error.WriteLine(ex.Message); return 2; }
+    Directory.CreateDirectory(options.DataFolder);
+    File.Copy(args[ri + 1], Path.Combine(options.DataFolder, "restore-pending.zip"), overwrite: true);
+    Console.WriteLine(BackupService.ApplyPending(options));
+    return 0;
+}
+BackupService.RestoredMessage = BackupService.ApplyPending(options);
 builder.WebHost.ConfigureKestrel(k => k.Limits.MaxRequestBodySize = options.MaxUploadBytes * 4);
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(f => f.MultipartBodyLengthLimit = options.MaxUploadBytes * 4);
 builder.Services.AddSingleton(options);
@@ -62,6 +76,8 @@ builder.Services.AddSingleton<Basira.Platform.Processing.Scanning.ScanService>()
 builder.Services.AddSingleton<HotFolderService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<HotFolderService>());
 builder.Services.AddSingleton<LegacyImporter>();
+builder.Services.AddSingleton<BackupService>();
+builder.Services.AddHostedService<BackupScheduler>();
 builder.Services.ConfigureHttpJsonOptions(o =>
 {
     o.SerializerOptions.Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping;
@@ -69,6 +85,7 @@ builder.Services.ConfigureHttpJsonOptions(o =>
 });
 
 var app = builder.Build();
+if (BackupService.RestoredMessage is { } restored) app.Services.GetRequiredService<AuditStore>().Append("النظام", "استعادة نسخة احتياطية", restored);
 
 // أوامر سطر الأوامر للخوادم بلا واجهة.
 if (args.Contains("--create-admin"))

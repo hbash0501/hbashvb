@@ -113,6 +113,23 @@ public sealed class UserStore
         tx.Commit();
     }
 
+    /// <summary>تغيير المستخدم كلمة مروره بنفسه: بكلمته الحالية، وتنتهي جلساته الأخرى بتغيير الختم.</summary>
+    public User ChangeOwnPassword(string userName, string current, string next)
+    {
+        using var c = _db.Open();
+        using var tx = c.BeginTransaction();
+        var u = c.Query("SELECT * FROM users WHERE username=@userName", Map, new { userName }, tx).FirstOrDefault() ?? throw new KeyNotFoundException("المستخدم غير موجود.");
+        if (!PasswordHashService.Verify(current, u.Salt, u.Hash)) throw new UnauthorizedAccessException("كلمة المرور الحالية غير صحيحة.");
+        if (current == next) throw new ArgumentException("اختر كلمة مرور مختلفة عن الحالية.");
+        var reason = PasswordPolicy.Validate(next, u.UserName);
+        if (reason != "") throw new ArgumentException(reason);
+        u.Salt = NewSalt(); u.Hash = PasswordHashService.Hash(next, u.Salt); u.Stamp = NewStamp();
+        c.Exec("UPDATE users SET salt=@Salt, hash=@Hash, stamp=@Stamp WHERE id=@Id", new { u.Salt, u.Hash, u.Stamp, u.Id }, tx);
+        AuditStore.Append(c, tx, u.UserName, "تغيير كلمة المرور", u.UserName);
+        tx.Commit();
+        return u;
+    }
+
     private static long AdminCount(SqliteConnection c, SqliteTransaction tx) =>
         Convert.ToInt64(c.Scalar("SELECT COUNT(*) FROM users WHERE role=@r AND active=1", new { r = Roles.Admin }, tx));
 

@@ -93,6 +93,30 @@ export async function renderInbox(view) {
   await loadJobs();
 }
 
+// ======================= حسابي =======================
+export function renderAccount(view) {
+  const me = state.me;
+  const f = { current: h('input', { type: 'password', autocomplete: 'current-password', required: true }), next: h('input', { type: 'password', autocomplete: 'new-password', required: true }), confirm: h('input', { type: 'password', autocomplete: 'new-password', required: true }) };
+  const err = h('p', { class: 'error', role: 'alert' });
+  const form = h('form', { class: 'form', style: 'margin-top:10px' },
+    h('div', { class: 'full' }, h('label', { class: 'f', text: 'كلمة المرور الحالية' }), f.current),
+    h('div', {}, h('label', { class: 'f', text: 'كلمة المرور الجديدة' }), f.next, h('p', { class: 'hint', text: '10 أحرف فأكثر، غير شائعة، ولا تتضمن اسم المستخدم.' })),
+    h('div', {}, h('label', { class: 'f', text: 'تأكيد كلمة المرور الجديدة' }), f.confirm),
+    h('div', { class: 'full row' }, h('button', { class: 'btn primary', type: 'submit' }, icon('key'), 'تغيير كلمة المرور'), err));
+  form.addEventListener('submit', async e => {
+    e.preventDefault(); err.textContent = '';
+    if (f.next.value !== f.confirm.value) { err.textContent = 'تأكيد كلمة المرور غير مطابق.'; return; }
+    try { await api('/me/password', { method: 'POST', body: { current: f.current.value, next: f.next.value } }); form.reset(); toast('غُيّرت كلمة المرور، وانتهت جلساتك على الأجهزة الأخرى.'); }
+    catch (ex) { err.textContent = ex.message; }
+  });
+  mount(view, pageHead('حسابي', 'بياناتك وكلمة مرورك.'),
+    h('div', { class: 'grid cols-2', style: 'align-items:start' },
+      h('section', { class: 'card pad' }, h('h3', {}, icon('user'), 'الحساب'),
+        h('dl', { class: 'kv', style: 'margin-top:10px' }, [['الاسم', me.fullName], ['اسم المستخدم', me.userName], ['الدور', me.role], ['الإصدار', state.version || '']].filter(x => x[1]).flatMap(([k, v]) => [h('dt', { text: k }), h('dd', { text: v })]))),
+      h('section', { class: 'card pad' }, h('h3', {}, icon('key'), 'تغيير كلمة المرور'), form)));
+  f.current.focus();
+}
+
 // ======================= اسأل بصيرة =======================
 export async function renderAsk(view, params) {
   const q = h('input', { type: 'search', placeholder: 'مثال: ما الذي طلبته وزارة المالية بشأن المشاريع المتعثرة؟', 'aria-label': 'سؤال', value: params.get('q') || '' });
@@ -149,7 +173,7 @@ async function adminTrash(body) {
     catch (e) { toast(e.message, { error: true }); }
   };
   mount(body, h('section', { class: 'card' },
-    h('div', { class: 'pad', style: 'padding-bottom:0' }, h('h3', {}, icon('trash'), 'المحذوفات'),
+    h('div', { style: 'padding:18px 20px 6px' }, h('h3', {}, icon('trash'), 'المحذوفات'),
       h('p', { class: 'muted small', text: 'المستند المحذوف لا يظهر في الأرشيف ولا البحث ولا المعاملات ولا التنبيهات، ويبقى هنا بكامل بياناته حتى يُستعاد أو يُحذف نهائياً.' + (r.canPurge ? '' : ' الحذف النهائي لمدير النظام.') })),
     r.items.length ? h('div', { class: 'table-wrap' }, h('table', {},
       h('thead', {}, h('tr', {}, ['رقم الأرشيف', 'العنوان', 'حُذف', 'بواسطة', 'السبب', ''].map(x => h('th', { text: x })))),
@@ -320,7 +344,7 @@ async function adminSettings(body) {
     try { await api('/admin/settings', { method: 'PUT', body: Object.fromEntries(Object.entries(inputs).map(([k, v]) => [k, v.value])) }); toast('حُفظت الإعدادات'); state.org = inputs.organization.value; adminSettings(body); }
     catch (ex) { err.textContent = ex.message; }
   });
-  mount(body, form, ocrPanel());
+  mount(body, form, ocrPanel(), backupPanel());
 }
 
 // ===== محرك القراءة: Tesseract، والمحرك المرئي (محلي أو سحابي)، وقياسهما على العينات المضمّنة =====
@@ -470,6 +494,51 @@ function ocrPanel() {
   return box;
 }
 
+// ===== النسخ الاحتياطي والاستعادة =====
+function backupPanel() {
+  const box = h('section', { class: 'card pad', style: 'margin-top:16px' });
+  const load = () => api('/admin/backup').then(draw).catch(e => mount(box, h('p', { class: 'error', text: e.message })));
+  function draw(st) {
+    const folder = h('input', { class: 'ltr', value: st.folder || '', placeholder: 'D:\\BasiraBackups' });
+    const keep = h('input', { type: 'number', min: 1, max: 365, value: st.keep || 14 });
+    const file = h('input', { type: 'file', accept: '.zip', hidden: true });
+    const err = h('p', { class: 'error', role: 'alert' });
+    const save = async () => { err.textContent = ''; try { await api('/admin/settings', { method: 'PUT', body: { backup_folder: folder.value.trim(), backup_keep: String(keep.value) } }); toast('حُفظت إعدادات النسخ الاحتياطي'); load(); } catch (e) { err.textContent = e.message; } };
+    const run = async btn => { btn.disabled = true; try { const r = await api('/admin/backup/run', { method: 'POST' }); toast('حُفظت نسخة: ' + r.path); load(); } catch (e) { toast(e.message, { error: true }); btn.disabled = false; } };
+    file.addEventListener('change', async () => {
+      if (!file.files.length) return;
+      const ok = await confirmDialog({ title: 'استعادة نسخة احتياطية', message: 'ستحل بيانات النسخة محل البيانات الحالية عند إعادة تشغيل البرنامج، وتُحفظ البيانات الحالية في مجلد جانبي «before-restore». متابعة؟', confirm: 'تجهيز الاستعادة', danger: true });
+      if (ok === null) { file.value = ''; return; }
+      const form = new FormData(); form.append('file', file.files[0]);
+      try { await api('/admin/backup/restore', { method: 'POST', form }); toast('جُهزت الاستعادة؛ أعد تشغيل البرنامج لإتمامها.'); load(); }
+      catch (e) { toast(e.message, { error: true }); }
+      file.value = '';
+    });
+    const size = n => n > 1048576 ? nf.format(Math.round(n / 1048576)) + ' م.ب' : nf.format(Math.round(n / 1024)) + ' ك.ب';
+    mount(box,
+      h('h3', {}, icon('archive'), 'النسخ الاحتياطي'),
+      h('p', { class: 'muted small', style: 'margin-top:6px', text: 'نسخة كاملة: قاعدة البيانات وكل الملفات الأصلية. احفظها على قرص آخر أو جهاز آخر؛ فالنسخة على القرص نفسه لا تحمي من تلفه. لا تتضمن النسخة مفتاح تشفير الأسرار، فمفاتيح الخدمات السحابية تُدخل من جديد إن استُعيدت على جهاز آخر.' }),
+      st.restored ? h('p', { class: 'small', style: 'margin-top:8px' }, icon('check'), ' ', st.restored) : null,
+      st.pending ? h('div', { class: 'card pad', style: 'margin-top:10px;border-color:var(--accent)' }, h('b', { text: `استعادة مجهزة: نسخة ${fmt.time(st.pending.createdAt)} (${nf.format(st.pending.documents)} مستند).` }), h('p', { class: 'small', text: 'تُطبَّق عند إعادة تشغيل البرنامج.' }),
+        h('button', { class: 'btn sm', type: 'button', style: 'margin-top:6px', onclick: async () => { await api('/admin/backup/restore/cancel', { method: 'POST' }); load(); } }, icon('x'), 'إلغاء الاستعادة')) : null,
+      h('div', { class: 'form', style: 'margin-top:12px' },
+        h('div', {}, h('label', { class: 'f', text: 'مجلد النسخ التلقائية اليومية' }), folder, h('p', { class: 'hint', text: 'يُفضَّل قرص آخر أو مجلد شبكي. اتركه فارغاً لإيقاف النسخ التلقائي.' })),
+        h('div', {}, h('label', { class: 'f', text: 'عدد النسخ المحفوظة' }), keep, h('p', { class: 'hint', text: 'تُحذف الأقدم تلقائياً.' }))),
+      h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;margin-top:12px' },
+        h('button', { class: 'btn primary', type: 'button', onclick: save }, icon('check'), 'حفظ'),
+        st.folder ? h('button', { class: 'btn', type: 'button', onclick: e => run(e.currentTarget) }, icon('archive'), 'نسخة إلى المجلد الآن') : null,
+        h('a', { class: 'btn', href: '/api/admin/backup/download', download: '' }, icon('download'), 'تنزيل نسخة الآن'),
+        h('button', { class: 'btn ghost', type: 'button', style: 'margin-inline-start:auto', onclick: () => file.click() }, icon('restore'), 'استعادة من نسخة…'), file),
+      err,
+      h('p', { class: 'small muted', style: 'margin-top:8px' },
+        st.last ? `آخر نسخة: ${fmt.time(st.last.at)} — ${size(st.last.size)} — ${st.last.path}` : 'لا نسخ في المجلد بعد.',
+        st.error ? h('span', { class: 'error', style: 'display:block', text: `تعذرت آخر محاولة (${fmt.time(st.error.at)}): ${st.error.message}` }) : null));
+  }
+  mount(box, h('p', { class: 'muted small', text: 'جارٍ التحميل…' }));
+  load();
+  return box;
+}
+
 function adminMigrate(body) {
   const folder = h('input', { class: 'ltr', placeholder: 'C:\\Users\\...\\AppData\\Roaming\\SaeedAIDocArchive' });
   const out = h('div', { style: 'margin-top:12px' });
@@ -537,7 +606,7 @@ export function renderAuth(root, mode, onDone) {
 // ======================= لوحة الأوامر =======================
 const COMMANDS = [['لوحة القيادة', '#/', 'home'], ['المعاملات', '#/threads', 'thread'], ['المعاملات بانتظار رد', '#/threads?state=بانتظار رد', 'alert'], ['المستندات', '#/docs', 'docs'],
   ['مستندات بانتظار الرد', '#/docs?filter=awaiting', 'alert'], ['مواعيد متأخرة', '#/docs?filter=overdue', 'clock'], ['إدراج ملفات', '#/inbox', 'upload'], ['اسأل بصيرة', '#/ask', 'spark'],
-  ['خطابات غير مؤرشفة', '#/threads?missing=1', 'ghost'], ['الإدارة', '#/admin', 'sliders'], ['سجل التدقيق', '#/admin/audit', 'shield'], ['تقرير صحة الأرشيف', '#/admin/report', 'report']];
+  ['خطابات غير مؤرشفة', '#/threads?missing=1', 'ghost'], ['المسح الضوئي', '#/scan', 'scanner'], ['حسابي وكلمة المرور', '#/account', 'user'], ['المحذوفات', '#/admin/trash', 'trash'], ['الإدارة', '#/admin', 'sliders'], ['سجل التدقيق', '#/admin/audit', 'shield'], ['تقرير صحة الأرشيف', '#/admin/report', 'report']];
 
 export function openPalette() {
   if (document.querySelector('.overlay')) return;

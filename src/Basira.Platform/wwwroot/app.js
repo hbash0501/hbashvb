@@ -1,7 +1,7 @@
 // بصيرة — الهيكل والتوجيه.
 import { h, icon, api, mount, state, connectEvents, disconnectEvents, onEvent, nf, toast, can } from './core.js';
 import { renderDashboard, renderThreads, renderThread, renderDocs, renderDoc, empty } from './views.js';
-import { renderInbox, renderAsk, renderAdmin, renderAuth, openPalette } from './views2.js';
+import { renderInbox, renderAsk, renderAdmin, renderAuth, renderAccount, openPalette } from './views2.js';
 import { renderReview } from './review.js';
 import { renderReply } from './reply.js';
 import { renderCommitments } from './commitments.js';
@@ -33,7 +33,7 @@ function shell() {
     h('aside', { class: 'side' },
       h('a', { class: 'brand', href: '#/', style: 'text-decoration:none;color:inherit' }, h('div', { class: 'logo' }, h('img', { src: '/brand/mark.svg', alt: '' })), h('div', {}, h('b', { text: 'بصيرة' }), h('small', { text: state.org || 'منصة الأرشفة الذكية', title: state.version ? 'الإصدار ' + state.version : '' }))),
       nav, h('div', { class: 'spacer' }), procBox,
-      h('div', { class: 'who' }, h('div', { class: 'avatar', text: initials }), h('div', { class: 'meta' }, h('b', { text: state.me.fullName }), h('span', { text: state.me.role })),
+      h('div', { class: 'who' }, h('a', { class: 'who-link', href: '#/account', title: 'حسابي وكلمة المرور' }, h('div', { class: 'avatar', text: initials }), h('div', { class: 'meta' }, h('b', { text: state.me.fullName }), h('span', { text: state.me.role }))),
         h('button', { class: 'btn ghost icon-btn', title: 'خروج', 'aria-label': 'خروج', onclick: logout }, icon('logout')))),
     h('div', { class: 'main' },
       h('header', { class: 'top' },
@@ -57,7 +57,7 @@ async function route() {
   const key = section === 'doc' || section === 'reply' ? 'docs' : section === 'thread' ? 'threads' : section === 'scan' ? 'inbox' : section || '';
   for (const [k, el] of Object.entries(navEls)) el.setAttribute('aria-current', k === key ? 'page' : 'false');
   mount(view, h('div', { class: 'grid' }, h('div', { class: 'skeleton' }), h('div', { class: 'skeleton', style: 'min-height:240px' })));
-  const titles = { '': 'لوحة القيادة', threads: 'المعاملات', thread: 'معاملة', docs: 'المستندات', doc: 'مستند', reply: 'استوديو الرد', commitments: 'الالتزامات', review: 'التحقق من القراءة', inbox: 'الإدراج', scan: 'المسح الضوئي', ask: 'اسأل بصيرة', admin: 'الإدارة' };
+  const titles = { '': 'لوحة القيادة', threads: 'المعاملات', thread: 'معاملة', docs: 'المستندات', doc: 'مستند', reply: 'استوديو الرد', commitments: 'الالتزامات', review: 'التحقق من القراءة', inbox: 'الإدراج', scan: 'المسح الضوئي', account: 'حسابي', ask: 'اسأل بصيرة', admin: 'الإدارة' };
   document.title = (titles[section || ''] || 'بصيرة') + ' | بصيرة';
   try {
     if (!section) await renderDashboard(view);
@@ -70,6 +70,7 @@ async function route() {
     else if (section === 'review') await renderReview(view, setReviewCount);
     else if (section === 'inbox') await renderInbox(view);
     else if (section === 'scan') await renderScan(view);
+    else if (section === 'account') renderAccount(view);
     else if (section === 'ask') await renderAsk(view, params);
     else if (section === 'admin') await renderAdmin(view, arg);
     else mount(view, empty('alert', 'الصفحة غير موجودة.'));

@@ -164,6 +164,38 @@ export async function renderDocs(view, params) {
   const seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'تصفية' });
   const drawSeg = () => mount(seg, FILTERS.map(([k, l]) => h('button', { type: 'button', 'aria-pressed': String(st.filter === k), text: l, onclick: () => { st.filter = k; st.page = 1; drawSeg(); load(); } })));
   drawSeg();
+  // ===== التحديد والإجراءات الجماعية =====
+  const canBulk = can('workflow') || can('edit') || can('maintenance') || can('export');
+  let selecting = false;
+  const picked = new Map();
+  const bar = h('div', { class: 'bulk-bar', hidden: true, role: 'region', 'aria-label': 'إجراءات على المحدد' });
+  const filterQs = () => new URLSearchParams({ q: st.q, filter: st.filter, category: st.category, status: st.status, direction: st.direction });
+  const bulk = async (action, value, reason) => {
+    try {
+      const r = await api('/documents/bulk', { method: 'POST', body: { ids: [...picked.keys()], action, value, reason } });
+      toast(`نُفّذ على ${nf.format(r.done)} مستند` + (r.skipped.length ? `، وتُخطي ${nf.format(r.skipped.length)}: ${r.skipped.slice(0, 3).join('، ')}` : ''));
+      picked.clear(); drawBar(); load();
+    } catch (e) { toast(e.message, { error: true }); }
+  };
+  function drawBar() {
+    bar.hidden = !selecting;
+    if (!selecting) return;
+    const n = picked.size;
+    const cat = h('input', { list: 'bulk-cats', placeholder: 'تصنيف…', style: 'width:150px', 'aria-label': 'التصنيف' });
+    mount(bar,
+      h('b', { text: n ? `${nf.format(n)} محدد` : 'حدد مستندات من القائمة' }),
+      n && can('workflow') ? h('select', { 'aria-label': 'تغيير الحالة', style: 'width:auto', onchange: e => { if (e.target.value) bulk('status', e.target.value); } }, h('option', { value: '', text: 'تغيير الحالة…' }), (state.meta?.statuses || []).map(s => h('option', { value: s, text: s }))) : null,
+      n && can('edit') ? h('span', { class: 'row', style: 'gap:4px' }, cat, h('datalist', { id: 'bulk-cats' }, (state.meta?.categories || []).map(c => h('option', { value: c }))), h('button', { class: 'btn sm', type: 'button', onclick: () => cat.value.trim() && bulk('category', cat.value.trim()) }, 'تصنيف')) : null,
+      n && can('export') ? h('a', { class: 'btn sm', href: '/api/documents/export?' + new URLSearchParams({ ids: [...picked.keys()].join(',') }), download: '' }, icon('table'), 'تصدير المحدد') : null,
+      n && can('maintenance') ? h('button', { class: 'btn sm danger', type: 'button', onclick: async () => {
+        const reason = await confirmDialog({ title: 'نقل إلى المحذوفات', message: `نقل ${nf.format(n)} مستند إلى المحذوفات؟ يمكن استعادتها من الإدارة ← المحذوفات.`, confirm: 'نقل إلى المحذوفات', danger: true, input: 'سبب الحذف (اختياري)' });
+        if (reason !== null) bulk('delete', '', reason);
+      } }, icon('trash'), 'حذف') : null,
+      h('button', { class: 'btn sm ghost', type: 'button', style: 'margin-inline-start:auto', onclick: () => { selecting = false; picked.clear(); drawBar(); load(); } }, icon('x'), 'إنهاء التحديد'));
+  }
+  const row = d => !selecting ? docRow(d) : h('label', { class: 'pick-row' + (picked.has(d.id) ? ' on' : '') },
+    h('input', { type: 'checkbox', checked: picked.has(d.id), 'aria-label': 'تحديد ' + d.title, onchange: e => { if (e.target.checked) picked.set(d.id, d); else picked.delete(d.id); e.target.parentElement.classList.toggle('on', e.target.checked); drawBar(); } }),
+    docRow(d));
   let ctl;
   async function load() {
     ctl?.abort(); ctl = new AbortController();
@@ -172,15 +204,18 @@ export async function renderDocs(view, params) {
       const r = await api('/documents?' + qs, { signal: ctl.signal });
       count.textContent = `${nf.format(r.total)} مستند`;
       const pages = Math.ceil(r.total / r.pageSize);
-      mount(list, r.items.length ? r.items.map(docRow) : empty('search', st.q ? 'لا نتائج. جرّب كلمة أخرى أو رقم المعاملة.' : 'لا مستندات ضمن هذا التصفية.'),
+      mount(list, r.items.length ? [selecting ? h('label', { class: 'pick-all' }, h('input', { type: 'checkbox', checked: r.items.every(d => picked.has(d.id)), onchange: e => { for (const d of r.items) { if (e.target.checked) picked.set(d.id, d); else picked.delete(d.id); } drawBar(); load(); } }), h('span', { class: 'small', text: 'تحديد كل ما في هذه الصفحة' })) : null, ...r.items.map(row)] : empty('search', st.q ? 'لا نتائج. جرّب كلمة أخرى أو رقم المعاملة.' : 'لا مستندات ضمن هذا التصفية.'),
         pages > 1 ? h('div', { class: 'pager' }, h('button', { class: 'btn sm', disabled: st.page <= 1, onclick: () => { st.page--; load(); } }, 'السابق'), h('span', { class: 'muted small', style: 'align-self:center', text: `${nf.format(st.page)} من ${nf.format(pages)}` }), h('button', { class: 'btn sm', disabled: st.page >= pages, onclick: () => { st.page++; load(); } }, 'التالي')) : null);
     } catch (e) { if (e.name !== 'AbortError') mount(list, empty('alert', e.message)); }
   }
   let t; q.addEventListener('input', () => { st.q = q.value.trim(); st.page = 1; clearTimeout(t); t = setTimeout(load, 220); });
   const meta = state.meta || {};
-  mount(view, pageHead('المستندات', 'بحث عربي يتجاهل التشكيل والهمزات ويفهم صيغ الجمع، مع تمييز الكلمات المطابقة.', count, can('import') ? h('a', { class: 'btn primary', href: '#/inbox' }, icon('upload'), 'إدراج') : null),
+  mount(view, pageHead('المستندات', 'بحث عربي يتجاهل التشكيل والهمزات ويفهم صيغ الجمع، مع تمييز الكلمات المطابقة.', count,
+    canBulk ? h('button', { class: 'btn', type: 'button', onclick: () => { selecting = !selecting; picked.clear(); drawBar(); load(); } }, icon('check'), 'تحديد') : null,
+    can('export') ? h('a', { class: 'btn', title: 'تصدير القائمة بتصفيتها الحالية إلى ملف يفتحه Excel', onclick: e => { e.currentTarget.href = '/api/documents/export?' + filterQs(); }, href: '/api/documents/export', download: '' }, icon('table'), 'تصدير') : null,
+    can('import') ? h('a', { class: 'btn primary', href: '#/inbox' }, icon('upload'), 'إدراج') : null),
     h('div', { class: 'filters' }, h('div', { class: 'search' }, icon('search'), q), sel('كل التصنيفات', meta.categories || [], 'category'), sel('كل الحالات', meta.statuses || [], 'status'), sel('كل الاتجاهات', meta.directions || [], 'direction')),
-    h('div', { style: 'margin-bottom:14px' }, seg), list);
+    h('div', { style: 'margin-bottom:14px' }, seg), bar, list);
   setTimeout(() => q.focus(), 0);
   await load();
 }

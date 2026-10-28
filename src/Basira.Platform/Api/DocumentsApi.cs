@@ -16,6 +16,7 @@ public static class DocumentsApi
     private sealed record StatusBody(int Version, string? Status, string? Note);
     private sealed record CommentBody(string? Body);
     private sealed record DeleteBody(int? Version, string? Reason);
+    private sealed record BulkBody(List<string>? Ids, string? Action, string? Value, string? Reason);
 
     private static readonly HashSet<string> InlineTypes = new(StringComparer.OrdinalIgnoreCase) { ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".txt" };
 
@@ -50,6 +51,56 @@ public static class DocumentsApi
         if (b.Text is not null) d.Text = Clip(b.Text, 2_000_000);
     }
 
+    /// <summary>تصفية المستندات وترتيبها كما في قائمة المستندات (للعرض والتصدير).</summary>
+    private static List<(Doc Doc, double Score, string Excerpt, string Matches)> Filter(Snapshot s, string q, string? category, string? status, string? direction,
+        string? filter, string? from, string? to, string? sort)
+    {
+        var f = filter is "review" or "overdue" or "week" or "ocr" or "sensitive" ? filter : "all";
+        var rows = new List<(Doc Doc, double Score, string Excerpt, string Matches)>();
+        if (q != "") foreach (var h in s.Engine.Search(q, category ?? "", f, 1000)) rows.Add((s.ById[h.Document.Id], h.Score, h.Excerpt, h.Matches));
+        else
+        {
+            var today = DateTime.Today;
+            foreach (var d in s.Docs)
+                if ((string.IsNullOrEmpty(category) || d.Category == category) && BasiraEngine.MatchesFilter(ArchiveIndex.ToRecord(d, s.EffectiveDue.TryGetValue(d.Id, out var due) ? due.Date : ""), f, today))
+                    rows.Add((d, 0, "", ""));
+        }
+        if (filter == "awaiting") { var ids = s.Awaiting.Select(a => a.DocumentId).ToHashSet(); rows = rows.Where(r => ids.Contains(r.Doc.Id)).ToList(); }
+        if (filter == "autocat") rows = rows.Where(r => r.Doc.IsAuto("category") && !ClassificationService.ReadConfidence(r.Doc).Confident).ToList();
+        if (filter == "unclassified") rows = rows.Where(r => r.Doc.Category == "").ToList();
+        if (!string.IsNullOrEmpty(status)) rows = rows.Where(r => r.Doc.Status == status).ToList();
+        if (!string.IsNullOrEmpty(direction)) rows = rows.Where(r => r.Doc.Direction == direction).ToList();
+        var fromD = Snapshot.ParseIso(from ?? ""); var toD = Snapshot.ParseIso(to ?? "");
+        if (fromD is not null) rows = rows.Where(r => Snapshot.DateOf(r.Doc) >= fromD).ToList();
+        if (toD is not null) rows = rows.Where(r => Snapshot.DateOf(r.Doc) <= toD).ToList();
+        rows = (sort, q) switch
+        {
+            ("date", _) => rows.OrderByDescending(r => Snapshot.DateOf(r.Doc)).ThenByDescending(r => r.Doc.ArchiveNo).ToList(),
+            (_, "") => rows.OrderByDescending(r => r.Doc.CreatedAt, StringComparer.Ordinal).ToList(),
+            _ => rows,
+        };
+        return rows;
+    }
+
+    /// <summary>CSV بترميز UTF-8 مع علامة BOM ليفتحه Excel بالعربية. المستند الحساس لمن لا يملك صلاحيته: رقمه وعنوانه فقط.</summary>
+    private static byte[] Csv(IEnumerable<Doc> docs, Snapshot s, User u)
+    {
+        static string Cell(string v) => v.IndexOfAny(new[] { ',', '"', '\n', '\r' }) >= 0 || v.StartsWith('=') || v.StartsWith('+') || v.StartsWith('-') || v.StartsWith('@')
+            ? "\"" + (v.Length > 0 && "=+-@".Contains(v[0]) ? "'" : "") + v.Replace("\"", "\"\"") + "\"" : v;
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine(string.Join(",", new[] { "رقم الأرشيف", "العنوان", "الاتجاه", "الحالة", "التصنيف", "التصنيف الفرعي", "الجهة المرسلة", "الجهة المستقبلة", "رقم الجهة", "رقم الصادر", "رقم القيد الوارد", "تاريخ المستند", "الموعد", "السرية", "أُدرج", "بواسطة" }));
+        foreach (var d in docs)
+        {
+            var hidden = Restricted(d, u);
+            var due = s.EffectiveDue.TryGetValue(d.Id, out var e) ? e.Date : d.DueDate;
+            string[] cols = hidden
+                ? new[] { d.ArchiveNo, d.Title, d.Direction, "", "", "", "", "", "", "", "", "", "", d.Confidentiality, d.CreatedAt[..Math.Min(10, d.CreatedAt.Length)], "" }
+                : new[] { d.ArchiveNo, d.Title, d.Direction, d.Status, d.Category, d.SubCategory, d.SourceEntity, d.DestinationEntity, d.ExternalNo, d.OutgoingNo, d.IncomingNo, d.DocumentDate, due, d.Confidentiality, d.CreatedAt[..Math.Min(10, d.CreatedAt.Length)], d.CreatedBy };
+            sb.AppendLine(string.Join(",", cols.Select(v => Cell(v ?? ""))));
+        }
+        return System.Text.Encoding.UTF8.GetPreamble().Concat(System.Text.Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
+    }
+
     public static void Map(RouteGroupBuilder g)
     {
         g.MapGet("/documents", async (HttpContext c, ArchiveIndex index, AuditStore audit, string? q, string? category, string? status, string? direction,
@@ -59,34 +110,58 @@ public static class DocumentsApi
             if (!UserStore.Can(u, "search")) return Forbidden("البحث");
             var s = await index.GetAsync();
             q = Clip((q ?? "").Trim(), 200);
-            var f = filter is "review" or "overdue" or "week" or "ocr" or "sensitive" ? filter : "all";
-            var rows = new List<(Doc Doc, double Score, string Excerpt, string Matches)>();
-            if (q != "") foreach (var h in s.Engine.Search(q, category ?? "", f, 1000)) rows.Add((s.ById[h.Document.Id], h.Score, h.Excerpt, h.Matches));
-            else
-            {
-                var today = DateTime.Today;
-                foreach (var d in s.Docs)
-                    if ((string.IsNullOrEmpty(category) || d.Category == category) && BasiraEngine.MatchesFilter(ArchiveIndex.ToRecord(d, s.EffectiveDue.TryGetValue(d.Id, out var due) ? due.Date : ""), f, today))
-                        rows.Add((d, 0, "", ""));
-            }
-            if (filter == "awaiting") { var ids = s.Awaiting.Select(a => a.DocumentId).ToHashSet(); rows = rows.Where(r => ids.Contains(r.Doc.Id)).ToList(); }
-            if (filter == "autocat") rows = rows.Where(r => r.Doc.IsAuto("category") && !ClassificationService.ReadConfidence(r.Doc).Confident).ToList();
-            if (filter == "unclassified") rows = rows.Where(r => r.Doc.Category == "").ToList();
-            if (!string.IsNullOrEmpty(status)) rows = rows.Where(r => r.Doc.Status == status).ToList();
-            if (!string.IsNullOrEmpty(direction)) rows = rows.Where(r => r.Doc.Direction == direction).ToList();
-            var fromD = Snapshot.ParseIso(from ?? ""); var toD = Snapshot.ParseIso(to ?? "");
-            if (fromD is not null) rows = rows.Where(r => Snapshot.DateOf(r.Doc) >= fromD).ToList();
-            if (toD is not null) rows = rows.Where(r => Snapshot.DateOf(r.Doc) <= toD).ToList();
-            rows = (sort, q) switch
-            {
-                ("date", _) => rows.OrderByDescending(r => Snapshot.DateOf(r.Doc)).ThenByDescending(r => r.Doc.ArchiveNo).ToList(),
-                (_, "") => rows.OrderByDescending(r => r.Doc.CreatedAt, StringComparer.Ordinal).ToList(),
-                _ => rows,
-            };
+            var rows = Filter(s, q, category, status, direction, filter, from, to, sort);
             var size = Math.Clamp(pageSize ?? 30, 1, 100);
             var p = Math.Max(1, page ?? 1);
             if (q != "") audit.Append(u.UserName, "بحث", q);
             return Results.Ok(new { total = rows.Count, page = p, pageSize = size, items = rows.Skip((p - 1) * size).Take(size).Select(r => Summary(r.Doc, s, u, r.Excerpt, r.Matches)) });
+        });
+
+        // تصدير القائمة نفسها (بتصفيتها، أو المستندات المحددة) إلى CSV يفتحه Excel بالعربية.
+        g.MapGet("/documents/export", async (HttpContext c, ArchiveIndex index, AuditStore audit, string? q, string? category, string? status, string? direction,
+            string? filter, string? from, string? to, string? sort, string? ids) =>
+        {
+            var u = U(c);
+            if (!UserStore.Can(u, "export")) return Forbidden("التصدير");
+            var s = await index.GetAsync();
+            var rows = Filter(s, Clip((q ?? "").Trim(), 200), category, status, direction, filter, from, to, sort);
+            if (!string.IsNullOrEmpty(ids)) { var set = ids.Split(',').ToHashSet(); rows = rows.Where(r => set.Contains(r.Doc.Id)).ToList(); }
+            audit.Append(u.UserName, "تصدير قائمة المستندات", $"{rows.Count} مستند");
+            return Results.File(Csv(rows.Select(r => r.Doc), s, u), "text/csv; charset=utf-8", $"basira-documents-{DateTime.Now:yyyy-MM-dd}.csv");
+        });
+
+        // إجراء واحد على مستندات محددة: تغيير الحالة أو التصنيف أو النقل إلى المحذوفات. ما لا يملك المستخدم صلاحيته يُتخطى ويُذكر.
+        g.MapPost("/documents/bulk", (BulkBody b, HttpContext c, DocumentStore docs) =>
+        {
+            var u = U(c);
+            var ids = (b.Ids ?? new()).Distinct().Take(500).ToList();
+            if (ids.Count == 0) return Error("اختر مستنداً واحداً على الأقل.");
+            var value = (b.Value ?? "").Trim();
+            string? why = b.Action switch
+            {
+                "status" => !UserStore.Can(u, "workflow") ? "لا تملك صلاحية تغيير الحالة." : !Roles.Statuses.Contains(value) ? "حالة غير معروفة." : null,
+                "category" => !UserStore.Can(u, "edit") ? "لا تملك صلاحية التعديل." : value.Length is 0 or > 120 ? "اكتب التصنيف." : null,
+                "delete" => !UserStore.CanDelete(u) ? "لا تملك صلاحية الحذف." : null,
+                _ => "إجراء غير معروف.",
+            };
+            if (why is not null) return Error(why, why.StartsWith("لا تملك", StringComparison.Ordinal) ? 403 : 400);
+            int done = 0;
+            var skipped = new List<string>();
+            foreach (var id in ids)
+            {
+                var d = docs.Get(id);
+                if (d is null) continue;
+                if (Restricted(d, u)) { skipped.Add(d.ArchiveNo + ": مستند حساس"); continue; }
+                try
+                {
+                    if (b.Action == "status") docs.Update(id, null, x => x.Status = value, u.UserName, "الحالة: " + value + " (إجراء جماعي)", "تغيير حالة");
+                    else if (b.Action == "category") docs.Update(id, null, x => { x.Category = value; x.SubCategory = ""; x.SetAuto("category", false); }, u.UserName, "التصنيف: " + value + " (إجراء جماعي)", "تعديل مستند");
+                    else docs.MoveToTrash(id, null, u.UserName, Clip(b.Reason ?? "", 300));
+                    done++;
+                }
+                catch (KeyNotFoundException) { }
+            }
+            return Results.Ok(new { done, skipped });
         });
 
         g.MapGet("/documents/{id}", async (string id, HttpContext c, ArchiveIndex index, DocumentStore docs, AuditStore audit, ReviewStore review) =>
