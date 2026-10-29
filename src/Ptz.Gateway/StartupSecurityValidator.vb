@@ -63,9 +63,12 @@ Public NotInheritable Class StartupSecurityValidator
             r.Violations.Add("Hpp.TokenUrl يجب أن يكون https بلا منفذ/مسار ومضيفه ضمن Hpp.AllowedHostSuffixes.")
         End If
 
-        Dim ak As String = If(String.IsNullOrWhiteSpace(h.AppKeyEnv), Nothing, env(h.AppKeyEnv))
-        Dim sk As String = If(String.IsNullOrWhiteSpace(h.SecretKeyEnv), Nothing, env(h.SecretKeyEnv))
-        If String.IsNullOrWhiteSpace(ak) OrElse String.IsNullOrWhiteSpace(sk) Then
+        ' appKeyEnv/secretKeyEnv أسماء متغيرات لا قيم: إن وُضع المفتاح نفسه هنا خطأً لا نطبعه في أي رسالة.
+        Dim namesOk As Boolean = IsEnvName(h.AppKeyEnv) AndAlso IsEnvName(h.SecretKeyEnv)
+        If Not namesOk Then r.Violations.Add("Hpp.appKeyEnv/secretKeyEnv يجب أن يكونا اسمي متغيري بيئة (حروف كبيرة وأرقام و_) لا المفاتيح نفسها.")
+        Dim ak As String = If(namesOk, env(h.AppKeyEnv), Nothing)
+        Dim sk As String = If(namesOk, env(h.SecretKeyEnv), Nothing)
+        If namesOk AndAlso (String.IsNullOrWhiteSpace(ak) OrElse String.IsNullOrWhiteSpace(sk)) Then
             If relayCams.Count > 0 Then
                 r.Violations.Add($"مفاتيح Hik-Partner Pro غير مضبوطة: عيّن متغيري البيئة {h.AppKeyEnv}/{h.SecretKeyEnv}.")
             Else
@@ -84,6 +87,14 @@ Public NotInheritable Class StartupSecurityValidator
         End If
         r.Warnings.Add("مفاتيح Hik-Partner Pro تتحكم بكل أجهزة الحساب لا بالكاميرتين وحدهما: استعمل حساب شركة مخصصاً إن أمكن، واحمِ بيئة تشغيل البوابة.")
     End Sub
+
+    Private Shared Function IsEnvName(name As String) As Boolean
+        If String.IsNullOrEmpty(name) OrElse name.Length > 64 OrElse Char.IsDigit(name(0)) Then Return False
+        For Each ch As Char In name
+            If Not ((ch >= "A"c AndAlso ch <= "Z"c) OrElse (ch >= "0"c AndAlso ch <= "9"c) OrElse ch = "_"c) Then Return False
+        Next
+        Return True
+    End Function
 
     Public Shared Function Check(o As GatewayOptions, env As Func(Of String, String), userCount As Integer, anyTotpEnrolled As Boolean,
                                  cameras As IEnumerable(Of CameraConnection), nowUtc As DateTime) As ValidationReport

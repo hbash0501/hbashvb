@@ -37,12 +37,17 @@ Namespace Cloud
         Public ReadOnly Property Outcome As HppOutcome
         Public ReadOnly Property Code As String
         Public ReadOnly Property HttpStatus As Integer
+        ''' <summary>ترويستا X-DeviceCode وX-EZO-Code (منقّاتان) إن وُجدتا — للتشخيص فقط.</summary>
+        Public ReadOnly Property DeviceCode As String
+        Public ReadOnly Property EzoCode As String
 
-        Public Sub New(serial As String, outcome As HppOutcome, code As String, httpStatus As Integer)
+        Public Sub New(serial As String, outcome As HppOutcome, code As String, httpStatus As Integer, Optional deviceCode As String = "", Optional ezoCode As String = "")
             Me.Serial = serial
             Me.Outcome = outcome
             Me.Code = code
             Me.HttpStatus = httpStatus
+            Me.DeviceCode = If(deviceCode, "")
+            Me.EzoCode = If(ezoCode, "")
         End Sub
     End Class
 
@@ -63,11 +68,14 @@ Namespace Cloud
         ''' <summary>"https://host" بلا مسار.</summary>
         Public ReadOnly Property Area As String
         Public ReadOnly Property RefreshAtUtc As DateTime
+        ''' <summary>الانتهاء الفعلي (expireTime): حتى هذه اللحظة يبقى الرمز صالحاً للاستعمال إن تعذّر التجديد.</summary>
+        Public ReadOnly Property ExpiresUtc As DateTime
 
-        Public Sub New(token As String, area As String, refreshAtUtc As DateTime)
+        Public Sub New(token As String, area As String, refreshAtUtc As DateTime, expiresUtc As DateTime)
             Me.Token = token
             Me.Area = area
             Me.RefreshAtUtc = refreshAtUtc
+            Me.ExpiresUtc = expiresUtc
         End Sub
     End Class
 
@@ -122,6 +130,7 @@ Namespace Cloud
                 Dim until As Long = _now() + CLng(seconds * _freq)
                 If until > _blockedUntil Then _blockedUntil = until
                 _tokens = 0
+                _last = _blockedUntil     ' لا يُحتسب زمن الحجب رصيداً: بعده يعود المعدل تدريجياً لا دفعة كاملة
             End SyncLock
         End Sub
 
@@ -164,7 +173,8 @@ Namespace Cloud
         Private ReadOnly _clock As IClock
         Private ReadOnly _http As HttpClient
         Private ReadOnly _tokenUri As Uri
-        Private ReadOnly _gate As New Threading.SemaphoreSlim(1, 1)
+        Private ReadOnly _sync As New Object()
+        Private _inflight As Task(Of HppAuth)
         Private _auth As HppAuth
         Private _failure As HppCloudException
         Private _transientUntil As DateTime = DateTime.MinValue
@@ -238,43 +248,90 @@ Namespace Cloud
         ' ---------------- الرمز ----------------
         ''' <summary>
         ''' رمز صالح (مخبّأ). <paramref name="rejectedToken"/> = رمز رفضته السحابة للتو: لا يُعاد، فيُجلب غيره (أو يُعاد رمز جلبه خيط آخر).
-        ''' بعد رفض المفاتيح يُحجب الجلب 60 ث (لا نُغرق الخدمة بمفاتيح خاطئة)، وبعد خطأ شبكة عابر ثانيتين.
+        ''' التجديد يبدأ قبل الانتهاء؛ إن تعذّر (انقطاع خدمة الرمز، رفض، مهلة) يبقى الرمز الحالي مستعملاً حتى انتهائه الفعلي، ولا ينتظر
+        ''' أي نداء خلف تجديد معلّق ما دام رمز صالح متاحاً (أوامر الإيقاف لا تتأخر). بعد رفض المفاتيح يُحجب الجلب 60 ث، وبعد خطأ عابر ثانيتين.
         ''' </summary>
         Friend Async Function GetAuthAsync(rejectedToken As String, ct As Threading.CancellationToken) As Task(Of HppAuth)
             Dim cur As HppAuth = Threading.Volatile.Read(_auth)
-            If IsUsable(cur, rejectedToken) Then Return cur
-            Await _gate.WaitAsync(ct).ConfigureAwait(False)
-            Try
+            If IsFresh(cur, rejectedToken) Then Return cur
+            Dim fallback As HppAuth
+            Dim fetch As Task(Of HppAuth)
+            SyncLock _sync
                 cur = _auth
-                If IsUsable(cur, rejectedToken) Then Return cur
+                If IsFresh(cur, rejectedToken) Then Return cur
+                fallback = If(IsStillValid(cur, rejectedToken), cur, Nothing)
                 Dim now As DateTime = _clock.UtcNow
-                If _failure IsNot Nothing AndAlso now < _failureUntil Then Throw _failure
-                If now < _transientUntil Then Throw New HttpRequestException("تعذّر الوصول إلى Hik-Partner Pro (مؤقت).")
-                Dim fetched As HppAuth = Nothing
-                Dim transient As Boolean = False
-                Try
-                    fetched = Await FetchTokenAsync(ct).ConfigureAwait(False)
-                Catch ex As HppCloudException
-                    _failure = ex
-                    _failureUntil = _clock.UtcNow + AuthFailBackoff
-                    Throw
-                Catch ex As HttpRequestException
-                    transient = True
-                End Try
-                If transient Then
-                    _transientUntil = _clock.UtcNow + TransientBackoff
+                If _failure IsNot Nothing AndAlso now < _failureUntil Then
+                    If fallback IsNot Nothing Then Return fallback
+                    Throw New HppCloudException(_failure.Code, _failure.Message, _failure.IsAuthFailure)
+                End If
+                If now < _transientUntil Then
+                    If fallback IsNot Nothing Then Return fallback
                     Throw New HttpRequestException("تعذّر الوصول إلى Hik-Partner Pro (مؤقت).")
                 End If
-                _failure = Nothing
-                Threading.Volatile.Write(_auth, fetched)
-                Return fetched
-            Finally
-                _gate.Release()
+                ' جلب واحد مشترك (single-flight) بمهلته الخاصة، غير مربوط بإلغاء المستدعي: مهلة طلب واحد لا تُجهض الجلب لغيره.
+                If _inflight Is Nothing OrElse _inflight.IsCompleted Then
+                    _inflight = FetchAndStoreAsync()
+                    Dim observer As Task = _inflight.ContinueWith(Sub(t) ObserveFault(t), Threading.CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default)
+                End If
+                fetch = _inflight
+            End SyncLock
+            ' رمز ما زال صالحاً ⇒ يُستعمل فوراً والتجديد يكمل في الخلفية (أوامر الإيقاف لا تنتظر تجديداً معلّقاً).
+            If fallback IsNot Nothing Then Return fallback
+            Return Await fetch.WaitAsync(ct).ConfigureAwait(False)
+        End Function
+
+        Private Shared Sub ObserveFault(t As Task)
+            Dim unused As AggregateException = t.Exception
+        End Sub
+
+        Private Async Function FetchAndStoreAsync() As Task(Of HppAuth)
+            Try
+                Dim a As HppAuth = Await FetchTokenAsync(Threading.CancellationToken.None).ConfigureAwait(False)
+                SyncLock _sync
+                    _failure = Nothing
+                    Threading.Volatile.Write(_auth, a)
+                End SyncLock
+                Return a
+            Catch ex As HppCloudException
+                SyncLock _sync
+                    _failure = ex
+                    _failureUntil = _clock.UtcNow + AuthFailBackoff
+                End SyncLock
+                Throw New HppCloudException(ex.Code, ex.Message, ex.IsAuthFailure)
+            Catch ex As HttpRequestException
+                SyncLock _sync
+                    _transientUntil = _clock.UtcNow + TransientBackoff
+                End SyncLock
+                Throw New HttpRequestException("تعذّر الوصول إلى Hik-Partner Pro (مؤقت).")
             End Try
         End Function
 
-        Private Function IsUsable(a As HppAuth, rejectedToken As String) As Boolean
-            Return a IsNot Nothing AndAlso _clock.UtcNow < a.RefreshAtUtc AndAlso (rejectedToken Is Nothing OrElse Not String.Equals(a.Token, rejectedToken, StringComparison.Ordinal))
+        Private Function IsFresh(a As HppAuth, rejectedToken As String) As Boolean
+            Return a IsNot Nothing AndAlso _clock.UtcNow < a.RefreshAtUtc AndAlso NotRejected(a, rejectedToken)
+        End Function
+
+        Private Function IsStillValid(a As HppAuth, rejectedToken As String) As Boolean
+            Return a IsNot Nothing AndAlso _clock.UtcNow < a.ExpiresUtc AndAlso NotRejected(a, rejectedToken)
+        End Function
+
+        Private Shared Function NotRejected(a As HppAuth, rejectedToken As String) As Boolean
+            Return rejectedToken Is Nothing OrElse Not String.Equals(a.Token, rejectedToken, StringComparison.Ordinal)
+        End Function
+
+        ''' <summary>
+        ''' تصنيف فشل جلب الرمز: رفض المفاتيح فعلاً (حسب رموز الدليل أو HTTP 401/403) ⇒ فشل مصادقة؛ عطل الخدمة أو تقييد المعدل ⇒ عابر
+        ''' (لا يُعامَل كمفاتيح خاطئة فلا يفتح قاطع الكاميرا)؛ غير ذلك ⇒ رفض عام يُغلق بأمان.
+        ''' </summary>
+        Private Shared ReadOnly KeyRejectionCodes As String() = {"LAP300001", "LAP300002", "LAP300003", "LAP500002", "LAP500003", "LAP500004", "LAP500005", "EVZ10013", "EVZ10006"}
+        Private Shared ReadOnly TransientTokenCodes As String() = {"LAP500001", "LAP500007", "EVZ10007", "EVZ10029", "LAP000000", "EVZ50000", "EVZ49999", "LAP033005", "LAP008008", "LAP006006"}
+
+        Friend Shared Function ClassifyTokenFailure(code As String, httpStatus As Integer) As String
+            If KeyRejectionCodes.Contains(code, StringComparer.OrdinalIgnoreCase) Then Return "auth"
+            If TransientTokenCodes.Contains(code, StringComparer.OrdinalIgnoreCase) Then Return "transient"
+            If httpStatus >= 500 OrElse httpStatus = 429 OrElse httpStatus = 408 Then Return "transient"
+            If httpStatus = 401 OrElse httpStatus = 403 Then Return "auth"
+            Return "other"
         End Function
 
         Private Async Function FetchTokenAsync(ct As Threading.CancellationToken) As Task(Of HppAuth)
@@ -294,28 +351,42 @@ Namespace Cloud
                     End Try
                 End Using
             End Using
-            Dim code As String = "HTTP" & status.ToString(Globalization.CultureInfo.InvariantCulture)
-            Dim tokenText As String = Nothing
-            Dim areaText As String = Nothing
+            Dim httpCode As String = "HTTP" & status.ToString(Globalization.CultureInfo.InvariantCulture)
+            Dim code As String = Nothing
+            Dim tokenText As String = ""
+            Dim areaText As String = ""
             Dim expMs As Long = 0
+            Dim parsed As Boolean = False
             Try
                 Using doc As JsonDocument = JsonDocument.Parse(bytes)
                     Dim root As JsonElement = doc.RootElement
                     If root.ValueKind = JsonValueKind.Object Then
-                        code = HppJson.ErrorCodeOf(root, code)
+                        parsed = True
+                        code = HppJson.ErrorCodeOf(root, Nothing)
+                        ' الدليل نفسه يعرض شكلين: §2.2 داخل "data" مع errorCode، و§3.1.1 الحقول في الجذر (وبمسافات زائدة في الأسماء).
                         Dim data As JsonElement
-                        If root.TryGetProperty("data", data) AndAlso data.ValueKind = JsonValueKind.Object Then
-                            tokenText = HppJson.StringOf(data, "accessToken")
-                            areaText = HppJson.StringOf(data, "areaDomain")
-                            expMs = HppJson.LongOf(data, "expireTime")
-                        End If
+                        Dim holder As JsonElement = root
+                        If HppJson.TryGetLoose(root, "data", data) AndAlso data.ValueKind = JsonValueKind.Object Then holder = data
+                        tokenText = HppJson.StringOf(holder, "accessToken")
+                        areaText = HppJson.StringOf(holder, "areaDomain")
+                        expMs = HppJson.LongOf(holder, "expireTime")
                     End If
                 End Using
             Catch ex As JsonException
-                Throw New HppCloudException("badResponse", "رد غير مفهوم من خدمة الرمز في Hik-Partner Pro.", False)
+                parsed = False
             End Try
-            If code <> "0" OrElse String.IsNullOrEmpty(tokenText) Then
-                Throw New HppCloudException(HppJson.SafeCode(code), $"رفضت Hik-Partner Pro جلب الرمز ({HppJson.SafeCode(code)}): تحقق من المفاتيح ومن الصلاحية.", True)
+            If Not parsed AndAlso status >= 200 AndAlso status < 300 Then Throw New HppCloudException("badResponse", "رد غير مفهوم من خدمة الرمز في Hik-Partner Pro.", False)
+            If code Is Nothing Then code = If(status >= 200 AndAlso status < 300 AndAlso tokenText <> "", "0", httpCode)
+            If code <> "0" OrElse status < 200 OrElse status >= 300 OrElse tokenText = "" Then
+                Dim effective As String = If(code = "0", httpCode, code)
+                Select Case ClassifyTokenFailure(effective, status)
+                    Case "transient"
+                        Throw New HttpRequestException("خدمة الرمز في Hik-Partner Pro غير متاحة مؤقتاً.")
+                    Case "auth"
+                        Throw New HppCloudException(HppJson.SafeCode(effective), $"رفضت Hik-Partner Pro المفاتيح ({HppJson.SafeCode(effective)}): تحقق من API Key/Secret ومن الصلاحية.", True)
+                    Case Else
+                        Throw New HppCloudException(HppJson.SafeCode(effective), $"تعذّر جلب رمز Hik-Partner Pro ({HppJson.SafeCode(effective)}).", False)
+                End Select
             End If
             Dim area As String = NormalizeServiceUrl(areaText, _options.AllowedHostSuffixes)
             If area Is Nothing Then Throw New HppCloudException("badAreaDomain", "نطاق الخدمة المُعاد من Hik-Partner Pro مرفوض (ليس https ضمن اللواحق المسموحة).", False)
@@ -329,7 +400,7 @@ Namespace Cloud
             Dim lifetime As TimeSpan = expires - now
             If lifetime < TimeSpan.FromMinutes(2) Then Throw New HppCloudException("badExpiry", "مدة صلاحية الرمز غير صالحة.", False)
             Dim margin As TimeSpan = If(lifetime / 10 < MaxRefreshMargin, lifetime / 10, MaxRefreshMargin)
-            Return New HppAuth(tokenText, area, expires - margin)
+            Return New HppAuth(tokenText, area, expires - margin, expires)
         End Function
 
         ' ---------------- نداءات عامة (للأوامر الإدارية) ----------------
@@ -385,6 +456,7 @@ Namespace Cloud
                         ok = True
                         Exit For
                     End If
+                    If code = "0" Then Exit For   ' نجاح بلا صفوف (rows غائب/فارغ) ⇒ نهاية القائمة
                     If attempt = 0 AndAlso HppResponseMapper.IsTokenRejected(code) Then
                         Await GetAuthAsync(auth.Token, ct).ConfigureAwait(False)
                         Continue For
@@ -424,7 +496,6 @@ Namespace Cloud
 
         Public Sub Dispose() Implements IDisposable.Dispose
             _http.Dispose()
-            _gate.Dispose()
         End Sub
     End Class
 
@@ -435,7 +506,7 @@ Namespace Cloud
 
         Public Shared Function ErrorCodeOf(root As JsonElement, fallback As String) As String
             Dim v As JsonElement
-            If Not root.TryGetProperty("errorCode", v) Then Return fallback
+            If Not TryGetLoose(root, "errorCode", v) Then Return fallback
             Select Case v.ValueKind
                 Case JsonValueKind.String : Return If(String.IsNullOrWhiteSpace(v.GetString()), "0", v.GetString().Trim())
                 Case JsonValueKind.Number : Return v.GetRawText()
@@ -444,15 +515,28 @@ Namespace Cloud
             End Select
         End Function
 
+        ''' <summary>بحث متسامح عن خاصية: مطابقة تامة أولاً ثم بتجاهل المسافات المحيطة وحالة الأحرف (أمثلة الدليل فيها "accessToken ").</summary>
+        Public Shared Function TryGetLoose(o As JsonElement, name As String, ByRef value As JsonElement) As Boolean
+            If o.ValueKind <> JsonValueKind.Object Then Return False
+            If o.TryGetProperty(name, value) Then Return True
+            For Each p As JsonProperty In o.EnumerateObject()
+                If String.Equals(p.Name.Trim(), name, StringComparison.OrdinalIgnoreCase) Then
+                    value = p.Value
+                    Return True
+                End If
+            Next
+            Return False
+        End Function
+
         Public Shared Function StringOf(o As JsonElement, name As String) As String
             Dim v As JsonElement
-            If o.TryGetProperty(name, v) AndAlso v.ValueKind = JsonValueKind.String Then Return If(v.GetString(), "")
+            If TryGetLoose(o, name, v) AndAlso v.ValueKind = JsonValueKind.String Then Return If(v.GetString(), "").Trim()
             Return ""
         End Function
 
         Public Shared Function LongOf(o As JsonElement, name As String) As Long
             Dim v As JsonElement
-            If Not o.TryGetProperty(name, v) Then Return 0
+            If Not TryGetLoose(o, name, v) Then Return 0
             Dim n As Long
             If v.ValueKind = JsonValueKind.Number AndAlso v.TryGetInt64(n) Then Return n
             If v.ValueKind = JsonValueKind.String AndAlso Long.TryParse(v.GetString(), Globalization.NumberStyles.Integer, Globalization.CultureInfo.InvariantCulture, n) Then Return n

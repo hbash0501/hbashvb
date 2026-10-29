@@ -148,11 +148,17 @@ Namespace Api
             cam.BumpStopGeneration()
             cam.NotifyMotion(1.0)
             Await cam.PtzGate.WaitAsync(c.Ct).ConfigureAwait(False)
+            Dim failed As Boolean = False
             Try
                 cam.Lease.OnStop(c.Rec.SessionId)
                 Await ctl.StopAsync(c.Ct).ConfigureAwait(False)
+            Catch ex As Exception When TypeOf ex Is Ptz.Core.Isapi.IsapiException OrElse TypeOf ex Is OperationCanceledException
+                failed = True
+                Throw
             Finally
                 cam.PtzGate.Release()
+                ' العقد أُلغي أعلاه فلن يطلق إيقافاً: إعادة في الخلفية (الإيقاف لا يُترك لنداء واحد، خاصة عبر السحابة أو عند إغلاق الصفحة).
+                If failed Then cam.ScheduleStopRetry()
             End Try
         End Function
 

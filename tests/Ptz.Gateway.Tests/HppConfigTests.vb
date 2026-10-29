@@ -139,6 +139,16 @@ Public Class HppConfigTests
         Assert.True(Has(mixed, "HTTP بلا AllowInsecureHttp"))
     End Sub
 
+    <Fact>
+    Public Sub EnvVarNames_MustBeNames_AndAKeyPastedThereIsNeverEchoed()
+        Dim o As New GatewayOptions()
+        o.Hpp.Enabled = True
+        o.Hpp.SecretKeyEnv = "b2391x54rpcp1k-REAL-SECRET"
+        Dim r As ValidationReport = Check(o, KeysEnv(), Relay("SE7SERIAL"))
+        Assert.True(Has(r, "اسمي متغيري بيئة"))
+        Assert.DoesNotContain(r.Violations.Concat(r.Warnings), Function(m) m.Contains("REAL-SECRET"))
+    End Sub
+
     ' ===================== CLI =====================
     Private Function NewCli(sw As IO.StringWriter, fake As FakeHppCloud, Optional withKeys As Boolean = True) As Cli
         Dim env As Func(Of String, String) = If(withKeys, KeysEnv(), Function(k) Nothing)

@@ -81,7 +81,7 @@ Namespace Hosting
         Public Function CreateCameraHandler(conn As CameraConnection) As HttpMessageHandler
             If conn.IsRelay Then
                 If Hpp Is Nothing Then Throw New InvalidOperationException("النقل السحابي غير مفعّل أو مفاتيحه غير مضبوطة (Hpp.Enabled + متغيرا البيئة).")
-                Return New CameraGuardHandler(New HppRelayHandler(Hpp, conn.CloudSerial), Clock)
+                Return New CameraGuardHandler(New HppRelayHandler(Hpp, conn.CloudSerial, conn.TimeoutSeconds), Clock)
             End If
             Return New CameraGuardHandler(IsapiClientHandler(conn), Clock)
         End Function
@@ -100,7 +100,8 @@ Namespace Hosting
             If _hppAuditThrottle.TryGetValue(key, last) AndAlso (now - last).TotalSeconds < 60 Then Return
             _hppAuditThrottle(key) = now
             If _hppAuditThrottle.Count > 256 Then _hppAuditThrottle.Clear()
-            Audit.Write("svc:hpp", "Hpp.Error", e.Serial, "FAIL", $"{e.Outcome} {e.Code} http={e.HttpStatus}")
+            Dim extra As String = If(e.DeviceCode <> "", " dev=" & e.DeviceCode, "") & If(e.EzoCode <> "", " ezo=" & e.EzoCode, "")
+            Audit.Write("svc:hpp", "Hpp.Error", e.Serial, "FAIL", $"{e.Outcome} {e.Code} http={e.HttpStatus}{extra}")
         End Sub
 
         Private Shared Function WireMapParse(name As String, ByRef r As Role) As Boolean

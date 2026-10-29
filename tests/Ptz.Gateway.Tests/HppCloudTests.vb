@@ -46,7 +46,172 @@ Public Class HppCloudTests
             Http.Dispose()
             Cloud.Dispose()
         End Sub
-    End Class
+    
+    ' ===================== إصلاحات المراجعة =====================
+    <Fact>
+    Public Sub TokenResponse_FlatShapeOfSection311_IsAccepted()
+        Using r As New Rig()
+            r.Fake.TokenShape = "flat"     ' {"accessToken ": ..., "expireTime ": ...} بلا data ولا errorCode
+            Assert.Equal(HttpStatusCode.OK, r.Put(Continuous, Move(5)).StatusCode)
+            Assert.Equal("Bearer hpc.tok1", r.Fake.Transparent().Single().Authorization)
+        End Using
+    End Sub
+
+    Public Shared Iterator Function TokenOutages() As IEnumerable(Of Object())
+        Yield {500, "{}"}
+        Yield {503, "Service Unavailable"}
+        Yield {429, "{""errorCode"":""LAP500007""}"}
+        Yield {200, "{""errorCode"":""LAP500001""}"}
+        Yield {200, "{""errorCode"":""LAP500007""}"}
+    End Function
+
+    <Theory>
+    <MemberData(NameOf(TokenOutages))>
+    Public Sub TokenServiceOutage_IsTransient_NeverAKeyRejection_SoTheBreakerStaysClosed(status As Integer, body As String)
+        Using r As New Rig()
+            r.Fake.TokenOverride = Function() New HttpResponseMessage(CType(status, HttpStatusCode)) With {.Content = New StringContent(body, Encoding.UTF8, "application/json")}
+            Assert.Throws(Of HttpRequestException)(Sub() r.Put(Continuous, Move(1)))      ' خطأ نقل (503 للعميل) لا 401
+            Assert.DoesNotContain(r.Events, Function(e) e.Outcome = HppOutcome.AuthRejected)
+            r.Fake.TokenOverride = Nothing
+            r.Clock.Advance(3)
+            Assert.Equal(HttpStatusCode.OK, r.Put(Continuous, Move(1)).StatusCode)
+        End Using
+    End Sub
+
+    <Fact>
+    Public Sub StillValidToken_KeepsWorking_WhenItsRefreshFails_UntilItReallyExpires()
+        Using r As New Rig()
+            r.Put(Continuous, Move(1))
+            r.Clock.Advance(6.8 * 86400)        ' التجديد مستحق، والرمز صالح حتى اليوم السابع
+            r.Fake.TokenRequestsFail = True
+            Assert.Equal(HttpStatusCode.OK, r.Put(Continuous, Move(0)).StatusCode)     ' إيقاف لا ينتظر تجديداً فاشلاً
+            Assert.Equal("Bearer hpc.tok1", r.Fake.Transparent().Last().Authorization)
+            GwWait.WaitFor(Function() r.Fake.TokenCalls >= 2)
+            Assert.True(r.Fake.TokenCalls >= 2, "التجديد جُرِّب في الخلفية")
+            r.Clock.Advance(0.5 * 86400)        ' انتهى فعلاً
+            Assert.Throws(Of HttpRequestException)(Sub() r.Put(Continuous, Move(1)))
+        End Using
+    End Sub
+
+    <Fact>
+    Public Sub ConcurrentCallers_ShareOneTokenFetch_AndOneCallersTimeoutDoesNotAbortIt()
+        Using r As New Rig()
+            r.Fake.TokenDelayMs = 400
+            Using cts As New Threading.CancellationTokenSource(50)
+                Dim req As New HttpRequestMessage(HttpMethod.Get, "ISAPI/System/deviceInfo")
+                Assert.ThrowsAny(Of OperationCanceledException)(Sub() r.Http.SendAsync(req, cts.Token).GetAwaiter().GetResult())
+            End Using
+            Dim tasks As Task(Of HttpResponseMessage)() = Enumerable.Range(0, 8).Select(Function(i) r.Http.GetAsync("ISAPI/System/deviceInfo")).ToArray()
+            Task.WaitAll(tasks)
+            Assert.All(tasks, Sub(t) Assert.Equal(HttpStatusCode.OK, t.Result.StatusCode))
+            Assert.Equal(1, r.Fake.TokenCalls)      ' الجلب الذي بدأه المستدعي الملغى أكمل لغيره
+        End Using
+    End Sub
+
+    <Fact>
+    Public Sub BareHttp401_FromTheCloud_RefreshesTheTokenOnce_ThenSucceeds()
+        Using r As New Rig()
+            Dim first As Boolean = True
+            r.Fake.TransparentOverride = Function(rec)
+                                             If first Then
+                                                 first = False
+                                                 Return New HttpResponseMessage(HttpStatusCode.Unauthorized)
+                                             End If
+                                             Return New HttpResponseMessage(HttpStatusCode.OK) With {.Content = New StringContent("<ResponseStatus><statusCode>1</statusCode><statusString>OK</statusString></ResponseStatus>", Encoding.UTF8, "application/xml")}
+                                         End Function
+            Assert.Equal(HttpStatusCode.OK, r.Put(Continuous, Move(1)).StatusCode)
+            Assert.Equal(2, r.Fake.TokenCalls)
+        End Using
+    End Sub
+
+    <Fact>
+    Public Sub StopPriority_IsOnePerSecondPerCamera_FurtherStopsGoThroughTheLimiter()
+        Using r As New Rig(Sub(o)
+                               o.MaxRequestsPerSecond = 0.2
+                               o.MaxBurst = 1
+                           End Sub)
+            Assert.Equal(HttpStatusCode.OK, r.Put(Continuous, Move(1)).StatusCode)      ' يستهلك الرصيد
+            Assert.Equal(HttpStatusCode.OK, r.Put(Continuous, Move(0)).StatusCode)      ' أول إيقاف: أولوية
+            Dim flood As HttpResponseMessage = r.Put(Continuous, Move(0))                ' ثانٍ فوراً: عبر المحدِّد ⇒ يُرفض
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, flood.StatusCode)
+            Assert.Contains("localRate", Body(flood))
+        End Using
+    End Sub
+
+    <Fact>
+    Public Sub UnconfirmedWrite_FailsClosed_UnlessTheOperatorOptedIn()
+        For Each optIn As Boolean In {False, True}
+            Using r As New Rig(Sub(o) o.AcceptUnconfirmedWrites = optIn)
+                r.Fake.TransparentOverride = Function(rec) New HttpResponseMessage(HttpStatusCode.OK)
+                Dim resp As HttpResponseMessage = r.Put(Continuous, Move(0))
+                Assert.Equal(If(optIn, HttpStatusCode.OK, HttpStatusCode.BadGateway), resp.StatusCode)
+            End Using
+        Next
+    End Sub
+
+    <Fact>
+    Public Sub XmlWithBomAndLeadingWhitespace_IsNormalised_SoTheControllerCanParseIt()
+        Using r As New Rig()
+            r.Fake.TransparentOverride = Function(rec) New HttpResponseMessage(HttpStatusCode.OK) With {
+                .Content = New ByteArrayContent(Encoding.UTF8.GetBytes(ChrW(&HFEFF) & vbLf & "  <DeviceInfo><model>DS-2SE7C432MW-AEB</model><firmwareVersion>V5</firmwareVersion></DeviceInfo>"))}
+            Dim conn As New CameraConnection With {.Transport = CameraTransport.HikPartnerPro, .CloudSerial = Serial}
+            Using ctl As Ptz.Core.Abstractions.ICameraController = Ptz.Core.Cameras.CameraControllerFactory.Create(CameraProfiles.Ds2Se7c432mwAeb, conn, New HppRelayHandler(r.Cloud, Serial))
+                Assert.Equal("DS-2SE7C432MW-AEB", ctl.ConnectAsync(Threading.CancellationToken.None).GetAwaiter().GetResult().Model)
+            End Using
+        End Using
+    End Sub
+
+    <Fact>
+    Public Sub DeviceAndEzoCodes_AreReportedForDiagnostics_ButDoNotDecideSuccess()
+        Using r As New Rig()
+            r.Fake.TransparentOverride = Function(rec)
+                                             Dim m As New HttpResponseMessage(HttpStatusCode.OK) With {.Content = New StringContent("<ResponseStatus><statusCode>1</statusCode><statusString>OK</statusString></ResponseStatus>", Encoding.UTF8, "application/xml")}
+                                             m.Headers.TryAddWithoutValidation("X-DeviceCode", "0x0")
+                                             m.Headers.TryAddWithoutValidation("X-EZO-Code", "200")
+                                             Return m
+                                         End Function
+            Assert.Equal(HttpStatusCode.OK, r.Put(Continuous, Move(0)).StatusCode)
+            Assert.Equal("0x0", r.Events.Last().DeviceCode)
+            Assert.Equal("200", r.Events.Last().EzoCode)
+        End Using
+    End Sub
+
+    <Fact>
+    Public Sub CallTimeout_EndsBeforeTheCameraTimeout_AndIsReportedAsUnreachable()
+        Using r As New Rig()
+            r.Get("ISAPI/System/deviceInfo")                 ' الرمز مخبّأ
+            r.Fake.DelayMs = 4000
+            Using http As New HttpClient(New HppRelayHandler(r.Cloud, Serial, cameraTimeoutSeconds:=3)) With {.BaseAddress = New Uri("https://hpp-relay.invalid/")}
+                Dim sw As Diagnostics.Stopwatch = Diagnostics.Stopwatch.StartNew()
+                Assert.Throws(Of HttpRequestException)(Sub() http.GetAsync("ISAPI/System/deviceInfo").GetAwaiter().GetResult())
+                Assert.True(sw.Elapsed < TimeSpan.FromSeconds(3.5), sw.Elapsed.ToString())
+            End Using
+            Assert.Equal(HppOutcome.DeviceUnreachable, r.Events.Last().Outcome)
+            Assert.Equal("cloudTimeout", r.Events.Last().Code)
+        End Using
+    End Sub
+
+    <Fact>
+    Public Sub RateLimiter_AfterAPenalty_ResumesGradually_NotWithAFullBurst()
+        Dim ticks As Long = 0
+        Dim lim As New HppRateLimiter(2.0, 5, Function() ticks, 1000.0)
+        lim.Penalize(3)
+        ticks += 3000
+        Assert.True(lim.Reserve() > TimeSpan.Zero, "لا رصيد متراكم من زمن الحجب")
+        ticks += 500
+        Assert.Equal(TimeSpan.Zero, lim.Reserve())
+        Assert.True(lim.Reserve() > TimeSpan.Zero)
+    End Sub
+
+    <Fact>
+    Public Sub RussiaRegionDomain_IsAllowedByDefault()
+        Using r As New Rig()
+            r.Fake.AreaDomain = "https://api.hik-partnerru.com"
+            Assert.Equal(HttpStatusCode.OK, r.Put(Continuous, Move(1)).StatusCode)
+            Assert.Equal("api.hik-partnerru.com", r.Fake.Transparent().Single().Host)
+        End Using
+    End Sub
+End Class
 
     Private Shared Function Move(pan As Integer) As String
         Return $"<PTZData version=""2.0"" xmlns=""http://www.hikvision.com/ver20/XMLSchema""><pan>{pan}</pan><tilt>0</tilt><zoom>0</zoom></PTZData>"
@@ -69,7 +234,7 @@ Public Class HppCloudTests
             Assert.Equal("", tokenReq.Authorization)
             Assert.Contains(FakeHppCloud.AppKey, tokenReq.Body)
             ' كل نداءات الخدمة على areaDomain المُعاد لا على النطاق العام.
-            Assert.All(r.Fake.Transparent(), Sub(x) Assert.Equal("apiisgp.hik-partner.com", x.Host))
+            Assert.All(r.Fake.Transparent(), Sub(x) Assert.Equal("isgpapi.hik-partner.com", x.Host))
         End Using
     End Sub
 
@@ -227,18 +392,23 @@ Public Class HppCloudTests
             Assert.Equal(Serial, rec.DevSerial)
             Assert.Equal("application/xml", rec.ContentType)
             Assert.Contains("http://www.isapi.org/ver20/XMLSchema", rec.Body)
+            Assert.StartsWith("<?xml version=""1.0"" encoding=""UTF-8""?>", rec.Body)
+            Assert.Empty(r.Fake.Violations)
             Assert.DoesNotContain("hikvision.com", rec.Body)
             Assert.Contains("<pan>40</pan>", rec.Body)
         End Using
     End Sub
 
     <Fact>
-    Public Sub GetRequest_HasNoBody_AndReturnsXmlUnchanged()
+    Public Sub GetRequest_HasAnEmptyBody_ButStillCarriesTheMandatoryContentType()
         Using r As New Rig()
             Dim resp As HttpResponseMessage = r.Get("ISAPI/System/deviceInfo")
             Assert.Equal(HttpStatusCode.OK, resp.StatusCode)
             Assert.Contains("<model>DS-2SE7C432MW-AEB</model>", Body(resp))
-            Assert.True(String.IsNullOrEmpty(r.Fake.Transparent().Single().ContentType))
+            Dim rec = r.Fake.Transparent().Single()
+            Assert.Equal("application/xml", rec.ContentType)    ' الدليل: Content-Type إلزامي (جدول 3-101)
+            Assert.Equal("", rec.Body)
+            Assert.Empty(r.Fake.Violations)
         End Using
     End Sub
 
@@ -351,9 +521,17 @@ Public Class HppCloudTests
         Dim xml As Byte() = Encoding.UTF8.GetBytes("<DeviceInfo/>")
         Assert.Equal(HppOutcome.Ok, HppResponseMapper.Map(False, 200, Nothing, "application/xml", xml).Outcome)
         Assert.Equal(HppOutcome.Ok, HppResponseMapper.Map(False, 200, "0", "application/xml", xml).Outcome)
-        ' الكتابة: جسم فارغ أو JSON {errorCode:0} نجاح.
-        Assert.Equal(HppOutcome.Ok, HppResponseMapper.Map(True, 200, Nothing, Nothing, Array.Empty(Of Byte)()).Outcome)
-        Assert.Equal(HppOutcome.Ok, HppResponseMapper.Map(True, 200, Nothing, "application/json", Encoding.UTF8.GetBytes("{""errorCode"":""0""}")).Outcome)
+        ' الكتابة: لا تُعدّ ناجحة إلا بـ ResponseStatus (الدليل)؛ الفارغ/JSON/XML آخر = غير مؤكَّد ⇒ فشل آمن.
+        Dim okStatus As Byte() = Encoding.UTF8.GetBytes("<ResponseStatus><statusCode>1</statusCode><statusString>OK</statusString></ResponseStatus>")
+        Assert.Equal(HppOutcome.Ok, HppResponseMapper.Map(True, 200, Nothing, "application/xml", okStatus).Outcome)
+        For Each unconfirmed As Byte() In {Array.Empty(Of Byte)(), Encoding.UTF8.GetBytes("{""errorCode"":""0""}"), Encoding.UTF8.GetBytes("{""errorCode"":null}"),
+                                           Encoding.UTF8.GetBytes("{""statusCode"":4,""statusString"":""Invalid Operation""}"), Encoding.UTF8.GetBytes("<DeviceInfo/>")}
+            Dim m As HppMapped = HppResponseMapper.Map(True, 200, Nothing, Nothing, unconfirmed)
+            Assert.Equal(502, m.Status)
+            Assert.Equal("unconfirmed", m.Code)
+            ' مخرج يدوي موثَّق: يقبلها فقط إن فعّله المشغّل بعد تحقق ميداني.
+            Assert.Equal(HppOutcome.Ok, HppResponseMapper.Map(True, 200, Nothing, Nothing, unconfirmed, acceptUnconfirmed:=True).Outcome)
+        Next
         ' القراءة بلا XML فشل (لا نسلّم JSON/HTML لمحلل XML).
         Assert.Equal(502, HppResponseMapper.Map(False, 200, Nothing, "application/json", Encoding.UTF8.GetBytes("{""errorCode"":""0""}")).Status)
         Assert.Equal(502, HppResponseMapper.Map(True, 200, Nothing, "text/html", Encoding.UTF8.GetBytes("Bad Gateway")).Status)
@@ -478,7 +656,7 @@ Public Class HppCloudTests
         lim.Penalize(3)
         Assert.True(lim.Reserve() >= TimeSpan.FromSeconds(2.9))
         Assert.False(lim.WaitAsync(TimeSpan.FromSeconds(1), Threading.CancellationToken.None).GetAwaiter().GetResult())
-        ticks += 3000
+        ticks += 3500         ' انتهى الحجب + نصف ثانية ⇒ رمز واحد (لا دفعة كاملة؛ انظر الاختبار التالي)
         Assert.True(lim.WaitAsync(TimeSpan.FromSeconds(1), Threading.CancellationToken.None).GetAwaiter().GetResult())
     End Sub
 
@@ -506,5 +684,170 @@ Public Class HppCloudTests
         Next
         Assert.Throws(Of InvalidOperationException)(Sub() Ptz.Core.Isapi.IsapiClient.CreateSecureHandler(c))
         Assert.Throws(Of InvalidOperationException)(Function() New Ptz.Core.Isapi.IsapiClient(c))
+    End Sub
+
+    ' ===================== إصلاحات المراجعة =====================
+    <Fact>
+    Public Sub TokenResponse_FlatShapeOfSection311_IsAccepted()
+        Using r As New Rig()
+            r.Fake.TokenShape = "flat"     ' {"accessToken ": ..., "expireTime ": ...} بلا data ولا errorCode
+            Assert.Equal(HttpStatusCode.OK, r.Put(Continuous, Move(5)).StatusCode)
+            Assert.Equal("Bearer hpc.tok1", r.Fake.Transparent().Single().Authorization)
+        End Using
+    End Sub
+
+    Public Shared Iterator Function TokenOutages() As IEnumerable(Of Object())
+        Yield {500, "{}"}
+        Yield {503, "Service Unavailable"}
+        Yield {429, "{""errorCode"":""LAP500007""}"}
+        Yield {200, "{""errorCode"":""LAP500001""}"}
+        Yield {200, "{""errorCode"":""LAP500007""}"}
+    End Function
+
+    <Theory>
+    <MemberData(NameOf(TokenOutages))>
+    Public Sub TokenServiceOutage_IsTransient_NeverAKeyRejection_SoTheBreakerStaysClosed(status As Integer, body As String)
+        Using r As New Rig()
+            r.Fake.TokenOverride = Function() New HttpResponseMessage(CType(status, HttpStatusCode)) With {.Content = New StringContent(body, Encoding.UTF8, "application/json")}
+            Assert.Throws(Of HttpRequestException)(Sub() r.Put(Continuous, Move(1)))      ' خطأ نقل (503 للعميل) لا 401
+            Assert.DoesNotContain(r.Events, Function(e) e.Outcome = HppOutcome.AuthRejected)
+            r.Fake.TokenOverride = Nothing
+            r.Clock.Advance(3)
+            Assert.Equal(HttpStatusCode.OK, r.Put(Continuous, Move(1)).StatusCode)
+        End Using
+    End Sub
+
+    <Fact>
+    Public Sub StillValidToken_KeepsWorking_WhenItsRefreshFails_UntilItReallyExpires()
+        Using r As New Rig()
+            r.Put(Continuous, Move(1))
+            r.Clock.Advance(6.8 * 86400)        ' التجديد مستحق، والرمز صالح حتى اليوم السابع
+            r.Fake.TokenRequestsFail = True
+            Assert.Equal(HttpStatusCode.OK, r.Put(Continuous, Move(0)).StatusCode)     ' إيقاف لا ينتظر تجديداً فاشلاً
+            Assert.Equal("Bearer hpc.tok1", r.Fake.Transparent().Last().Authorization)
+            GwWait.WaitFor(Function() r.Fake.TokenCalls >= 2)
+            Assert.True(r.Fake.TokenCalls >= 2, "التجديد جُرِّب في الخلفية")
+            r.Clock.Advance(0.5 * 86400)        ' انتهى فعلاً
+            Assert.Throws(Of HttpRequestException)(Sub() r.Put(Continuous, Move(1)))
+        End Using
+    End Sub
+
+    <Fact>
+    Public Sub ConcurrentCallers_ShareOneTokenFetch_AndOneCallersTimeoutDoesNotAbortIt()
+        Using r As New Rig()
+            r.Fake.TokenDelayMs = 400
+            Using cts As New Threading.CancellationTokenSource(50)
+                Dim req As New HttpRequestMessage(HttpMethod.Get, "ISAPI/System/deviceInfo")
+                Assert.ThrowsAny(Of OperationCanceledException)(Sub() r.Http.SendAsync(req, cts.Token).GetAwaiter().GetResult())
+            End Using
+            Dim tasks As Task(Of HttpResponseMessage)() = Enumerable.Range(0, 8).Select(Function(i) r.Http.GetAsync("ISAPI/System/deviceInfo")).ToArray()
+            Task.WaitAll(tasks)
+            Assert.All(tasks, Sub(t) Assert.Equal(HttpStatusCode.OK, t.Result.StatusCode))
+            Assert.Equal(1, r.Fake.TokenCalls)      ' الجلب الذي بدأه المستدعي الملغى أكمل لغيره
+        End Using
+    End Sub
+
+    <Fact>
+    Public Sub BareHttp401_FromTheCloud_RefreshesTheTokenOnce_ThenSucceeds()
+        Using r As New Rig()
+            Dim first As Boolean = True
+            r.Fake.TransparentOverride = Function(rec)
+                                             If first Then
+                                                 first = False
+                                                 Return New HttpResponseMessage(HttpStatusCode.Unauthorized)
+                                             End If
+                                             Return New HttpResponseMessage(HttpStatusCode.OK) With {.Content = New StringContent("<ResponseStatus><statusCode>1</statusCode><statusString>OK</statusString></ResponseStatus>", Encoding.UTF8, "application/xml")}
+                                         End Function
+            Assert.Equal(HttpStatusCode.OK, r.Put(Continuous, Move(1)).StatusCode)
+            Assert.Equal(2, r.Fake.TokenCalls)
+        End Using
+    End Sub
+
+    <Fact>
+    Public Sub StopPriority_IsOnePerSecondPerCamera_FurtherStopsGoThroughTheLimiter()
+        Using r As New Rig(Sub(o)
+                               o.MaxRequestsPerSecond = 0.2
+                               o.MaxBurst = 1
+                           End Sub)
+            Assert.Equal(HttpStatusCode.OK, r.Put(Continuous, Move(1)).StatusCode)      ' يستهلك الرصيد
+            Assert.Equal(HttpStatusCode.OK, r.Put(Continuous, Move(0)).StatusCode)      ' أول إيقاف: أولوية
+            Dim flood As HttpResponseMessage = r.Put(Continuous, Move(0))                ' ثانٍ فوراً: عبر المحدِّد ⇒ يُرفض
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, flood.StatusCode)
+            Assert.Contains("localRate", Body(flood))
+        End Using
+    End Sub
+
+    <Fact>
+    Public Sub UnconfirmedWrite_FailsClosed_UnlessTheOperatorOptedIn()
+        For Each optIn As Boolean In {False, True}
+            Using r As New Rig(Sub(o) o.AcceptUnconfirmedWrites = optIn)
+                r.Fake.TransparentOverride = Function(rec) New HttpResponseMessage(HttpStatusCode.OK)
+                Dim resp As HttpResponseMessage = r.Put(Continuous, Move(0))
+                Assert.Equal(If(optIn, HttpStatusCode.OK, HttpStatusCode.BadGateway), resp.StatusCode)
+            End Using
+        Next
+    End Sub
+
+    <Fact>
+    Public Sub XmlWithBomAndLeadingWhitespace_IsNormalised_SoTheControllerCanParseIt()
+        Using r As New Rig()
+            r.Fake.TransparentOverride = Function(rec) New HttpResponseMessage(HttpStatusCode.OK) With {
+                .Content = New ByteArrayContent(Encoding.UTF8.GetBytes(ChrW(&HFEFF) & vbLf & "  <DeviceInfo><model>DS-2SE7C432MW-AEB</model><firmwareVersion>V5</firmwareVersion></DeviceInfo>"))}
+            Dim conn As New CameraConnection With {.Transport = CameraTransport.HikPartnerPro, .CloudSerial = Serial}
+            Using ctl As Ptz.Core.Abstractions.ICameraController = Ptz.Core.Cameras.CameraControllerFactory.Create(CameraProfiles.Ds2Se7c432mwAeb, conn, New HppRelayHandler(r.Cloud, Serial))
+                Assert.Equal("DS-2SE7C432MW-AEB", ctl.ConnectAsync(Threading.CancellationToken.None).GetAwaiter().GetResult().Model)
+            End Using
+        End Using
+    End Sub
+
+    <Fact>
+    Public Sub DeviceAndEzoCodes_AreReportedForDiagnostics_ButDoNotDecideSuccess()
+        Using r As New Rig()
+            r.Fake.TransparentOverride = Function(rec)
+                                             Dim m As New HttpResponseMessage(HttpStatusCode.OK) With {.Content = New StringContent("<ResponseStatus><statusCode>1</statusCode><statusString>OK</statusString></ResponseStatus>", Encoding.UTF8, "application/xml")}
+                                             m.Headers.TryAddWithoutValidation("X-DeviceCode", "0x0")
+                                             m.Headers.TryAddWithoutValidation("X-EZO-Code", "200")
+                                             Return m
+                                         End Function
+            Assert.Equal(HttpStatusCode.OK, r.Put(Continuous, Move(0)).StatusCode)
+            Assert.Equal("0x0", r.Events.Last().DeviceCode)
+            Assert.Equal("200", r.Events.Last().EzoCode)
+        End Using
+    End Sub
+
+    <Fact>
+    Public Sub CallTimeout_EndsBeforeTheCameraTimeout_AndIsReportedAsUnreachable()
+        Using r As New Rig()
+            r.Get("ISAPI/System/deviceInfo")                 ' الرمز مخبّأ
+            r.Fake.DelayMs = 4000
+            Using http As New HttpClient(New HppRelayHandler(r.Cloud, Serial, cameraTimeoutSeconds:=3)) With {.BaseAddress = New Uri("https://hpp-relay.invalid/")}
+                Dim sw As Diagnostics.Stopwatch = Diagnostics.Stopwatch.StartNew()
+                Assert.Throws(Of HttpRequestException)(Sub() http.GetAsync("ISAPI/System/deviceInfo").GetAwaiter().GetResult())
+                Assert.True(sw.Elapsed < TimeSpan.FromSeconds(3.5), sw.Elapsed.ToString())
+            End Using
+            Assert.Equal(HppOutcome.DeviceUnreachable, r.Events.Last().Outcome)
+            Assert.Equal("cloudTimeout", r.Events.Last().Code)
+        End Using
+    End Sub
+
+    <Fact>
+    Public Sub RateLimiter_AfterAPenalty_ResumesGradually_NotWithAFullBurst()
+        Dim ticks As Long = 0
+        Dim lim As New HppRateLimiter(2.0, 5, Function() ticks, 1000.0)
+        lim.Penalize(3)
+        ticks += 3000
+        Assert.True(lim.Reserve() > TimeSpan.Zero, "لا رصيد متراكم من زمن الحجب")
+        ticks += 500
+        Assert.Equal(TimeSpan.Zero, lim.Reserve())
+        Assert.True(lim.Reserve() > TimeSpan.Zero)
+    End Sub
+
+    <Fact>
+    Public Sub RussiaRegionDomain_IsAllowedByDefault()
+        Using r As New Rig()
+            r.Fake.AreaDomain = "https://api.hik-partnerru.com"
+            Assert.Equal(HttpStatusCode.OK, r.Put(Continuous, Move(1)).StatusCode)
+            Assert.Equal("api.hik-partnerru.com", r.Fake.Transparent().Single().Host)
+        End Using
     End Sub
 End Class

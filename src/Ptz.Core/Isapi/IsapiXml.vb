@@ -80,7 +80,8 @@ Namespace Isapi
             Dim code As String = ValueOf(doc, "statusCode")
             Dim str As String = ValueOf(doc, "statusString")
             If code Is Nothing AndAlso str Is Nothing Then Return True ' ليس ResponseStatus
-            Return code = "1" OrElse String.Equals(str, "OK", StringComparison.OrdinalIgnoreCase)
+            ' 0 أو 1 = OK حسب تعريف XML_ResponseStatus (statusCode: "0,1-OK, 2-Device Busy...").
+            Return code = "1" OrElse code = "0" OrElse String.Equals(str, "OK", StringComparison.OrdinalIgnoreCase)
         End Function
     End Class
 

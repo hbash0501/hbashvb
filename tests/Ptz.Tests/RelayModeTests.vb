@@ -157,4 +157,10 @@ Public Class RelayModeTests
             End Try
         End Try
     End Sub
+    <Fact>
+    Public Sub ResponseStatus_ZeroIsOk_AsDefinedByXmlResponseStatus()
+        Assert.True(IsapiXml.IsOkStatus(IsapiXml.Parse("<ResponseStatus><statusCode>0</statusCode><statusString>x</statusString></ResponseStatus>")))
+        Assert.True(IsapiXml.IsOkStatus(IsapiXml.Parse("<ResponseStatus><statusCode>1</statusCode></ResponseStatus>")))
+        Assert.False(IsapiXml.IsOkStatus(IsapiXml.Parse("<ResponseStatus><statusCode>4</statusCode><statusString>Invalid Operation</statusString></ResponseStatus>")))
+    End Sub
 End Class

@@ -41,10 +41,9 @@ Namespace Cameras
             Next
         End Function
 
+        ''' <summary>بالتوازي: إيقاف كاميرا معلّقة (محاولات إيقاف عبر السحابة) لا يؤخر إيقاف الأخرى حتى تقتل الخدمةُ العملية.</summary>
         Public Async Function StopAllAsync() As Task
-            For Each h As CameraHost In All
-                Await h.StopAsync().ConfigureAwait(False)
-            Next
+            Await Task.WhenAll(All.Select(Function(h) h.StopAsync())).ConfigureAwait(False)
         End Function
     End Class
 

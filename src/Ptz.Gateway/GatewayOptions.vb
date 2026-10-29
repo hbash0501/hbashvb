@@ -65,12 +65,17 @@ Public NotInheritable Class HppOptions
     ''' <summary>نطاق الحصول على الرمز (مشترك لكل المناطق في الدليل). نطاق الخدمة الفعلي يأتي من الاستجابة (areaDomain).</summary>
     Public Property TokenUrl As String = "https://api.hik-partner.com"
     ''' <summary>لواحق المضيفين المقبولة للرمز ولـ areaDomain؛ الرمز لا يُرسَل أبداً إلى مضيف خارجها.</summary>
-    Public Property AllowedHostSuffixes As List(Of String) = New List(Of String) From {"hik-partner.com"}
+    Public Property AllowedHostSuffixes As List(Of String) = New List(Of String) From {"hik-partner.com", "hik-partnerru.com"}
     ''' <summary>مسارات إضافية يسمح بها المشغّل بصيغة "METHOD /ISAPI/...&lt;ID&gt;..." بعد التأكد من أنها مدعومة (قائمة tpp.hikvision.com).</summary>
     Public Property ExtraAllowed As List(Of String) = New List(Of String)()
     Public Property TimeoutSeconds As Integer = 12
     Public Property MaxRequestsPerSecond As Double = 5.0
     Public Property MaxBurst As Integer = 10
+    ''' <summary>
+    ''' الدليل يقول إن أوامر الكتابة تعيد XML_ResponseStatus؛ افتراضياً لا يُعدّ ردّ فارغ أو JSON بلا ResponseStatus نجاحاً (فشل آمن:
+    ''' إيقاف غير مؤكَّد يُعاد ولا يُسجَّل ناجحاً). فعّله فقط إن أثبت <c>hpp check --stop</c> أن الكاميرا تنفّذ والسحابة لا تعيد ResponseStatus.
+    ''' </summary>
+    Public Property AcceptUnconfirmedWrites As Boolean = False
 End Class
 
 Public NotInheritable Class GatewayOptions

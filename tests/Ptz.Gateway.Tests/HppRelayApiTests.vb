@@ -123,14 +123,17 @@ Public Class HppRelayApiTests
     End Sub
 
     <Fact>
-    Public Sub Stop_ThatNeverSucceeds_RaisesACriticalAlarmAndAuditEntry()
+    Public Sub Stop_ThatNeverSucceeds_RaisesACriticalAlarmAndAuditEntry_WithinTheDeadline()
         Using h As Harness = NewHarness()
             WaitSeOnline(h)
             h.Send("POST", Se & "/ptz/move", New MoveRequest With {.Pan = 30, .TtlMs = 300}, h.Token("alice"))
             GwWait.WaitFor(Function() LastMove(h) = "move:30,0,0")
             h.HppFake.Devices(Harness.HppSerial).StopFailuresLeft = 1000
+            Dim sw As Diagnostics.Stopwatch = Diagnostics.Stopwatch.StartNew()
             h.Clock.Advance(5)
             GwWait.WaitFor(Function() String.Join(vbLf, h.AuditLines()).Contains("Ptz.StopFailed"), 40)
+            ' المهلة الإجمالية (15 ث) أقل من مهلة إيقاف الخدمة (20 ث) كي يصدر الإنذار قبل القتل.
+            Assert.True(sw.Elapsed < TimeSpan.FromSeconds(19), sw.Elapsed.ToString())
             Assert.Contains("Ptz.StopFailed", String.Join(vbLf, h.AuditLines()))
             Dim resync As Boolean = False
             GwWait.WaitFor(Function() h.Svc.Alarms.Query(0, False, 100, Nothing, False, resync).Any(Function(a) a.Message.Contains("تعذّر إيقاف")))
@@ -289,6 +292,63 @@ Public Class HppRelayApiTests
                 Assert.DoesNotContain(secret, all)
             Next
             Assert.Contains("Hpp.Error", all)     ' الأخطاء السحابية مُدوَّنة (رموزها فقط)
+        End Using
+    End Sub
+
+    <Fact>
+    Public Sub ExplicitStopThatFails_IsRetriedInTheBackground_SoTheCameraStillStops()
+        Using h As Harness = NewHarness()
+            WaitSeOnline(h)
+            Dim t As String = h.Token("alice")
+            h.Send("POST", Se & "/ptz/move", New MoveRequest With {.Pan = 30, .Seq = 1}, t)
+            GwWait.WaitFor(Function() LastMove(h) = "move:30,0,0")
+            h.HppFake.Devices(Harness.HppSerial).StopFailuresLeft = 2
+            Dim r As HttpResponseMessage = h.Send("POST", Se & "/ptz/stop", token:=t)
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, r.StatusCode)        ' الطلب نفسه فشل...
+            GwWait.WaitFor(Function() LastMove(h) = "stop", 10)
+            Assert.Equal("stop", LastMove(h))                                    ' ...لكن البوابة أوقفت الكاميرا لاحقاً
+            Assert.Empty(h.HppFake.Violations)
+        End Using
+    End Sub
+
+    <Fact>
+    Public Sub StopRetries_GiveWay_WhenSomeoneStartsANewMove()
+        Dim old As Double = CameraHost.RelayStopDeadlineSeconds
+        CameraHost.RelayStopDeadlineSeconds = 4
+        Try
+            Using h As Harness = NewHarness()
+                WaitSeOnline(h)
+                Dim t As String = h.Token("alice")
+                h.Send("POST", Se & "/ptz/move", New MoveRequest With {.Pan = 30, .TtlMs = 300, .Seq = 1}, t)
+                GwWait.WaitFor(Function() LastMove(h) = "move:30,0,0")
+                h.HppFake.Devices(Harness.HppSerial).StopFailuresLeft = 1000
+                h.Clock.Advance(5)                                   ' العقد انتهى ⇒ محاولات إيقاف (تفشل)
+                Threading.Thread.Sleep(600)
+                GwWait.Refill(h)
+                Assert.Equal(HttpStatusCode.NoContent, h.Send("POST", Se & "/ptz/move", New MoveRequest With {.Pan = -20, .TtlMs = 2000, .Seq = 2}, t).StatusCode)
+                Threading.Thread.Sleep(5000)                         ' أطول من المهلة الإجمالية
+                ' توقفت المحاولات حين صار هناك عقد جديد: لا إنذار «تعذّر الإيقاف» ولا قطع لحركة المشغّل الجديدة.
+                Assert.DoesNotContain("Ptz.StopFailed", String.Join(vbLf, h.AuditLines()))
+                Assert.Contains("move:-20,0,0", h.HppFake.MoveLog(Harness.HppSerial))
+            End Using
+        Finally
+            CameraHost.RelayStopDeadlineSeconds = old
+        End Try
+    End Sub
+
+    <Fact>
+    Public Sub RequestsSentToTheCloud_FollowTheGuidesShape()
+        Using h As Harness = NewHarness()
+            WaitSeOnline(h)
+            Dim sup As String = h.Token("sup")
+            h.Send("POST", Se & "/ptz/move", New MoveRequest With {.Pan = 5, .Seq = 1}, h.Token("alice"))
+            h.Send("POST", Se & "/ptz/stop", token:=h.Token("alice"))
+            h.Send("PUT", Se & "/presets/4", New PresetPutRequest With {.Name = "Yard"}, sup)
+            h.Send("POST", Se & "/presets/4/goto", token:=sup)
+            h.Send("DELETE", Se & "/presets/4", token:=sup)
+            h.Send("GET", Se & "/presets", token:=sup)
+            Assert.Empty(h.HppFake.Violations)    ' Content-Type، تصريح XML، مساحة isapi.org، enabled/id في المواضع
+            Assert.All(h.HppFake.Transparent(), Sub(x) Assert.Equal("application/xml", x.ContentType))
         End Using
     End Sub
 

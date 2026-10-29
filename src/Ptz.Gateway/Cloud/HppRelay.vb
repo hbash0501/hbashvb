@@ -166,6 +166,9 @@ Namespace Cloud
             {"LAP500003", New CodeInfo(401, HppOutcome.AuthRejected, "invalid open token format")},
             {"LAP500004", New CodeInfo(401, HppOutcome.AuthRejected, "open token expired or incorrect")},
             {"LAP500005", New CodeInfo(401, HppOutcome.AuthRejected, "open token verification failed")},
+            {"LAP300001", New CodeInfo(401, HppOutcome.AuthRejected, "AK not found")},
+            {"LAP300002", New CodeInfo(401, HppOutcome.AuthRejected, "AK and SK mismatch")},
+            {"LAP300003", New CodeInfo(401, HppOutcome.AuthRejected, "account bound with the AK does not exist")},
             {"EVZ10013", New CodeInfo(401, HppOutcome.AuthRejected, "application has no permission to call this API")},
             {"EVZ10006", New CodeInfo(401, HppOutcome.AuthRejected, "IP address restricted")},
             {"EVZ60042", New CodeInfo(401, HppOutcome.AuthRejected, "incorrect device password")},
@@ -179,6 +182,7 @@ Namespace Cloud
             {"EVZ20609", New CodeInfo(503, HppOutcome.DeviceUnreachable, "device response timed out")},
             {"EVZ60044", New CodeInfo(503, HppOutcome.DeviceUnreachable, "accessing device network failed")},
             {"EVZ60041", New CodeInfo(503, HppOutcome.DeviceUnreachable, "device response timed out")},
+            {"EVZ20016", New CodeInfo(503, HppOutcome.DeviceUnreachable, "device is being formatted")},
             {"LAP006006", New CodeInfo(503, HppOutcome.DeviceUnreachable, "network exception")},
             {"LAP008008", New CodeInfo(503, HppOutcome.DeviceUnreachable, "network error")},
             {"LAP500001", New CodeInfo(503, HppOutcome.DeviceUnreachable, "service unavailable")},
@@ -194,7 +198,9 @@ Namespace Cloud
             {"EVZ20014", New CodeInfo(403, HppOutcome.Rejected, "incorrect device serial number")},
             {"EVZ20018", New CodeInfo(403, HppOutcome.Rejected, "device is not linked to this account")},
             {"LAP006009", New CodeInfo(403, HppOutcome.Rejected, "device does not exist or no permission")},
+            {"LAP034000", New CodeInfo(403, HppOutcome.Rejected, "no permission to access the device")},
             {"LAP034001", New CodeInfo(403, HppOutcome.Rejected, "no permission to access the site")},
+            {"EVZ60040", New CodeInfo(403, HppOutcome.Rejected, "not on the same local network with the device")},
             {"LAP034002", New CodeInfo(403, HppOutcome.Rejected, "no permission to access the company")},
             {"EVZ10001", New CodeInfo(400, HppOutcome.Rejected, "incorrect parameter")},
             {"LAP000001", New CodeInfo(400, HppOutcome.Rejected, "parameter error")},
@@ -246,13 +252,14 @@ Namespace Cloud
             Return BodyKind.Other
         End Function
 
-        ''' <summary>XML سليم وليس صفحة HTML (وكيل/بوابة أخطاء): وإلا نعدّه ردّاً غير مفهوم بدل تسليمه لمحلل ISAPI.</summary>
-        Private Shared Function IsUsableXml(text As String) As Boolean
+        ''' <summary>اسم جذر XML سليم ليس صفحة HTML (وكيل/بوابة أخطاء)، أو Nothing: لا يُسلَّم لمحلل ISAPI ما لا يُفهم.</summary>
+        Private Shared Function UsableXmlRoot(text As String) As String
             Try
                 Dim doc As XDocument = IsapiXml.Parse(text)
-                Return doc.Root IsNot Nothing AndAlso Not String.Equals(doc.Root.Name.LocalName, "html", StringComparison.OrdinalIgnoreCase)
+                If doc.Root Is Nothing OrElse String.Equals(doc.Root.Name.LocalName, "html", StringComparison.OrdinalIgnoreCase) Then Return Nothing
+                Return doc.Root.Name.LocalName
             Catch ex As Exception When TypeOf ex Is Xml.XmlException OrElse TypeOf ex Is ArgumentException
-                Return False
+                Return Nothing
             End Try
         End Function
 
@@ -270,8 +277,10 @@ Namespace Cloud
             Return New HppMapped With {.Status = status, .Outcome = outcome, .Code = code, .Body = StatusXml(If(status = 200, 1, 3), "Hik-Partner Pro: " & text, code)}
         End Function
 
-        ''' <param name="mutating">PUT/POST/DELETE: جسم فارغ أو JSON {errorCode:0} يُعدّ نجاحاً؛ للقراءة يجب أن يكون الرد XML.</param>
-        Public Shared Function Map(mutating As Boolean, httpStatus As Integer, xErrorCode As String, contentType As String, body As Byte()) As HppMapped
+        ''' <param name="mutating">PUT/POST/DELETE. الدليل يقول إنها تعيد XML_ResponseStatus، فلا يُعدّ نجاحاً إلا ResponseStatus
+        ''' (والعميل يتحقق من statusCode)؛ الجسم الفارغ أو JSON أو XML آخر = «غير مؤكَّد» ⇒ فشل، ما لم يُفعَّل <paramref name="acceptUnconfirmed"/>.</param>
+        ''' <remarks>الجسم المُمرَّر هو النص بعد إزالة BOM والمسافات البادئة (وإلا رمى محلل XML لاحقاً خارج مسارات الأخطاء المتوقعة).</remarks>
+        Public Shared Function Map(mutating As Boolean, httpStatus As Integer, xErrorCode As String, contentType As String, body As Byte(), Optional acceptUnconfirmed As Boolean = False) As HppMapped
             Dim text As String = ""
             Dim kind As BodyKind = Classify(body, text)
             Dim code As String = DetectCode(xErrorCode, kind, text)
@@ -284,26 +293,34 @@ Namespace Cloud
                 End If
                 Return Synthesize(502, HppOutcome.Rejected, code, "request rejected")
             End If
+            Dim root As String = If(kind = BodyKind.Xml, UsableXmlRoot(text), Nothing)
+            Dim clean As Byte() = Encoding.UTF8.GetBytes(text)
             If httpStatus >= 200 AndAlso httpStatus < 300 Then
-                Select Case kind
-                    Case BodyKind.Xml
-                        If Not IsUsableXml(text) Then Return Synthesize(502, HppOutcome.Rejected, "badResponse", "unexpected response")
-                        Return New HppMapped With {.Status = httpStatus, .Outcome = HppOutcome.Ok, .Body = body, .ContentType = If(String.IsNullOrEmpty(contentType), "application/xml", contentType)}
-                    Case BodyKind.Empty, BodyKind.Json
-                        If mutating Then Return New HppMapped With {.Status = 200, .Outcome = HppOutcome.Ok, .Body = StatusXml(1, "OK", "")}
-                        Return Synthesize(502, HppOutcome.Rejected, "badResponse", "unexpected response")
-                    Case Else
-                        Return Synthesize(502, HppOutcome.Rejected, "badResponse", "unexpected response")
-                End Select
+                If root IsNot Nothing Then
+                    If mutating AndAlso Not acceptUnconfirmed AndAlso Not String.Equals(root, "ResponseStatus", StringComparison.OrdinalIgnoreCase) Then
+                        Return Synthesize(502, HppOutcome.Rejected, "unconfirmed", "write not confirmed by ResponseStatus")
+                    End If
+                    Return New HppMapped With {.Status = httpStatus, .Outcome = HppOutcome.Ok, .Body = clean, .ContentType = "application/xml"}
+                End If
+                If mutating AndAlso (kind = BodyKind.Empty OrElse kind = BodyKind.Json) Then
+                    If acceptUnconfirmed Then Return New HppMapped With {.Status = 200, .Outcome = HppOutcome.Ok, .Body = StatusXml(1, "OK", "")}
+                    Return Synthesize(502, HppOutcome.Rejected, "unconfirmed", "write not confirmed by ResponseStatus")
+                End If
+                Return Synthesize(502, HppOutcome.Rejected, "badResponse", "unexpected response")
             End If
             ' حالة HTTP غير ناجحة بلا رمز معروف.
-            If kind = BodyKind.Xml AndAlso IsUsableXml(text) Then
-                Dim outcome As HppOutcome = If(httpStatus = 401, HppOutcome.AuthRejected, If(httpStatus >= 500, HppOutcome.DeviceUnreachable, HppOutcome.Rejected))
-                Return New HppMapped With {.Status = httpStatus, .Outcome = outcome, .Code = "HTTP" & httpStatus.ToString(Globalization.CultureInfo.InvariantCulture), .Body = body, .ContentType = "application/xml"}
-            End If
             Dim hs As String = "HTTP" & httpStatus.ToString(Globalization.CultureInfo.InvariantCulture)
+            If root IsNot Nothing Then
+                ' ResponseStatus من الجهاز نفسه (مثلاً 401 لكلمة مرور الجهاز): يمرَّر كما هو.
+                Dim outcome As HppOutcome = If(httpStatus = 401, HppOutcome.AuthRejected, If(httpStatus >= 500, HppOutcome.DeviceUnreachable, HppOutcome.Rejected))
+                Return New HppMapped With {.Status = httpStatus, .Outcome = outcome, .Code = hs, .Body = clean, .ContentType = "application/xml"}
+            End If
             Select Case httpStatus
-                Case 401 : Return Synthesize(401, HppOutcome.AuthRejected, hs, "unauthorized")
+                Case 401
+                    ' 401 مجرّد من السحابة = رمز مرفوض على الأرجح: يُجدَّد مرة واحدة قبل أن يُعدّ رفضاً للمفاتيح.
+                    Dim m As HppMapped = Synthesize(401, HppOutcome.AuthRejected, hs, "unauthorized")
+                    m.TokenRejected = True
+                    Return m
                 Case 403 : Return Synthesize(403, HppOutcome.Rejected, hs, "forbidden")
                 Case 404 : Return Synthesize(404, HppOutcome.Rejected, hs, "not found")
                 Case 408, 504 : Return Synthesize(503, HppOutcome.DeviceUnreachable, hs, "timeout")
@@ -327,13 +344,34 @@ Namespace Cloud
         Private Shared ReadOnly MaxQueueWait As TimeSpan = TimeSpan.FromSeconds(2)
         Private ReadOnly _cloud As HppCloud
         Private ReadOnly _serial As String
+        Private ReadOnly _callTimeout As TimeSpan
+        Private ReadOnly _priorityLock As New Object()
+        Private _lastPriorityStop As Long = Long.MinValue
 
-        Public Sub New(cloud As HppCloud, serial As String)
+        ''' <param name="cameraTimeoutSeconds">مهلة الكاميرا في <see cref="IsapiClient"/>: مهلة النداء السحابي تُجعل أقصر منها بثانية كي تنتهي
+        ''' مهلتنا أولاً (فيُسجَّل الانقطاع ويُترجم خطأ نقل) بدل أن يلغي العميل الطلب بصمت.</param>
+        Public Sub New(cloud As HppCloud, serial As String, Optional cameraTimeoutSeconds As Integer = 0)
             If cloud Is Nothing Then Throw New ArgumentNullException(NameOf(cloud))
             If Not CameraTransports.IsValidCloudSerial(serial) Then Throw New ArgumentException("الرقم التسلسلي السحابي غير صالح.")
             _cloud = cloud
             _serial = serial
+            Dim t As Integer = Math.Max(3, cloud.Options.TimeoutSeconds)
+            If cameraTimeoutSeconds > 1 Then t = Math.Min(t, cameraTimeoutSeconds - 1)
+            _callTimeout = TimeSpan.FromSeconds(Math.Max(1, t))
         End Sub
+
+        ''' <summary>
+        ''' أولوية الإيقاف (تجاوز المحدِّد) مرة كل ثانية لكل كاميرا: يكفي ليمرّ أول إيقاف بعد حركة فوراً، ويمنع مستخدماً من إغراق حصة
+        ''' الحساب (المشتركة بين كل أجهزته) بحلقة إيقافات؛ ما زاد يمرّ عبر المحدِّد كبقية الأوامر.
+        ''' </summary>
+        Private Function TakeStopPriority() As Boolean
+            Dim now As Long = Diagnostics.Stopwatch.GetTimestamp()
+            SyncLock _priorityLock
+                If _lastPriorityStop <> Long.MinValue AndAlso now - _lastPriorityStop < Diagnostics.Stopwatch.Frequency Then Return False
+                _lastPriorityStop = now
+                Return True
+            End SyncLock
+        End Function
 
         Private Shared Function ToResponse(m As HppMapped, request As HttpRequestMessage) As HttpResponseMessage
             Dim resp As New HttpResponseMessage(CType(m.Status, HttpStatusCode)) With {.RequestMessage = request, .Content = New ByteArrayContent(m.Body)}
@@ -384,12 +422,14 @@ Namespace Cloud
                 If body.Length = 0 Then
                     body = Nothing
                 Else
-                    ' يطابق أمثلة الدليل (مساحة أسماء isapi.org) بدل مساحة hikvision.com القديمة التي يبنيها العميل.
-                    body = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(body).Replace("http://www.hikvision.com/ver20/XMLSchema", "http://www.isapi.org/ver20/XMLSchema"))
+                    ' يطابق أمثلة الدليل: مساحة أسماء isapi.org (بدل hikvision.com التي يبنيها العميل) وتصريح XML في البداية.
+                    Dim xml As String = Encoding.UTF8.GetString(body).Replace("http://www.hikvision.com/ver20/XMLSchema", "http://www.isapi.org/ver20/XMLSchema").TrimStart(ChrW(&HFEFF))
+                    If Not xml.StartsWith("<?xml", StringComparison.Ordinal) Then xml = "<?xml version=""1.0"" encoding=""UTF-8""?>" & vbLf & xml
+                    body = Encoding.UTF8.GetBytes(xml)
                 End If
             End If
 
-            If Not IsStopCommand(method, path, body) Then
+            If Not (IsStopCommand(method, path, body) AndAlso TakeStopPriority()) Then
                 If Not Await _cloud.Limiter.WaitAsync(MaxQueueWait, cancellationToken).ConfigureAwait(False) Then
                     _cloud.RaiseCallCompleted(New HppCallEventArgs(_serial, HppOutcome.RateLimited, "localRate", 0))
                     Return ToResponse(HppResponseMapper.Synthesize(503, HppOutcome.RateLimited, "localRate", "gateway rate limit"), request)
@@ -412,21 +452,24 @@ Namespace Cloud
 
                 Dim status As Integer
                 Dim xErr As String
+                Dim xDev As String
+                Dim xEzo As String
                 Dim contentType As String
                 Dim bytes As Byte()
                 Using cts As Threading.CancellationTokenSource = Threading.CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
-                    cts.CancelAfter(TimeSpan.FromSeconds(Math.Max(3, _cloud.Options.TimeoutSeconds)))
+                    cts.CancelAfter(_callTimeout)
                     Using creq As New HttpRequestMessage(request.Method, auth.Area & "/api/hpcgw/v1/device/transparent" & path & query)
                         creq.Headers.TryAddWithoutValidation("Authorization", "Bearer " & auth.Token)
                         creq.Headers.TryAddWithoutValidation("X-Devserial", _serial)
-                        If body IsNot Nothing Then
-                            creq.Content = New ByteArrayContent(body)
-                            creq.Content.Headers.TryAddWithoutValidation("Content-Type", "application/xml")
-                        End If
+                        ' الدليل (جدول 3-101) يجعل Content-Type إلزامياً لكل نداء، حتى بلا جسم.
+                        creq.Content = New ByteArrayContent(If(body, Array.Empty(Of Byte)()))
+                        creq.Content.Headers.TryAddWithoutValidation("Content-Type", "application/xml")
                         Try
                             Using resp As HttpResponseMessage = Await _cloud.SendRawAsync(creq, cts.Token).ConfigureAwait(False)
                                 status = CInt(resp.StatusCode)
                                 xErr = FirstHeader(resp, "X-ErrorCode")
+                                xDev = FirstHeader(resp, "X-DeviceCode")
+                                xEzo = FirstHeader(resp, "X-EZO-Code")
                                 contentType = resp.Content.Headers.ContentType?.MediaType
                                 bytes = Await resp.Content.ReadAsByteArrayAsync(cts.Token).ConfigureAwait(False)
                             End Using
@@ -440,13 +483,14 @@ Namespace Cloud
                     End Using
                 End Using
 
-                Dim mapped As HppMapped = HppResponseMapper.Map(mutating, status, xErr, contentType, bytes)
+                Dim mapped As HppMapped = HppResponseMapper.Map(mutating, status, xErr, contentType, bytes, _cloud.Options.AcceptUnconfirmedWrites)
                 If mapped.TokenRejected AndAlso attempt = 0 Then
                     rejectedToken = auth.Token
                     Continue For
                 End If
                 If mapped.Outcome = HppOutcome.RateLimited Then _cloud.Limiter.Penalize(3)
-                _cloud.RaiseCallCompleted(New HppCallEventArgs(_serial, mapped.Outcome, mapped.Code, status))
+                ' X-DeviceCode/X-EZO-Code: دلالتهما غير محددة في الدليل ⇒ لا يقرران النجاح، لكنهما يُدوَّنان للتشخيص.
+                _cloud.RaiseCallCompleted(New HppCallEventArgs(_serial, mapped.Outcome, mapped.Code, status, HppJson.SafeCode(xDev), HppJson.SafeCode(xEzo)))
                 Return ToResponse(mapped, request)
             Next
             Return ToResponse(HppResponseMapper.Synthesize(401, HppOutcome.AuthRejected, "LAP500004", "open token rejected"), request)

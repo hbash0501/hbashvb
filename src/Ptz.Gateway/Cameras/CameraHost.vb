@@ -294,7 +294,8 @@ Namespace Cameras
                     info = Await Raw.ConnectAsync(ct).ConfigureAwait(False)
                 Catch ex As OperationCanceledException When ct.IsCancellationRequested
                     Return
-                Catch ex As Exception When TypeOf ex Is IsapiException OrElse TypeOf ex Is ArgumentException OrElse TypeOf ex Is InvalidOperationException
+                Catch ex As Exception When TypeOf ex Is IsapiException OrElse TypeOf ex Is ArgumentException OrElse TypeOf ex Is InvalidOperationException OrElse TypeOf ex Is System.Xml.XmlException
+                    ' XmlException: ردّ تالف من الجهاز/السحابة لا يجوز أن يُسقط حلقة الاتصال بصمت (لا إعادة محاولة بعدها).
                     failed = True
                 End Try
                 If Not failed Then
@@ -375,7 +376,9 @@ Namespace Cameras
             If _connectTask IsNot Nothing Then
                 Try
                     Await _connectTask.ConfigureAwait(False)
-                Catch ex As OperationCanceledException
+                Catch ex As Exception When Not (TypeOf ex Is OutOfMemoryException)
+                    ' أي عطل سابق في حلقة الاتصال لا يمنع إكمال الإيقاف (التخلص من الاتصال وإيقاف بقية الكاميرات).
+                    Diagnostics.Debug.WriteLine("connect loop ended with " & ex.GetType().Name)
                 End Try
             End If
             Raw?.Dispose()
@@ -396,15 +399,30 @@ Namespace Cameras
         End Sub
 
         ''' <summary>يوقف الكاميرا بإعادة محاولة (3×200ms) عبر مستخدم الخدمة svc:lease كي يُدقَّق.</summary>
+        ''' <summary>مهلة إجمالية لمحاولات الإيقاف عبر السحابة (أقل من مهلة إيقاف الخدمة 20 ث كي يكتمل الإنذار والإيقاف قبل القتل).</summary>
+        Public Shared Property RelayStopDeadlineSeconds As Double = 15
+
         Public Async Function SafeStopAsync() As Task
             If _leaseController Is Nothing Then Return
             ' عبر السحابة لا توجد مهلة حركة على الكاميرا (momentary غير موثَّق) ⇒ الإيقاف الضائع يعني دوراناً مستمراً:
-            ' نعيد المحاولة بتراجع أسّي (≈ 15 ث) ثم ننبّه المشغّل بإنذار حرج إن فشلت كلها.
-            Dim attempts As Integer = If(_relay, 8, 3)
-            For i As Integer = 1 To attempts
+            ' نعيد المحاولة بتراجع أسّي ضمن مهلة إجمالية ثم ننبّه المشغّل بإنذار حرج إن فشلت كلها.
+            ' إن بدأ أحدٌ حركة جديدة أثناء المحاولات (عقد نشط من جديد) نتوقف: عقده هو الذي يحرسها الآن، ولا نقطع حركته بإيقاف متأخر.
+            Dim sw As Diagnostics.Stopwatch = Diagnostics.Stopwatch.StartNew()
+            Dim deadline As TimeSpan = TimeSpan.FromSeconds(If(_relay, RelayStopDeadlineSeconds, 3))
+            Dim attempts As Integer = 0
+            Dim i As Integer = 0
+            While True
+                i += 1
+                If i > 1 AndAlso Lease.IsActive Then Return
+                Dim remaining As TimeSpan = deadline - sw.Elapsed
+                If i > 1 AndAlso remaining <= TimeSpan.Zero Then Exit While
+                If i > If(_relay, 12, 3) Then Exit While
+                attempts = i
                 Dim ok As Boolean = False
+                Dim perAttempt As TimeSpan = TimeSpan.FromSeconds(If(_relay, 5, 3))
+                If _relay AndAlso remaining < perAttempt AndAlso remaining > TimeSpan.FromSeconds(1) Then perAttempt = remaining
                 Try
-                    Using cts As New Threading.CancellationTokenSource(TimeSpan.FromSeconds(If(_relay, 8, 3)))
+                    Using cts As New Threading.CancellationTokenSource(perAttempt)
                         Await _leaseController.StopAsync(cts.Token).ConfigureAwait(False)
                     End Using
                     ok = True
@@ -412,14 +430,24 @@ Namespace Cameras
                     ok = False
                 End Try
                 If ok Then Return
-                If i < attempts Then Await Task.Delay(If(_relay, Math.Min(2000, 250 * (1 << (i - 1))), 200)).ConfigureAwait(False)
-            Next
+                Dim pause As TimeSpan = TimeSpan.FromMilliseconds(If(_relay, Math.Min(2000, 250 * (1 << Math.Min(i - 1, 4))), 200))
+                If _relay AndAlso sw.Elapsed + pause >= deadline Then Exit While
+                Await Task.Delay(pause).ConfigureAwait(False)
+            End While
             If _relay Then
                 Bus.Publish(New AlarmEvent With {.Camera = DisplayName, .Kind = "System", .Severity = AlarmSeverity.Critical,
                                                   .Message = "تعذّر إيقاف حركة الكاميرا عبر Hik-Partner Pro بعد عدة محاولات؛ قد تستمر بالدوران. أوقفها من تطبيق الشركة أو افحص الاتصال."})
-                _svc.Audit.Write("svc:lease", "Ptz.StopFailed", Id, "FAIL", $"attempts={attempts}")
+                _svc.Audit.Write("svc:lease", "Ptz.StopFailed", Id, "FAIL", $"attempts={attempts} elapsedMs={CLng(sw.Elapsed.TotalMilliseconds)}")
             End If
         End Function
+
+        ''' <summary>
+        ''' بعد إيقاف صريح فشل: العقد أُلغي قبل النداء فلن يطلق إيقافاً بنفسه، فنعيد الإيقاف في الخلفية بمحاولات (وإنذار عبر السحابة إن فشلت).
+        ''' بلا هذا يبقى ترحيل سحابي (لا مهلة حركة على الجهاز) يدور بعد إغلاق العميل أو فشل نداء واحد.
+        ''' </summary>
+        Public Sub ScheduleStopRetry()
+            Dim t As Task = Task.Run(AddressOf SafeStopAsync)
+        End Sub
 
         ''' <summary>المتحكم المؤمَّن لهذه الجلسة (مخبّأ لتعمل خانقة تدقيق الحركة 1 ث).</summary>
         Public Function SecuredFor(rec As SessionRecord) As SecuredCameraController
@@ -470,7 +498,7 @@ Namespace Cameras
                     info = Await Raw.ConnectAsync(ct).ConfigureAwait(False)
                 Catch ex As OperationCanceledException When ct.IsCancellationRequested
                     Return
-                Catch ex As Exception When TypeOf ex Is IsapiException OrElse TypeOf ex Is ArgumentException OrElse TypeOf ex Is InvalidOperationException OrElse TypeOf ex Is Net.Http.HttpRequestException
+                Catch ex As Exception When TypeOf ex Is IsapiException OrElse TypeOf ex Is ArgumentException OrElse TypeOf ex Is InvalidOperationException OrElse TypeOf ex Is Net.Http.HttpRequestException OrElse TypeOf ex Is System.Xml.XmlException
                     info = Nothing
                 End Try
                 If info IsNot Nothing Then

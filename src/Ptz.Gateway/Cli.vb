@@ -313,7 +313,7 @@ Public NotInheritable Class Cli
                 _out.WriteLine($"[{cfg.Key}] serial={cfg.CloudSerial}")
                 Dim conn As CameraConnection = store.BuildConnection(cfg.Key)
                 Dim profile As CameraProfile = If(cfg.ModelName = CameraProfiles.Ds2De7232iwAe.ModelName, CameraProfiles.Ds2De7232iwAe, CameraProfiles.Ds2Se7c432mwAeb)
-                Using ctl As ICameraController = CameraControllerFactory.Create(profile, conn, New HppRelayHandler(cloud, conn.CloudSerial))
+                Using ctl As ICameraController = CameraControllerFactory.Create(profile, conn, New HppRelayHandler(cloud, conn.CloudSerial, conn.TimeoutSeconds))
                     If Not Step_("اتصال/معلومات الجهاز", Sub()
                                                           Dim info As DeviceInfo = ctl.ConnectAsync(Threading.CancellationToken.None).GetAwaiter().GetResult()
                                                           _out.WriteLine($"      طراز={info.Model} إصدار={info.FirmwareVersion} ميزات={ctl.Features}")

@@ -41,13 +41,24 @@ Public NotInheritable Class FakeHppCloud
     Private _tokenSeq As Integer
     Private _validToken As String = ""
 
-    Public Property AreaDomain As String = "https://apiisgp.hik-partner.com"
+    Public Property AreaDomain As String = "https://isgpapi.hik-partner.com"
     Public Property TokenLifetime As TimeSpan = TimeSpan.FromDays(7)
     ''' <summary>"json" (جسم JSON فيه errorCode) أو "header" (ترويسة X-ErrorCode) أو "http401" (HTTP 401 للرمز المرفوض).</summary>
     Public Property ErrorStyle As String = "json"
     ''' <summary>رمز يُعاد لكل نداءات المرور الشفاف التالية (حتى يُمسح) — لمحاكاة EVZ10013/EVZ10029...</summary>
     Public Property ForceCode As String
     Public Property TokenRequestsFail As Boolean
+    ''' <summary>"wrapped" (§2.2: data + errorCode) أو "flat" (§3.1.1: الحقول في الجذر بأسماء فيها مسافات زائدة كما في مثال الدليل).</summary>
+    Public Property TokenShape As String = "wrapped"
+    ''' <summary>رد خدمة الرمز البديل (لمحاكاة الأعطال): Nothing = السلوك العادي.</summary>
+    Public Property TokenOverride As Func(Of HttpResponseMessage)
+    ''' <summary>رد المرور الشفاف البديل لكل النداءات (لمحاكاة أشكال ردود غير موثَّقة).</summary>
+    Public Property TransparentOverride As Func(Of Recorded, HttpResponseMessage)
+    ''' <summary>تأخير صناعي لنداءات المرور الشفاف وقائمة الأجهزة (ميلي ثانية) — لاختبار المهل.</summary>
+    Public Property DelayMs As Integer
+    Public Property TokenDelayMs As Integer
+    ''' <summary>أخطاء صارمة على شكل الطلب كما يصفه الدليل (Content-Type إلزامي، XML بتصريح ومساحة isapi.org، enabled في المواضع).</summary>
+    Public ReadOnly Property Violations As New List(Of String)()
     Public Property TransparentCalls As Integer
     Public Property TokenCalls As Integer
     Public ReadOnly Property Requests As New List(Of Recorded)()
@@ -118,6 +129,11 @@ Public NotInheritable Class FakeHppCloud
         SyncLock _lock
             Requests.Add(rec)
         End SyncLock
+        If rec.Path = "/api/hpcgw/v1/token/get" Then
+            If TokenDelayMs > 0 Then Await Task.Delay(TokenDelayMs, cancellationToken)
+        ElseIf DelayMs > 0 Then
+            Await Task.Delay(DelayMs, cancellationToken)
+        End If
 
         If rec.Path = "/api/hpcgw/v1/token/get" Then Return HandleToken(rec)
         If rec.Path = "/api/hpcgw/v1/device/list" Then Return HandleList(rec)
@@ -131,6 +147,7 @@ Public NotInheritable Class FakeHppCloud
         End SyncLock
         If rec.Host <> TokenHost OrElse rec.Method <> "POST" Then Return New HttpResponseMessage(HttpStatusCode.NotFound)
         If TokenRequestsFail Then Throw New HttpRequestException("simulated cloud outage")
+        If TokenOverride IsNot Nothing Then Return TokenOverride.Invoke()
         Dim ok As Boolean = False
         Try
             Using doc As JsonDocument = JsonDocument.Parse(rec.Body)
@@ -139,7 +156,7 @@ Public NotInheritable Class FakeHppCloud
         Catch ex As Exception When TypeOf ex Is JsonException OrElse TypeOf ex Is KeyNotFoundException
             ok = False
         End Try
-        If Not ok Then Return Json("{""errorCode"":""LAP500005""}")
+        If Not ok Then Return Json("{""errorCode"":""LAP300002""}")     ' الدليل: AK and SK mismatches
         Dim token As String
         SyncLock _lock
             _tokenSeq += 1
@@ -147,6 +164,7 @@ Public NotInheritable Class FakeHppCloud
             _validToken = token
         End SyncLock
         Dim exp As Long = New DateTimeOffset(_clock.UtcNow + TokenLifetime).ToUnixTimeMilliseconds()
+        If TokenShape = "flat" Then Return Json($"{{""accessToken "":""{token}"",""expireTime "":{exp},""areaDomain"":""{AreaDomain}""}}")
         Return Json($"{{""data"":{{""accessToken"":""{token}"",""expireTime"":{exp},""areaDomain"":""{AreaDomain}""}},""errorCode"":""0""}}")
     End Function
 
@@ -174,6 +192,20 @@ Public NotInheritable Class FakeHppCloud
         End SyncLock
         If rec.Host <> New Uri(AreaDomain).Host Then Return New HttpResponseMessage(HttpStatusCode.NotFound)
         If Not CheckBearer(rec) Then Return ErrorReply("LAP500004")
+        ' الدليل (جدول 3-101): Content-Type إلزامي لكل نداء شفاف.
+        If rec.ContentType <> "application/xml" AndAlso rec.ContentType <> "application/json" Then
+            SyncLock _lock
+                Violations.Add("content-type missing: " & rec.Method & " " & rec.Path)
+            End SyncLock
+            Return ErrorReply("EVZ10001")
+        End If
+        If rec.Body <> "" AndAlso (Not rec.Body.StartsWith("<?xml", StringComparison.Ordinal) OrElse Not rec.Body.Contains(Ns) OrElse rec.Body.Contains("hikvision.com")) Then
+            SyncLock _lock
+                Violations.Add("xml shape: " & rec.Path)
+            End SyncLock
+            Return ErrorReply("EVZ10001")
+        End If
+        If TransparentOverride IsNot Nothing Then Return TransparentOverride.Invoke(rec)
         If ForceCode IsNot Nothing Then Return ErrorReply(ForceCode)
         Dim d As Device = Nothing
         SyncLock _lock
@@ -213,6 +245,12 @@ Public NotInheritable Class FakeHppCloud
                             Return Xml(OkXml)
                         End If
                         If rec.Method = "PUT" Then
+                            ' XML_Set_PTZPreset: enabled وid وpresetName كلها إلزامية، وid يطابق المسار.
+                            Dim idm As System.Text.RegularExpressions.Match = System.Text.RegularExpressions.Regex.Match(rec.Body, "<id>(\d+)</id>")
+                            If Not rec.Body.Contains("<enabled>true</enabled>") OrElse Not idm.Success OrElse idm.Groups(1).Value <> id.ToString(Globalization.CultureInfo.InvariantCulture) Then
+                                Violations.Add("preset body: " & rec.Body)
+                                Return ErrorReply("EVZ10001")
+                            End If
                             Dim nm As System.Text.RegularExpressions.Match = System.Text.RegularExpressions.Regex.Match(rec.Body, "<presetName>(.*?)</presetName>")
                             d.Presets(id) = If(nm.Success, nm.Groups(1).Value, "")
                             d.Moves.Add("save:" & id & ":" & If(rec.Body.Contains("<enabled>true</enabled>"), "enabled", "noflag"))
