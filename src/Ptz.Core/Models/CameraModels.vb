@@ -93,8 +93,57 @@ Namespace Models
         Public Property FirmwareVersion As String = ""
     End Class
 
+    ''' <summary>
+    ''' طريقة الوصول إلى الكاميرا: <see cref="Lan"/> اتصال ISAPI مباشر داخل الشبكة، أو <see cref="HikPartnerPro"/> تمرير ISAPI الشفاف
+    ''' عبر واجهة Hik-Partner Pro OpenAPI السحابية (تنفّذه البوابة فقط، والكاميرا تُعرَّف بالرقم التسلسلي لا بالعنوان).
+    ''' </summary>
+    Public Enum CameraTransport
+        Lan = 0
+        HikPartnerPro = 1
+    End Enum
+
+    ''' <summary>أدوات النقل: الأسماء النصية في الإعداد، ومجموعة الميزات الموثَّقة عبر النقل السحابي.</summary>
+    Public NotInheritable Class CameraTransports
+        Private Sub New()
+        End Sub
+
+        ''' <summary>
+        ''' ما يوثّقه دليل Hik-Partner Pro OpenAPI عبر المرور الشفاف لجهاز PTZ: الحركة المستمرة والمواضع المسبقة فقط.
+        ''' لا لقطات ولا فيديو ولا عدسة/صورة/إضاءة (غير مدرجة في قائمة المسارات المدعومة)؛ لذلك لا يعمل المحرك الذكي بهذا النقل.
+        ''' </summary>
+        Public Shared ReadOnly RelayFeatures As CameraFeatures = CameraFeatures.Ptz Or CameraFeatures.Presets
+
+        Public Shared Function Parse(text As String) As CameraTransport
+            If String.IsNullOrWhiteSpace(text) OrElse text.Equals("lan", StringComparison.OrdinalIgnoreCase) Then Return CameraTransport.Lan
+            If text.Equals("hpp", StringComparison.OrdinalIgnoreCase) Then Return CameraTransport.HikPartnerPro
+            Throw New ArgumentException("النقل غير معروف (lan | hpp).")
+        End Function
+
+        Public Shared Function Name(t As CameraTransport) As String
+            Return If(t = CameraTransport.HikPartnerPro, "hpp", "lan")
+        End Function
+
+        ''' <summary>الرقم التسلسلي السحابي: حروف وأرقام وشرطتان فقط (يُرسَل في ترويسة طلب فلا يجوز أي محرف تحكمي).</summary>
+        Public Shared Function IsValidCloudSerial(serial As String) As Boolean
+            If String.IsNullOrEmpty(serial) OrElse serial.Length > 64 Then Return False
+            For Each ch As Char In serial
+                If Not (Char.IsAsciiLetterOrDigit(ch) OrElse ch = "-"c OrElse ch = "_"c) Then Return False
+            Next
+            Return True
+        End Function
+    End Class
+
     ''' <summary>معاملات الاتصال بكاميرا. كلمة المرور لا تُسجَّل ولا تُطبع أبداً.</summary>
     Public NotInheritable Class CameraConnection
+        ''' <summary>Lan: Host/Port/Username/Password تُستعمل. HikPartnerPro: <see cref="CloudSerial"/> فقط (والبوابة تحمل مفاتيح السحابة).</summary>
+        Public Property Transport As CameraTransport = CameraTransport.Lan
+        Public Property CloudSerial As String = ""
+        Public ReadOnly Property IsRelay As Boolean
+            Get
+                Return Transport = CameraTransport.HikPartnerPro
+            End Get
+        End Property
+
         Public Property Host As String = ""
         Public Property Port As Integer = 443
         Public Property UseHttps As Boolean = True
@@ -108,6 +157,8 @@ Namespace Models
 
         Public ReadOnly Property BaseUri As Uri
             Get
+                ' عنوان وهمي للنقل السحابي: المعالج يعيد كتابة الطلب كله ولا يخرج شيء إلى هذا المضيف أبداً (نطاق .invalid محجوز).
+                If IsRelay Then Return New Uri("https://hpp-relay.invalid/")
                 Dim scheme As String = If(UseHttps, "https", "http")
                 Return New Uri($"{scheme}://{Host}:{Port}/")
             End Get
@@ -115,6 +166,11 @@ Namespace Models
 
         ''' <summary>يتحقق من صحة الإعدادات ويرمي ArgumentException عند وجود خلل.</summary>
         Public Sub Validate()
+            If TimeoutSeconds < 1 OrElse TimeoutSeconds > 120 Then Throw New ArgumentException("المهلة يجب أن تكون بين 1 و120 ثانية.")
+            If IsRelay Then
+                If Not CameraTransports.IsValidCloudSerial(CloudSerial) Then Throw New ArgumentException("الرقم التسلسلي السحابي مطلوب (حروف وأرقام و- و_ حتى 64).")
+                Return
+            End If
             If String.IsNullOrWhiteSpace(Host) Then Throw New ArgumentException("عنوان الكاميرا مطلوب.")
             If Host.IndexOfAny({"/"c, "\"c, "@"c, "?"c, "#"c, " "c}) >= 0 Then Throw New ArgumentException("عنوان الكاميرا غير صالح.")
             If Port < 1 OrElse Port > 65535 Then Throw New ArgumentException("المنفذ يجب أن يكون بين 1 و65535.")
@@ -122,10 +178,10 @@ Namespace Models
                 Throw New InvalidOperationException("الاتصال غير المشفّر (HTTP) ممنوع افتراضياً. فعّل HTTPS أو اسمح به صراحةً.")
             End If
             If String.IsNullOrWhiteSpace(Username) Then Throw New ArgumentException("اسم المستخدم مطلوب.")
-            If TimeoutSeconds < 1 OrElse TimeoutSeconds > 120 Then Throw New ArgumentException("المهلة يجب أن تكون بين 1 و120 ثانية.")
         End Sub
 
         Public Overrides Function ToString() As String
+            If IsRelay Then Return $"hpp://{CloudSerial}"
             Return $"{If(UseHttps, "https", "http")}://{Host}:{Port} ({Username})"
         End Function
     End Class

@@ -10,6 +10,7 @@ Imports Ptz.Core.Models
 Imports Ptz.Core.Remote
 Imports Ptz.Core.Security
 Imports Ptz.Core.Vision
+Imports Ptz.Gateway.Cloud
 Imports Ptz.Gateway.Hosting
 Imports Ptz.Presentation
 
@@ -56,6 +57,9 @@ Namespace Cameras
         Private _lastCommandUtc As DateTime = DateTime.MinValue
         Private _leaseControllerUser As UserSession
         Private _leaseController As SecuredCameraController
+        Private ReadOnly _relay As Boolean
+        Private ReadOnly _cloudSerial As String
+        Private _cloudHooked As HppCloud
 
         Public ReadOnly Property Id As String
         Public ReadOnly Property DisplayName As String
@@ -175,6 +179,8 @@ Namespace Cameras
         Public Sub New(svc As GatewayServices, config As CameraConfig)
             _svc = svc
             _config = config
+            _relay = String.Equals(config.Transport, "hpp", StringComparison.OrdinalIgnoreCase)
+            _cloudSerial = If(config.CloudSerial, "")
             Id = config.Key
             DisplayName = If(String.IsNullOrWhiteSpace(config.DisplayName), config.Key, config.DisplayName)
             Profile = If(config.ModelName = CameraProfiles.Ds2De7232iwAe.ModelName, CameraProfiles.Ds2De7232iwAe, CameraProfiles.Ds2Se7c432mwAeb)
@@ -215,7 +221,15 @@ Namespace Cameras
 
         Public ReadOnly Property Features As CameraFeatures
             Get
-                Return If(Raw Is Nothing, Profile.DefaultFeatures, Raw.Features)
+                If Raw Is Nothing Then Return If(_relay, Profile.DefaultFeatures And CameraTransports.RelayFeatures, Profile.DefaultFeatures)
+                Return Raw.Features
+            End Get
+        End Property
+
+        ''' <summary>True حين تُدار الكاميرا عبر Hik-Partner Pro (حركة ومواضع مسبقة فقط؛ بلا فيديو ولا محرك ذكي).</summary>
+        Public ReadOnly Property IsRelay As Boolean
+            Get
+                Return _relay
             End Get
         End Property
 
@@ -234,6 +248,10 @@ Namespace Cameras
             Dim guard As CameraGuardHandler = TryCast(handler, CameraGuardHandler)
             If guard IsNot Nothing Then AddHandler guard.BreakerOpened, AddressOf OnBreakerOpened
             Raw = CameraControllerFactory.Create(Profile, conn, handler)
+            If _relay AndAlso _svc.Hpp IsNot Nothing Then
+                _cloudHooked = _svc.Hpp
+                AddHandler _cloudHooked.CallCompleted, AddressOf OnCloudCall
+            End If
 
             Dim opts As New SmartEngineOptions With {.CameraName = DisplayName}
             EnginePresets.Apply(Profile, opts)
@@ -302,6 +320,11 @@ Namespace Cameras
                 End Try
             End While
             If ct.IsCancellationRequested Then Return
+            If _relay Then
+                ' لا لقطات عبر السحابة ⇒ لا محرك ذكي ولا جسر إنذارات؛ نراقب الاتصال فقط ونستعيده عند الانقطاع.
+                Await RelayRecoveryLoopAsync(ct).ConfigureAwait(False)
+                Return
+            End If
             If _svc.Options.StartEngines Then Engine.Start()
             If (Raw.Features And CameraFeatures.AlertStream) <> 0 Then
                 Try
@@ -319,6 +342,10 @@ Namespace Cameras
             End SyncLock
             If cts Is Nothing Then Return
             cts.Cancel()
+            If _cloudHooked IsNot Nothing Then
+                RemoveHandler _cloudHooked.CallCompleted, AddressOf OnCloudCall
+                _cloudHooked = Nothing
+            End If
             _leaseTimer?.Dispose()
             _leaseTimer = Nothing
             _forceTimer?.Dispose()
@@ -371,10 +398,13 @@ Namespace Cameras
         ''' <summary>يوقف الكاميرا بإعادة محاولة (3×200ms) عبر مستخدم الخدمة svc:lease كي يُدقَّق.</summary>
         Public Async Function SafeStopAsync() As Task
             If _leaseController Is Nothing Then Return
-            For i As Integer = 1 To 3
+            ' عبر السحابة لا توجد مهلة حركة على الكاميرا (momentary غير موثَّق) ⇒ الإيقاف الضائع يعني دوراناً مستمراً:
+            ' نعيد المحاولة بتراجع أسّي (≈ 15 ث) ثم ننبّه المشغّل بإنذار حرج إن فشلت كلها.
+            Dim attempts As Integer = If(_relay, 8, 3)
+            For i As Integer = 1 To attempts
                 Dim ok As Boolean = False
                 Try
-                    Using cts As New Threading.CancellationTokenSource(TimeSpan.FromSeconds(3))
+                    Using cts As New Threading.CancellationTokenSource(TimeSpan.FromSeconds(If(_relay, 8, 3)))
                         Await _leaseController.StopAsync(cts.Token).ConfigureAwait(False)
                     End Using
                     ok = True
@@ -382,13 +412,76 @@ Namespace Cameras
                     ok = False
                 End Try
                 If ok Then Return
-                Await Task.Delay(200).ConfigureAwait(False)
+                If i < attempts Then Await Task.Delay(If(_relay, Math.Min(2000, 250 * (1 << (i - 1))), 200)).ConfigureAwait(False)
             Next
+            If _relay Then
+                Bus.Publish(New AlarmEvent With {.Camera = DisplayName, .Kind = "System", .Severity = AlarmSeverity.Critical,
+                                                  .Message = "تعذّر إيقاف حركة الكاميرا عبر Hik-Partner Pro بعد عدة محاولات؛ قد تستمر بالدوران. أوقفها من تطبيق الشركة أو افحص الاتصال."})
+                _svc.Audit.Write("svc:lease", "Ptz.StopFailed", Id, "FAIL", $"attempts={attempts}")
+            End If
         End Function
 
         ''' <summary>المتحكم المؤمَّن لهذه الجلسة (مخبّأ لتعمل خانقة تدقيق الحركة 1 ث).</summary>
         Public Function SecuredFor(rec As SessionRecord) As SecuredCameraController
             Return CType(rec.Items.GetOrAdd("ctl:" & Id, Function(k) New SecuredCameraController(Raw, rec.UserSession, _svc.Access, _svc.Audit, _svc.Clock, ownsInner:=False)), SecuredCameraController)
+        End Function
+
+        ' ---------------- النقل السحابي: الصحة والاستعادة ----------------
+        ''' <summary>
+        ''' نتيجة نداء سحابي لهذه الكاميرا: النجاح يعيدها متصلة؛ انقطاع الجهاز مرتين متتاليتين يعلنها غير متصلة.
+        ''' تقييد المعدل أو رفض الأمر لا يغيّران الحالة (ليسا انقطاعاً)، ورفض المفاتيح يتولاه قاطع الدائرة.
+        ''' </summary>
+        Private Sub OnCloudCall(sender As Object, e As HppCallEventArgs)
+            If Not String.Equals(e.Serial, _cloudSerial, StringComparison.Ordinal) Then Return
+            Dim changed As Boolean = False
+            SyncLock _lock
+                Select Case e.Outcome
+                    Case HppOutcome.Ok
+                        _failures = 0
+                        _breakerOpen = False
+                        If Not _online AndAlso Raw IsNot Nothing Then
+                            _online = True
+                            changed = True
+                        End If
+                    Case HppOutcome.DeviceUnreachable
+                        _failures += 1
+                        If _failures >= 2 AndAlso _online Then
+                            _online = False
+                            changed = True
+                        End If
+                End Select
+            End SyncLock
+            If changed Then PublishHealth()
+        End Sub
+
+        ''' <summary>دورية محاولة استعادة كاميرا الترحيل بعد الانقطاع (ثوانٍ؛ قابلة للتعديل للاختبارات).</summary>
+        Public Shared Property RelayRecoveryIntervalSeconds As Double = 10
+
+        Private Async Function RelayRecoveryLoopAsync(ct As Threading.CancellationToken) As Task
+            While Not ct.IsCancellationRequested
+                Try
+                    Await Task.Delay(TimeSpan.FromSeconds(RelayRecoveryIntervalSeconds), ct).ConfigureAwait(False)
+                Catch ex As OperationCanceledException
+                    Return
+                End Try
+                If Online Then Continue While
+                Dim info As DeviceInfo = Nothing
+                Try
+                    info = Await Raw.ConnectAsync(ct).ConfigureAwait(False)
+                Catch ex As OperationCanceledException When ct.IsCancellationRequested
+                    Return
+                Catch ex As Exception When TypeOf ex Is IsapiException OrElse TypeOf ex Is ArgumentException OrElse TypeOf ex Is InvalidOperationException OrElse TypeOf ex Is Net.Http.HttpRequestException
+                    info = Nothing
+                End Try
+                If info IsNot Nothing Then
+                    SyncLock _lock
+                        _device = info
+                        _online = True
+                        _failures = 0
+                    End SyncLock
+                    PublishHealth()
+                End If
+            End While
         End Function
 
         ' ---------------- الأحداث ----------------

@@ -42,6 +42,9 @@ Namespace Isapi
         Public Sub New(connection As CameraConnection, Optional handler As HttpMessageHandler = Nothing, Optional ownsHandler As Boolean = True)
             If connection Is Nothing Then Throw New ArgumentNullException(NameOf(connection))
             connection.Validate()
+            If connection.IsRelay AndAlso handler Is Nothing Then
+                Throw New InvalidOperationException("النقل السحابي يتطلب معالج بوابة (HppRelayHandler)؛ لا اتصال مباشر.")
+            End If
             _timeout = TimeSpan.FromSeconds(connection.TimeoutSeconds)
             _http = New HttpClient(If(handler, CreateSecureHandler(connection)), ownsHandler OrElse handler Is Nothing) With {
                 .BaseAddress = connection.BaseUri,
@@ -52,6 +55,7 @@ Namespace Isapi
         End Sub
 
         Public Shared Function CreateSecureHandler(c As CameraConnection) As HttpMessageHandler
+            If c.IsRelay Then Throw New InvalidOperationException("النقل السحابي لا يملك معالج اتصال مباشراً.")
             Dim cache As New CredentialCache()
             Dim cred As New NetworkCredential(c.Username, c.Password)
             cache.Add(c.BaseUri, "Digest", cred)

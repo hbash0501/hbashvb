@@ -5,6 +5,7 @@ Imports Ptz.Core.Models
 Imports Ptz.Core.Security
 Imports Ptz.Gateway.Audit
 Imports Ptz.Gateway.Cameras
+Imports Ptz.Gateway.Cloud
 Imports Ptz.Gateway.Imaging
 Imports Ptz.Presentation
 
@@ -44,6 +45,10 @@ Namespace Hosting
 
         Public Property MaxRole As Role = Role.Supervisor
 
+        ''' <summary>عميل Hik-Partner Pro (Nothing ما لم يُفعَّل الخيار وتُضبط المفاتيح). مشترك بين كاميرات النقل hpp.</summary>
+        Public Property Hpp As HppCloud
+        Private ReadOnly _hppAuditThrottle As New Collections.Concurrent.ConcurrentDictionary(Of String, DateTime)(StringComparer.Ordinal)
+
         Public Sub New(options As GatewayOptions, clock As IClock, users As UserStore, totp As TotpStore, vault As CredentialVault,
                        cameraConfigs As CameraConfigStore, auditFile As FileAuditLog, decoder As IFrameDecoder, transcoder As IJpegTranscoder)
             Me.Options = options
@@ -65,8 +70,37 @@ Namespace Hosting
             StartedUtc = clock.UtcNow
             Dim r As Role
             If WireMapParse(options.Auth.RemoteMaxRole, r) Then MaxRole = r
-            CameraHandlerFactory = Function(conn) New CameraGuardHandler(IsapiClientHandler(conn), clock)
+            CameraHandlerFactory = Function(conn) CreateCameraHandler(conn)
             Cameras = New CameraRegistry(Me)
+        End Sub
+
+        ''' <summary>
+        ''' معالج الكاميرا الإنتاجي: اتصال ISAPI مباشر آمن (lan) أو معالج ترحيل Hik-Partner Pro (hpp)؛ كلاهما خلف قاطع الدائرة.
+        ''' الاختبارات تستبدل <see cref="CameraHandlerFactory"/> كله أو تفوّض إلى هذه الدالة لكاميرات hpp.
+        ''' </summary>
+        Public Function CreateCameraHandler(conn As CameraConnection) As HttpMessageHandler
+            If conn.IsRelay Then
+                If Hpp Is Nothing Then Throw New InvalidOperationException("النقل السحابي غير مفعّل أو مفاتيحه غير مضبوطة (Hpp.Enabled + متغيرا البيئة).")
+                Return New CameraGuardHandler(New HppRelayHandler(Hpp, conn.CloudSerial), Clock)
+            End If
+            Return New CameraGuardHandler(IsapiClientHandler(conn), Clock)
+        End Function
+
+        ''' <summary>يربط عميل السحابة ويدوّن أخطاءه في التدقيق (مرة كل دقيقة لكل (رمز،جهاز) كي لا يفيض السجل عند انقطاع طويل).</summary>
+        Public Sub AttachHpp(cloud As HppCloud)
+            Hpp = cloud
+            AddHandler cloud.CallCompleted, AddressOf OnHppCall
+        End Sub
+
+        Private Sub OnHppCall(sender As Object, e As HppCallEventArgs)
+            If e.Outcome = HppOutcome.Ok Then Return
+            Dim key As String = e.Serial & "|" & e.Code
+            Dim now As DateTime = Clock.UtcNow
+            Dim last As DateTime = DateTime.MinValue
+            If _hppAuditThrottle.TryGetValue(key, last) AndAlso (now - last).TotalSeconds < 60 Then Return
+            _hppAuditThrottle(key) = now
+            If _hppAuditThrottle.Count > 256 Then _hppAuditThrottle.Clear()
+            Audit.Write("svc:hpp", "Hpp.Error", e.Serial, "FAIL", $"{e.Outcome} {e.Code} http={e.HttpStatus}")
         End Sub
 
         Private Shared Function WireMapParse(name As String, ByRef r As Role) As Boolean
@@ -96,6 +130,11 @@ Namespace Hosting
             cams.EnsureDefaults({("se7c432mw", CameraProfiles.Ds2Se7c432mwAeb), ("de7232iw", CameraProfiles.Ds2De7232iwAe)})
             Dim svc As New GatewayServices(options, clock, users, totp, vault, cams, auditFile, New SkiaFrameDecoder(clock), New SkiaJpegTranscoder())
             svc.AlarmSinks.Add(New FileAlarmSink(IO.Path.Combine(options.DataDir, "alarms.jsonl")))
+            If options.Hpp.Enabled Then
+                Dim ak As String = getEnv(options.Hpp.AppKeyEnv)
+                Dim sk As String = getEnv(options.Hpp.SecretKeyEnv)
+                If Not String.IsNullOrWhiteSpace(ak) AndAlso Not String.IsNullOrWhiteSpace(sk) Then svc.AttachHpp(New HppCloud(options.Hpp, ak, sk, clock))
+            End If
             If Not String.IsNullOrWhiteSpace(options.Webhook.Url) AndAlso Not String.IsNullOrWhiteSpace(options.Webhook.SecretEnv) Then
                 Dim secret As String = getEnv(options.Webhook.SecretEnv)
                 If Not String.IsNullOrEmpty(secret) Then

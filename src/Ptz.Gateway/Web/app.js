@@ -275,6 +275,7 @@ function banner() {
     else if (c.conn === 'connecting') { m = 'جارٍ الاتصال بالبث الحي…'; k = 'info'; }
     else if (S.sync > 0) { m = 'جارٍ مزامنة الإنذارات…'; k = 'info'; }
     else if (!c.online) m = 'الكاميرا غير متصلة: ' + (HEALTH[c.reason] || 'غير معروف');
+    else if (!feat(c, 'snapshot')) { m = 'هذه الكاميرا تُدار عبر Hik-Partner Pro: تحكم بالحركة والمواضع المسبقة فقط، بلا فيديو أو تحليل ذكي.'; k = 'info'; }
   }
   const b = $('#banner'); b.hidden = !m; b.className = 'banner ' + k; b.textContent = m;
 }
@@ -746,7 +747,7 @@ function renderCtl() {
   const ptz = feat(c, 'ptz') && can('ptzControl'), lens = feat(c, 'focus') && can('imageControl'), pro = c.d.profile || {};
   $('#ctl-na').hidden = ptz || lens; $('#padgrp').hidden = !ptz; $('#lensgrp').hidden = !lens;
   $('#b-home').hidden = !(feat(c, 'homePosition') && can('ptzControl')); $('#b-sethome').hidden = !(feat(c, 'homePosition') && can('presetManage'));
-  $('#t-zoom').hidden = !ptz; $('#t-tgt').hidden = !can('autoTrack'); $('#estop').disabled = !can('ptzControl');
+  $('#t-zoom').hidden = !ptz || !feat(c, 'position3D'); $('#t-tgt').hidden = !can('autoTrack') || !feat(c, 'snapshot'); $('#estop').disabled = !can('ptzControl');
   $('#d-pre').hidden = !(feat(c, 'presets') && can('presetUse')); $('#prefm').hidden = !can('presetManage');
   $('#d-pat').hidden = !((feat(c, 'patrol') || feat(c, 'pattern')) && can('presetUse'));
   $('#r-patrol').hidden = !feat(c, 'patrol'); $('#r-pattern').hidden = !feat(c, 'pattern');

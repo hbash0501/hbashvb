@@ -20,6 +20,8 @@ WorkingDirectory=/opt/ptz-gateway
 ExecStart=/opt/ptz-gateway/PtzGateway serve
 Environment=PTZ_GATEWAY_CONFIG=/etc/ptz-gateway/gateway.json
 Environment=PTZ_MASTER_KEY_FILE=/etc/ptz-gateway/master.key
+# مفاتيح Hik-Partner Pro (اختياري، للنقل hpp): ملف PTZ_HPP_AK=... و PTZ_HPP_SK=... يملكه root بصلاحيات 0600 (يقرؤه systemd قبل خفض الصلاحيات)
+EnvironmentFile=-/etc/ptz-gateway/hpp.env
 Environment=DOTNET_gcServer=0
 Environment=DOTNET_EnableDiagnostics=0
 Restart=on-failure

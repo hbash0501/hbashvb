@@ -53,6 +53,26 @@ Public NotInheritable Class WebhookOptions
     Public Property SecretEnv As String = ""
 End Class
 
+''' <summary>
+''' النقل السحابي عبر Hik-Partner Pro OpenAPI (اختياري، معطَّل افتراضياً). المفاتيح (AK/SK) تُقرأ من متغيرات البيئة فقط ولا تُكتب في أي ملف.
+''' تنبيه: المفتاح يتحكم بكل أجهزة حساب Hik-Partner Pro لا بالكاميرتين وحدهما؛ البوابة لا ترسل إلا الرقم التسلسلي المضبوط لكل كاميرا
+''' ولا تمرّر إلا المسارات الموثَّقة في <see cref="ExtraAllowed"/> + القائمة المضمَّنة.
+''' </summary>
+Public NotInheritable Class HppOptions
+    Public Property Enabled As Boolean = False
+    Public Property AppKeyEnv As String = "PTZ_HPP_AK"
+    Public Property SecretKeyEnv As String = "PTZ_HPP_SK"
+    ''' <summary>نطاق الحصول على الرمز (مشترك لكل المناطق في الدليل). نطاق الخدمة الفعلي يأتي من الاستجابة (areaDomain).</summary>
+    Public Property TokenUrl As String = "https://api.hik-partner.com"
+    ''' <summary>لواحق المضيفين المقبولة للرمز ولـ areaDomain؛ الرمز لا يُرسَل أبداً إلى مضيف خارجها.</summary>
+    Public Property AllowedHostSuffixes As List(Of String) = New List(Of String) From {"hik-partner.com"}
+    ''' <summary>مسارات إضافية يسمح بها المشغّل بصيغة "METHOD /ISAPI/...&lt;ID&gt;..." بعد التأكد من أنها مدعومة (قائمة tpp.hikvision.com).</summary>
+    Public Property ExtraAllowed As List(Of String) = New List(Of String)()
+    Public Property TimeoutSeconds As Integer = 12
+    Public Property MaxRequestsPerSecond As Double = 5.0
+    Public Property MaxBurst As Integer = 10
+End Class
+
 Public NotInheritable Class GatewayOptions
     ''' <summary>Loopback | Vpn | Tunnel | Public — يحدد صرامة المدقّق عند الإقلاع فقط.</summary>
     Public Property ExposureMode As String = "Loopback"
@@ -68,6 +88,7 @@ Public NotInheritable Class GatewayOptions
     Public Property Frames As New FrameOptions()
     Public Property StartEngines As Boolean = True
     Public Property Webhook As New WebhookOptions()
+    Public Property Hpp As New HppOptions()
 
     Public Shared Function DefaultDataDir() As String
         If OperatingSystem.IsWindows() Then

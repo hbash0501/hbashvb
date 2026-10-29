@@ -32,6 +32,9 @@ Public NotInheritable Class Harness
     Public ReadOnly Property SeCamera As New FakeCameraHandler()
     Public ReadOnly Property DeCamera As New FakeCameraHandler()
     Public ReadOnly Property Registry As ApiRegistry
+    ''' <summary>خادم Hik-Partner Pro الوهمي حين يُنشأ الحزام بكاميرا se7c432mw بنقل hpp (الرقم التسلسلي SE7SERIAL).</summary>
+    Public ReadOnly Property HppFake As FakeHppCloud
+    Public Const HppSerial As String = "SE7SERIAL"
     Public ReadOnly Property Secrets As New Dictionary(Of String, Byte())(StringComparer.OrdinalIgnoreCase)
     Private _reg As ApiRegistry
 
@@ -81,13 +84,14 @@ Public NotInheritable Class Harness
         h.On("GET", "/ISAPI/Streaming/channels/101/picture", Function(r) New HttpResponseMessage(HttpStatusCode.OK) With {.Content = New ByteArrayContent(jpeg)})
     End Sub
 
-    Public Sub New(Optional configure As Action(Of GatewayOptions) = Nothing, Optional engines As Boolean = False, Optional kestrelPort As Integer = 0)
+    Public Sub New(Optional configure As Action(Of GatewayOptions) = Nothing, Optional engines As Boolean = False, Optional kestrelPort As Integer = 0, Optional hpp As FakeHppCloud = Nothing)
         Dir = IO.Path.Combine(IO.Path.GetTempPath(), "ptz-gw-" & Guid.NewGuid().ToString("N"))
         IO.Directory.CreateDirectory(Dir)
         Options = New GatewayOptions With {.DataDir = Dir, .StartEngines = engines}
         Options.Frames.GatingEnabled = False
         Dim real As Boolean = kestrelPort > 0
         If real Then Options.Listen = New List(Of ListenEndpoint) From {New ListenEndpoint With {.Address = "127.0.0.1", .Port = kestrelPort}}
+        If hpp IsNot Nothing Then Options.Hpp.Enabled = True
         If configure IsNot Nothing Then configure(Options)
 
         Dim keys As New FileKeyProvider(IO.Path.Combine(Dir, "master.key"))
@@ -106,8 +110,14 @@ Public NotInheritable Class Harness
         Dim cams As New CameraConfigStore(IO.Path.Combine(Dir, "cameras.json"), vault)
         cams.EnsureDefaults({("se7c432mw", CameraProfiles.Ds2Se7c432mwAeb), ("de7232iw", CameraProfiles.Ds2De7232iwAe)})
         Dim c1 As CameraConfig = cams.Get("se7c432mw")
-        c1.Host = "10.0.0.1" : c1.Username = "svc" : c1.DisplayName = "Gate"
-        cams.Update(c1, "Cam-P@ss-1")
+        If hpp Is Nothing Then
+            c1.Host = "10.0.0.1" : c1.Username = "svc" : c1.DisplayName = "Gate"
+            cams.Update(c1, "Cam-P@ss-1")
+        Else
+            c1.Transport = "hpp" : c1.CloudSerial = HppSerial : c1.DisplayName = "Gate"
+            cams.Update(c1, Nothing)
+            hpp.AddDevice(HppSerial)
+        End If
         Dim c2 As CameraConfig = cams.Get("de7232iw")
         c2.Host = "10.0.0.2" : c2.Username = "svc" : c2.DisplayName = "Yard"
         cams.Update(c2, "Cam-P@ss-2")
@@ -117,7 +127,10 @@ Public NotInheritable Class Harness
         ConfigureCamera(DeCamera, jpeg)
 
         _Svc = New GatewayServices(Options, Clock, users, totp, vault, cams, audit, New SkiaFrameDecoder(Clock), New SkiaJpegTranscoder())
-        _Svc.CameraHandlerFactory = Function(conn) New Ptz.Gateway.Cameras.CameraGuardHandler(If(conn.Host = "10.0.0.1", CType(SeCamera, HttpMessageHandler), DeCamera), Clock)
+        _HppFake = hpp
+        If hpp IsNot Nothing Then _Svc.AttachHpp(New Ptz.Gateway.Cloud.HppCloud(Options.Hpp, FakeHppCloud.AppKey, FakeHppCloud.SecretKey, Clock, hpp))
+        _Svc.CameraHandlerFactory = Function(conn) If(conn.IsRelay, _Svc.CreateCameraHandler(conn),
+                                                       New Ptz.Gateway.Cameras.CameraGuardHandler(If(conn.Host = "10.0.0.1", CType(SeCamera, HttpMessageHandler), DeCamera), Clock))
 
         _App = GatewayHost.Build(Options, _Svc,
                                  Sub(b)

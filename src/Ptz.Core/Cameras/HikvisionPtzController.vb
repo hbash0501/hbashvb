@@ -16,6 +16,7 @@ Namespace Cameras
         Private ReadOnly _ptzGate As New Threading.SemaphoreSlim(1, 1)
         Private _features As CameraFeatures
         Private _useMomentary As Boolean = True
+        Private _relay As Boolean
 
         Protected Sub New(profile As CameraProfile, client As IsapiClient)
             If profile Is Nothing Then Throw New ArgumentNullException(NameOf(profile))
@@ -63,6 +64,19 @@ Namespace Cameras
             End If
         End Sub
 
+        ''' <summary>
+        ''' وضع النقل السحابي (Hik-Partner Pro): مجموعة ميزات ثابتة هي الموثَّقة فقط (<see cref="CameraTransports.RelayFeatures"/>) بلا فحص قدرات
+        ''' (مساراته غير مدرجة في قائمة المسارات المدعومة سحابياً)، وتُرفض القراءات/الأوامر التي لا مسار موثَّقاً لها.
+        ''' </summary>
+        Friend Sub EnableRelayMode()
+            _relay = True
+            _features = Profile.DefaultFeatures And CameraTransports.RelayFeatures
+        End Sub
+
+        Private Sub RequireDirect(what As String)
+            If _relay Then Throw New NotSupportedException($"{what} غير متاح عبر نقل Hik-Partner Pro السحابي.")
+        End Sub
+
         ' ============ الاتصال والفحص ============
         Public Overridable Async Function ConnectAsync(ct As Threading.CancellationToken) As Task(Of DeviceInfo) Implements ICameraController.ConnectAsync
             Dim doc As XDocument = Await _client.GetXmlAsync(IsapiPaths.DeviceInfo, ct).ConfigureAwait(False)
@@ -72,7 +86,7 @@ Namespace Cameras
                 .SerialNumber = If(IsapiXml.ValueOf(doc, "serialNumber"), ""),
                 .FirmwareVersion = If(IsapiXml.ValueOf(doc, "firmwareVersion"), "")
             }
-            _features = Await CapabilityProbe.ProbeAsync(_client, Profile, ct).ConfigureAwait(False)
+            If Not _relay Then _features = Await CapabilityProbe.ProbeAsync(_client, Profile, ct).ConfigureAwait(False)
             Return info
         End Function
 
@@ -115,6 +129,7 @@ Namespace Cameras
 
         Public Async Function GetPositionAsync(ct As Threading.CancellationToken) As Task(Of PtzPosition) Implements ICameraController.GetPositionAsync
             Require(CameraFeatures.Ptz)
+            RequireDirect("قراءة الموضع")
             Dim doc As XDocument = Await _client.GetXmlAsync(IsapiPaths.PtzStatus(Channel), ct).ConfigureAwait(False)
             Dim az As Double = ParseTenths(IsapiXml.ValueOf(doc, "azimuth"))
             Dim el As Double = ParseTenths(IsapiXml.ValueOf(doc, "elevation"))
@@ -132,6 +147,7 @@ Namespace Cameras
 
         Public Async Function GoToPositionAsync(position As PtzPosition, ct As Threading.CancellationToken) As Task Implements ICameraController.GoToPositionAsync
             Require(CameraFeatures.Ptz)
+            RequireDirect("الانتقال إلى موضع مطلق")
             If Double.IsNaN(position.Azimuth) OrElse Double.IsNaN(position.Elevation) OrElse Double.IsNaN(position.Zoom) Then
                 Throw New ArgumentException("الموضع يحوي قيمة غير صالحة.")
             End If
@@ -208,7 +224,7 @@ Namespace Cameras
         Public Function SavePresetAsync(id As Integer, name As String, ct As Threading.CancellationToken) As Task Implements ICameraController.SavePresetAsync
             Require(CameraFeatures.Presets)
             CheckId(id, Profile.MaxPresets, "رقم الموضع المسبق")
-            Dim body As XElement = IsapiXml.Build("PTZPreset", IsapiXml.Num("id", id), IsapiXml.Txt("presetName", SanitizeName(name)))
+            Dim body As XElement = IsapiXml.Build("PTZPreset", IsapiXml.Txt("enabled", "true"), IsapiXml.Num("id", id), IsapiXml.Txt("presetName", SanitizeName(name)))
             Return _client.PutAsync(IsapiPaths.Preset(Channel, id), body, ct)
         End Function
 
@@ -343,6 +359,7 @@ Namespace Cameras
         End Function
 
         Public Function RebootAsync(ct As Threading.CancellationToken) As Task Implements ICameraController.RebootAsync
+            RequireDirect("إعادة تشغيل الكاميرا")
             Return _client.PutAsync(IsapiPaths.Reboot, Nothing, ct)
         End Function
 
@@ -375,8 +392,13 @@ Namespace Cameras
 
         Public Shared Function Create(profile As CameraProfile, connection As CameraConnection, Optional handler As Net.Http.HttpMessageHandler = Nothing) As ICameraController
             Dim client As New IsapiClient(connection, handler)
-            If profile Is CameraProfiles.Ds2Se7c432mwAeb Then Return New Ds2Se7c432mwAebController(client)
-            If profile Is CameraProfiles.Ds2De7232iwAe Then Return New Ds2De7232iwAeController(client)
+            Dim ctl As HikvisionPtzController = Nothing
+            If profile Is CameraProfiles.Ds2Se7c432mwAeb Then ctl = New Ds2Se7c432mwAebController(client)
+            If profile Is CameraProfiles.Ds2De7232iwAe Then ctl = New Ds2De7232iwAeController(client)
+            If ctl IsNot Nothing Then
+                If connection.IsRelay Then ctl.EnableRelayMode()
+                Return ctl
+            End If
             client.Dispose()
             Throw New NotSupportedException($"الطراز {profile.ModelName} غير مدعوم.")
         End Function

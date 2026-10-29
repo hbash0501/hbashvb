@@ -16,6 +16,10 @@ Public NotInheritable Class CameraConfig
     Public Property PasswordProtected As String = ""
     Public Property PinnedCertSha256 As String = ""
     Public Property TimeoutSeconds As Integer = 10
+    ''' <summary>lan (افتراضي: اتصال مباشر) | hpp (تمرير ISAPI عبر Hik-Partner Pro، تنفّذه البوابة فقط).</summary>
+    Public Property Transport As String = "lan"
+    ''' <summary>الرقم التسلسلي للجهاز في Hik-Partner Pro (للنقل hpp فقط).</summary>
+    Public Property CloudSerial As String = ""
 End Class
 
 ''' <summary>تخزين إعدادات الكاميرات؛ كلمات المرور تمر عبر الخزنة المشفّرة.</summary>
@@ -60,7 +64,8 @@ Public NotInheritable Class CameraConfigStore
     Public Sub Update(config As CameraConfig, newPassword As String)
         Dim cfg As CameraConfig = Copy(config)
         Dim probe As New CameraConnection With {.Host = cfg.Host, .Port = cfg.Port, .UseHttps = cfg.UseHttps,
-            .AllowInsecureHttp = cfg.AllowInsecureHttp, .Username = cfg.Username, .TimeoutSeconds = cfg.TimeoutSeconds}
+            .AllowInsecureHttp = cfg.AllowInsecureHttp, .Username = cfg.Username, .TimeoutSeconds = cfg.TimeoutSeconds,
+            .Transport = CameraTransports.Parse(cfg.Transport), .CloudSerial = If(cfg.CloudSerial, "")}
         probe.Validate()
         SyncLock _lock
             Dim existing As CameraConfig = Nothing
@@ -81,13 +86,15 @@ Public NotInheritable Class CameraConfigStore
         If c Is Nothing Then Throw New KeyNotFoundException("الكاميرا غير معرّفة.")
         Dim pw As String = If(c.PasswordProtected = "", "", _vault.Unprotect(c.PasswordProtected, "camera:" & c.Key))
         Return New CameraConnection With {.Host = c.Host, .Port = c.Port, .UseHttps = c.UseHttps, .AllowInsecureHttp = c.AllowInsecureHttp,
-            .Username = c.Username, .Password = pw, .PinnedCertSha256 = c.PinnedCertSha256, .TimeoutSeconds = c.TimeoutSeconds}
+            .Username = c.Username, .Password = pw, .PinnedCertSha256 = c.PinnedCertSha256, .TimeoutSeconds = c.TimeoutSeconds,
+            .Transport = CameraTransports.Parse(c.Transport), .CloudSerial = If(c.CloudSerial, "")}
     End Function
 
     Private Shared Function Copy(c As CameraConfig) As CameraConfig
         Return New CameraConfig With {.Key = c.Key, .DisplayName = c.DisplayName, .ModelName = c.ModelName, .Host = c.Host, .Port = c.Port,
             .UseHttps = c.UseHttps, .AllowInsecureHttp = c.AllowInsecureHttp, .Username = c.Username,
-            .PasswordProtected = c.PasswordProtected, .PinnedCertSha256 = c.PinnedCertSha256, .TimeoutSeconds = c.TimeoutSeconds}
+            .PasswordProtected = c.PasswordProtected, .PinnedCertSha256 = c.PinnedCertSha256, .TimeoutSeconds = c.TimeoutSeconds,
+            .Transport = If(String.IsNullOrWhiteSpace(c.Transport), "lan", c.Transport), .CloudSerial = If(c.CloudSerial, "")}
     End Function
 
     Private Sub Load()

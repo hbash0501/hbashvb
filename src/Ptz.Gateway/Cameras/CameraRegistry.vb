@@ -1,3 +1,4 @@
+Imports Ptz.Presentation
 Imports Ptz.Core.Models
 Imports Ptz.Gateway.Hosting
 
@@ -11,11 +12,17 @@ Namespace Cameras
         Public Sub New(svc As GatewayServices)
             _svc = svc
             For Each cfg In svc.CameraConfigs.All()
-                If String.IsNullOrWhiteSpace(cfg.Host) Then Continue For
+                If Not IsRunnable(cfg) Then Continue For
                 If Not System.Text.RegularExpressions.Regex.IsMatch(cfg.Key, "^[a-z0-9-]{1,32}$") Then Continue For
                 _hosts(cfg.Key) = New CameraHost(svc, cfg)
             Next
         End Sub
+
+        ''' <summary>تُشغَّل الكاميرا إن كان لها عنوان (lan) أو رقم تسلسلي سحابي صالح (hpp).</summary>
+        Public Shared Function IsRunnable(cfg As CameraConfig) As Boolean
+            If String.Equals(cfg.Transport, "hpp", StringComparison.OrdinalIgnoreCase) Then Return CameraTransports.IsValidCloudSerial(cfg.CloudSerial)
+            Return Not String.IsNullOrWhiteSpace(cfg.Host)
+        End Function
 
         Public ReadOnly Property All As IReadOnlyList(Of CameraHost)
             Get

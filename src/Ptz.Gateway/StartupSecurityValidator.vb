@@ -1,6 +1,7 @@
 Imports System.Net
 Imports System.Security.Cryptography.X509Certificates
 Imports Ptz.Core.Models
+Imports Ptz.Gateway.Cloud
 
 ''' <summary>نتيجة فحص الإعداد: المخالفات تمنع الإقلاع، والتحذيرات تُعرض فقط.</summary>
 Public NotInheritable Class ValidationReport
@@ -28,6 +29,61 @@ Public NotInheritable Class StartupSecurityValidator
         If IPAddress.TryParse(address, ip) Then Return IPAddress.IsLoopback(ip)
         Return String.Equals(address, "localhost", StringComparison.OrdinalIgnoreCase)
     End Function
+
+    ''' <summary>
+    ''' قواعد النقل السحابي (Hik-Partner Pro): لا كاميرا hpp بلا تفعيل ومفاتيح، عناوين الخدمة https ضمن اللواحق، مسارات إضافية صالحة،
+    ''' وحدود معقولة للمعدل. المفتاح يتحكم بكل أجهزة الحساب فيُحذَّر منه دائماً عند التفعيل.
+    ''' </summary>
+    Private Shared Sub CheckHpp(o As GatewayOptions, env As Func(Of String, String), relayCams As List(Of CameraConnection), r As ValidationReport)
+        Dim h As HppOptions = o.Hpp
+        If h Is Nothing Then Return
+        If relayCams.Count > 0 AndAlso Not h.Enabled Then
+            r.Violations.Add("توجد كاميرات بنقل hpp لكن Hpp.Enabled=false.")
+        End If
+        Dim serials As New HashSet(Of String)(StringComparer.Ordinal)
+        For Each c As CameraConnection In relayCams
+            If Not serials.Add(c.CloudSerial) Then r.Violations.Add("رقم تسلسلي سحابي مكرر بين كاميرتين.")
+        Next
+        If Not h.Enabled Then Return
+
+        Dim suffixesOk As Boolean = h.AllowedHostSuffixes IsNot Nothing AndAlso h.AllowedHostSuffixes.Count > 0
+        If suffixesOk Then
+            For Each sfx As String In h.AllowedHostSuffixes
+                Dim t As String = If(sfx, "").Trim().TrimStart("."c)
+                If t.IndexOf("."c) < 0 OrElse t.Contains("*") OrElse t.Contains("/") OrElse t.Contains(":") Then
+                    r.Violations.Add("Hpp.AllowedHostSuffixes يحوي لاحقة غير صالحة (يلزم نطاق كامل مثل hik-partner.com بلا أنماط).")
+                    suffixesOk = False
+                    Exit For
+                End If
+            Next
+        Else
+            r.Violations.Add("Hpp.AllowedHostSuffixes فارغ.")
+        End If
+        If suffixesOk AndAlso HppCloud.NormalizeServiceUrl(h.TokenUrl, h.AllowedHostSuffixes) Is Nothing Then
+            r.Violations.Add("Hpp.TokenUrl يجب أن يكون https بلا منفذ/مسار ومضيفه ضمن Hpp.AllowedHostSuffixes.")
+        End If
+
+        Dim ak As String = If(String.IsNullOrWhiteSpace(h.AppKeyEnv), Nothing, env(h.AppKeyEnv))
+        Dim sk As String = If(String.IsNullOrWhiteSpace(h.SecretKeyEnv), Nothing, env(h.SecretKeyEnv))
+        If String.IsNullOrWhiteSpace(ak) OrElse String.IsNullOrWhiteSpace(sk) Then
+            If relayCams.Count > 0 Then
+                r.Violations.Add($"مفاتيح Hik-Partner Pro غير مضبوطة: عيّن متغيري البيئة {h.AppKeyEnv}/{h.SecretKeyEnv}.")
+            Else
+                r.Warnings.Add("Hpp.Enabled=true بلا مفاتيح في البيئة (لا كاميرات hpp حالياً).")
+            End If
+        End If
+
+        If h.TimeoutSeconds < 3 OrElse h.TimeoutSeconds > 60 Then r.Violations.Add("Hpp.TimeoutSeconds خارج [3,60].")
+        If h.MaxRequestsPerSecond < 0.5 OrElse h.MaxRequestsPerSecond > 20 Then r.Violations.Add("Hpp.MaxRequestsPerSecond خارج [0.5,20].")
+        If h.MaxBurst < 1 OrElse h.MaxBurst > 50 Then r.Violations.Add("Hpp.MaxBurst خارج [1,50].")
+        For Each rule As String In If(h.ExtraAllowed, New List(Of String)())
+            If Not HppPathPolicy.IsValidRule(rule) Then r.Violations.Add($"Hpp.ExtraAllowed يحوي قاعدة غير صالحة '{HppJson.SafeCode(rule)}' (الصيغة: METHOD /ISAPI/...).")
+        Next
+        If h.ExtraAllowed IsNot Nothing AndAlso h.ExtraAllowed.Count > 0 Then
+            r.Warnings.Add("Hpp.ExtraAllowed يفتح مسارات ISAPI إضافية خارج الحد الأدنى الموثَّق: تأكد أنها مدعومة سحابياً ولا تسمح بما يتجاوز حاجتك.")
+        End If
+        r.Warnings.Add("مفاتيح Hik-Partner Pro تتحكم بكل أجهزة الحساب لا بالكاميرتين وحدهما: استعمل حساب شركة مخصصاً إن أمكن، واحمِ بيئة تشغيل البوابة.")
+    End Sub
 
     Public Shared Function Check(o As GatewayOptions, env As Func(Of String, String), userCount As Integer, anyTotpEnrolled As Boolean,
                                  cameras As IEnumerable(Of CameraConnection), nowUtc As DateTime) As ValidationReport
@@ -99,9 +155,15 @@ Public NotInheritable Class StartupSecurityValidator
 
         ' --- المستخدمون والكاميرات ---
         If userCount = 0 Then r.Violations.Add("لا يوجد مستخدمون (استخدم: user add <name> <role>).")
+        Dim relayCams As New List(Of CameraConnection)()
         For Each c As CameraConnection In If(cameras, New List(Of CameraConnection)())
+            If c.IsRelay Then
+                relayCams.Add(c)
+                Continue For
+            End If
             If Not c.UseHttps AndAlso Not c.AllowInsecureHttp Then r.Violations.Add($"الكاميرا {c.Host} تستخدم HTTP بلا AllowInsecureHttp.")
         Next
+        CheckHpp(o, env, relayCams, r)
 
         ' --- مفتاح الأسرار (يونكس) ---
         Dim keyFile As String = env("PTZ_MASTER_KEY_FILE")

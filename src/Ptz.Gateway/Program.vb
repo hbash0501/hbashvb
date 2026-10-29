@@ -35,7 +35,7 @@ Public Module Program
         Dim svc As GatewayServices = GatewayServices.CreateProduction(opts)
         Dim conns As New List(Of CameraConnection)()
         For Each c In svc.CameraConfigs.All()
-            If Not String.IsNullOrWhiteSpace(c.Host) Then conns.Add(svc.CameraConfigs.BuildConnection(c.Key))
+            If Ptz.Gateway.Cameras.CameraRegistry.IsRunnable(c) Then conns.Add(svc.CameraConfigs.BuildConnection(c.Key))
         Next
         Dim report As ValidationReport = StartupSecurityValidator.Check(opts, Function(k) Environment.GetEnvironmentVariable(k), svc.Users.ListUsers().Count,
                                                                          svc.Totp.AnyEnrolled(), conns, DateTime.UtcNow)
