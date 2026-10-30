@@ -17,7 +17,7 @@ src/Ptz.Presentation  المقدِّمات (MVP) وعقود الواجهات —
 src/Ptz.App           واجهة WinForms: Designer منفصل عن الكود، لوحات UserControl وحيدة الوظيفة (net8.0-windows)
 src/Ptz.Gateway       بوابة التشغيل عن بُعد (Kestrel): REST/SSE آمنة + كونسول ويب للجوال + أداة إدارة CLI
 tests/Ptz.Tests       187 اختبار وحدة وتكامل (xUnit)
-tests/Ptz.Gateway.Tests  296 اختبار تكامل للبوابة والعميل البعيد ونقل Hik-Partner Pro (خادم حقيقي، TLS حقيقي، سحابة وهمية)
+tests/Ptz.Gateway.Tests  297 اختبار تكامل للبوابة والعميل البعيد ونقل Hik-Partner Pro (خادم حقيقي، TLS حقيقي، سحابة وهمية)
 deploy/               أمثلة نشر: systemd، nftables، Docker، خدمة Windows، إعداد نموذجي
 build/                فحص تجميع الواجهة على Linux/CI
 docs/TECHNICAL_REPORT.md   التقرير التقني الشامل
@@ -69,5 +69,5 @@ PtzGateway cert create --host gateway.lan && PtzGateway serve
 ## ما تم التحقق منه وما لم يُتحقق منه
 
 انظر القسم 9 من [التقرير التقني](docs/TECHNICAL_REPORT.md): الشيفرة مبنية ومُختبرة آلياً على Linux
-(483 اختباراً ناجحاً، منها تكامل مع كاميرا ISAPI وهمية وبوابة حقيقية وTLS حقيقي وسحابة Hik-Partner Pro وهمية)، وكونسول الويب جُرّب بمتصفح Chromium حقيقي
+(484 اختباراً ناجحاً، منها تكامل مع كاميرا ISAPI وهمية وبوابة حقيقية وTLS حقيقي وسحابة Hik-Partner Pro وهمية)، وكونسول الويب جُرّب بمتصفح Chromium حقيقي
 ضد البوابة الفعلية، وواجهة WinForms **مُجمَّعة** لكن **لم تُشغَّل بصرياً**، ولم تُجرَّب على كاميرات فعلية بعد — يلزم اختبار قبول ميداني قبل الإنتاج.
