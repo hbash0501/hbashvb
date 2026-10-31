@@ -1,0 +1,45 @@
+{
+  // مثال إعداد للبوابة. انسخه إلى gateway.json وعدّله. القيم الافتراضية آمنة: استماع على الحلقة المحلية فقط وTOTP إلزامي.
+  // "Loopback" | "Vpn" | "Tunnel" | "Public" — يحدد صرامة فحص الإقلاع (انظر docs/REMOTE.md §5)
+  "exposureMode": "Vpn",
+
+  // اربط على عنوان واجهة الـ VPN (وليس 0.0.0.0) كلما أمكن
+  "listen": [ { "address": "10.8.0.1", "port": 8443 } ],
+
+  // شهادة الخادم: أنشئها بـ  PtzGateway cert create --host gateway.lan  (تطبع البصمتين للعملاء)
+  "tls": { "pfxPath": "/var/lib/ptz-gateway/tls/gw.pfx", "pfxPasswordEnv": "" },
+
+  // الأسماء التي يقبلها الخادم في ترويسة Host (لا يُقبل "*" مع استماع خارجي)
+  "allowedHosts": [ "gateway.lan", "10.8.0.1" ],
+
+  // خلف وكيل/نفق (Cloudflare Tunnel، nginx...): عناوين الوكلاء الموثوقين مفردةً فقط (لا نطاقات)
+  "trustedProxies": [],
+
+  "dataDir": "/var/lib/ptz-gateway",
+  // اختياري: ملف يُلحق به آخر تجزئة تدقيق كل 15 دقيقة (ضعه على قرص/مشاركة منفصلة لكشف بتر السجل)
+  "auditAnchorFile": "",
+
+  "auth": {
+    "requireTotp": true,
+    "allowNoMfa": false,
+    "idleMinutes": 30,
+    "absoluteHours": 12,
+    "maxSessionsPerUser": 5,
+    "stepUpMinutes": 5,
+    // أعلى دور يُمنح لجلسة بعيدة (حتى لو كان الحساب مديراً). Administrator يتطلب PTZ_ALLOW_REMOTE_ADMIN=1
+    "remoteMaxRole": "Supervisor"
+  },
+
+  "streams": { "maxPerUser": 6, "maxGlobal": 12, "heartbeatSeconds": 15, "maxLifetimeMinutes": 60 },
+  "ptz": { "defaultTtlMs": 1200, "minTtlMs": 200, "maxTtlMs": 2000, "forwardMinIntervalMs": 300 },
+  "frames": { "gatingEnabled": true, "idleRefreshSeconds": 3, "changeThreshold": 2.5, "maxTier": "hd" },
+
+  "startEngines": true,
+
+  // النقل السحابي عبر Hik-Partner Pro بدل الاتصال المباشر بالكاميرا (اختياري، معطّل). حركة ومواضع مسبقة وإنذارات الكاميرا نفسها؛ بلا فيديو ولا محرك ذكي.
+  // المفاتيح (API Key/Secret) من متغيرات البيئة PTZ_HPP_AK / PTZ_HPP_SK فقط (انظر ptz-gateway.service). التفاصيل: docs/REMOTE.md §5.4
+  "hpp": { "enabled": false, "events": true },
+
+  // إنذارات إلى نظام خارجي (HTTPS فقط، موقّعة HMAC). السر يُقرأ من متغير بيئة لا من الملف.
+  "webhook": { "url": "", "secretEnv": "" }
+}

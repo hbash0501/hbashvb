@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Ptz.Core</RootNamespace>
+    <AssemblyName>Ptz.Core</AssemblyName>
+  </PropertyGroup>
+</Project>

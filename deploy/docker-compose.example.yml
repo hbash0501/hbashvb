@@ -1,0 +1,19 @@
+# مثال تشغيل بالحاوية. الاستماع على 0.0.0.0 داخل الحاوية يستلزم شهادة TLS وAllowedHosts (يرفض فحص الإقلاع غير ذلك).
+# اربط المنفذ على واجهة الـ VPN في المضيف، لا على كل الواجهات.
+services:
+  ptz-gateway:
+    image: ptz-gateway
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [ "no-new-privileges:true" ]
+    tmpfs: [ /tmp ]
+    ports:
+      - "10.8.0.1:8443:8443"
+    volumes:
+      - ./config/gateway.json:/config/gateway.json:ro
+      - ./secrets/master.key:/secrets/master.key:ro      # chmod 600؛ انسخه احتياطياً خارج الجهاز
+      - ptz-data:/data
+    # الأوامر الإدارية:  docker compose run --rm ptz-gateway user add alice operator
+volumes:
+  ptz-data: {}
