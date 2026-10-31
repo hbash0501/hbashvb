@@ -39,7 +39,7 @@ Namespace Cameras
     ''' عقد PTZ، وناقل إنذارات خاص. هي الجهة الوحيدة التي تحمل بيانات اعتماد الكاميرا وتكلّمها.
     ''' </summary>
     Public NotInheritable Class CameraHost
-        Implements IDisposable
+        Implements IDisposable, IHppEventTarget
 
         Private ReadOnly _svc As GatewayServices
         Private ReadOnly _config As CameraConfig
@@ -60,6 +60,8 @@ Namespace Cameras
         Private ReadOnly _relay As Boolean
         Private ReadOnly _cloudSerial As String
         Private _cloudHooked As HppCloud
+        Private _offlineByEvent As Boolean
+        Private ReadOnly _recoverNow As New Threading.SemaphoreSlim(0, 1)
 
         Public ReadOnly Property Id As String
         Public ReadOnly Property DisplayName As String
@@ -223,6 +225,12 @@ Namespace Cameras
             Get
                 If Raw Is Nothing Then Return If(_relay, Profile.DefaultFeatures And CameraTransports.RelayFeatures, Profile.DefaultFeatures)
                 Return Raw.Features
+            End Get
+        End Property
+
+        Public ReadOnly Property CloudSerial As String Implements IHppEventTarget.CloudSerial
+            Get
+                Return _cloudSerial
             End Get
         End Property
 
@@ -487,8 +495,14 @@ Namespace Cameras
 
         Private Async Function RelayRecoveryLoopAsync(ct As Threading.CancellationToken) As Task
             While Not ct.IsCancellationRequested
+                ' انقطاع أعلنته السحابة نفسها (deviceoffline): لا جدوى من الاستطلاع كل 10 ث؛ ننتظر حدث deviceonline أو دورة أبطأ ×6.
+                Dim byEvent As Boolean
+                SyncLock _lock
+                    byEvent = _offlineByEvent
+                End SyncLock
+                Dim interval As TimeSpan = TimeSpan.FromSeconds(RelayRecoveryIntervalSeconds * If(byEvent, 6, 1))
                 Try
-                    Await Task.Delay(TimeSpan.FromSeconds(RelayRecoveryIntervalSeconds), ct).ConfigureAwait(False)
+                    Await _recoverNow.WaitAsync(interval, ct).ConfigureAwait(False)
                 Catch ex As OperationCanceledException
                     Return
                 End Try
@@ -506,11 +520,68 @@ Namespace Cameras
                         _device = info
                         _online = True
                         _failures = 0
+                        _offlineByEvent = False
                     End SyncLock
                     PublishHealth()
                 End If
             End While
         End Function
+
+        ' ---------------- إنذارات الكاميرا عبر السحابة ----------------
+        ''' <summary>
+        ''' حدث من مضخة Hik-Partner Pro (منقّى). الاتصال/الانقطاع يحدّث الصحة؛ أحداث الكشف تصبح إنذارات Device:* كما في الشبكة المحلية،
+        ''' برسائل ثابتة (لا نص حر من السحابة). الكشف نفسه يجري على الكاميرا ويلزم تفعيله وربطه بـ «Notify Surveillance Center» عليها.
+        ''' </summary>
+        Public Sub OnCloudEvent(e As HppDeviceEvent) Implements IHppEventTarget.OnCloudEvent
+            Dim type As String = e.EventType.ToLowerInvariant()
+            Select Case type
+                Case "deviceoffline"
+                    Dim changed As Boolean
+                    SyncLock _lock
+                        changed = _online
+                        _online = False
+                        _offlineByEvent = True
+                    End SyncLock
+                    If changed Then PublishHealth()
+                    Bus.Publish(New AlarmEvent With {.Camera = DisplayName, .Kind = "System", .Severity = AlarmSeverity.Warning,
+                                                      .Message = "أبلغت Hik-Partner Pro أن الكاميرا انقطعت عن السحابة."})
+                    Return
+                Case "deviceonline"
+                    SyncLock _lock
+                        _offlineByEvent = False
+                    End SyncLock
+                    If _recoverNow.CurrentCount = 0 Then
+                        Try
+                            _recoverNow.Release()
+                        Catch ex As Threading.SemaphoreFullException
+                        End Try
+                    End If
+                    Return
+                Case "devicedeleted"
+                    Bus.Publish(New AlarmEvent With {.Camera = DisplayName, .Kind = "System", .Severity = AlarmSeverity.Critical,
+                                                      .Message = "حُذفت الكاميرا من حساب Hik-Partner Pro: لن تصلها الأوامر حتى تُضاف من جديد."})
+                    Return
+                Case "deviceadded"
+                    Return
+            End Select
+            Dim sev As AlarmSeverity
+            Dim msg As String
+            Select Case type
+                Case "vmd" : sev = AlarmSeverity.Warning : msg = "كشف حركة (من الكاميرا)"
+                Case "fielddetection" : sev = AlarmSeverity.Critical : msg = "تسلل إلى منطقة محمية (من الكاميرا)"
+                Case "linedetection" : sev = AlarmSeverity.Critical : msg = "عبور خط (من الكاميرا)"
+                Case "regionentrance" : sev = AlarmSeverity.Warning : msg = "دخول منطقة (من الكاميرا)"
+                Case "regionexiting" : sev = AlarmSeverity.Info : msg = "خروج من منطقة (من الكاميرا)"
+                Case "shelteralarm" : sev = AlarmSeverity.Critical : msg = "تغطية أو تلاعب بعدسة الكاميرا"
+                Case "videoloss" : sev = AlarmSeverity.Critical : msg = "فقد إشارة الفيديو في الكاميرا"
+                Case "io" : sev = AlarmSeverity.Warning : msg = "إنذار من مدخل خارجي للكاميرا"
+                Case Else : sev = AlarmSeverity.Info : msg = "حدث من الكاميرا: " & e.EventType
+            End Select
+            If e.Target = "human" Then msg &= " — شخص" Else If e.Target = "vehicle" Then msg &= " — مركبة"
+            Dim alarm As New AlarmEvent With {.Camera = DisplayName, .Kind = "Device:" & e.EventType, .Severity = sev, .Message = msg}
+            If e.Position.HasValue Then alarm.Position = e.Position.Value
+            Bus.Publish(alarm)
+        End Sub
 
         ' ---------------- الأحداث ----------------
         Private Sub OnBreakerOpened()

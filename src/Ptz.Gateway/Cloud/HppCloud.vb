@@ -62,6 +62,13 @@ Namespace Cloud
         Public Property SiteName As String = ""
     End Class
 
+    ''' <summary>نتيجة نداء JSON عام: errorCode ("0" نجاح) و"data" المستقلة عن المستند.</summary>
+    Public NotInheritable Class HppApiResult
+        Public Property HttpStatus As Integer
+        Public Property Code As String = ""
+        Public Property Data As JsonElement
+    End Class
+
     ''' <summary>رمز وصول مخبّأ: يُجدَّد قبل انتهائه، ونطاق الخدمة (areaDomain) محقَّق من قائمة اللواحق المسموحة.</summary>
     Friend NotInheritable Class HppAuth
         Public ReadOnly Property Token As String
@@ -404,71 +411,73 @@ Namespace Cloud
         End Function
 
         ' ---------------- نداءات عامة (للأوامر الإدارية) ----------------
+        ''' <summary>
+        ''' نداء JSON عام إلى areaDomain (POST، Bearer): يعيد errorCode و"data" (نسخة مستقلة). رمز مرفوض (LAP50000x أو 401 مجرّد) يُجدَّد
+        ''' ويُعاد مرة واحدة. أعطال جلب الرمز تُرمى كما هي (HppCloudException / HttpRequestException).
+        ''' </summary>
+        Friend Async Function PostApiAsync(path As String, body As String, timeout As TimeSpan, ct As Threading.CancellationToken) As Task(Of HppApiResult)
+            Dim rejected As String = Nothing
+            For attempt As Integer = 0 To 1
+                Dim auth As HppAuth = Await GetAuthAsync(rejected, ct).ConfigureAwait(False)
+                Dim status As Integer
+                Dim bytes As Byte()
+                Using cts As Threading.CancellationTokenSource = Threading.CancellationTokenSource.CreateLinkedTokenSource(ct)
+                    cts.CancelAfter(timeout)
+                    Using req As New HttpRequestMessage(HttpMethod.Post, auth.Area & path)
+                        req.Headers.TryAddWithoutValidation("Authorization", "Bearer " & auth.Token)
+                        req.Content = New StringContent(body, Encoding.UTF8, "application/json")
+                        Try
+                            Using resp As HttpResponseMessage = Await _http.SendAsync(req, HttpCompletionOption.ResponseContentRead, cts.Token).ConfigureAwait(False)
+                                status = CInt(resp.StatusCode)
+                                bytes = Await resp.Content.ReadAsByteArrayAsync(cts.Token).ConfigureAwait(False)
+                            End Using
+                        Catch ex As OperationCanceledException When Not ct.IsCancellationRequested
+                            Throw New HttpRequestException("انتهت مهلة نداء Hik-Partner Pro.")
+                        End Try
+                    End Using
+                End Using
+                Dim result As New HppApiResult With {.HttpStatus = status, .Code = "HTTP" & status.ToString(Globalization.CultureInfo.InvariantCulture)}
+                Try
+                    Using doc As JsonDocument = JsonDocument.Parse(bytes)
+                        Dim root As JsonElement = doc.RootElement
+                        If root.ValueKind = JsonValueKind.Object Then
+                            result.Code = HppJson.ErrorCodeOf(root, If(status >= 200 AndAlso status < 300, "0", result.Code))
+                            Dim data As JsonElement
+                            If HppJson.TryGetLoose(root, "data", data) Then result.Data = data.Clone()
+                        End If
+                    End Using
+                Catch ex As JsonException
+                    If status >= 200 AndAlso status < 300 Then result.Code = "badResponse"
+                End Try
+                If status = 401 AndAlso result.Code.StartsWith("HTTP", StringComparison.Ordinal) Then result.Code = "LAP500004"
+                If attempt = 0 AndAlso HppResponseMapper.IsTokenRejected(result.Code) Then
+                    rejected = auth.Token
+                    Continue For
+                End If
+                Return result
+            Next
+            Return New HppApiResult With {.HttpStatus = 401, .Code = "LAP500004"}
+        End Function
+
         ''' <summary>قائمة الأجهزة المرتبطة بالحساب (للاكتشاف عند الإعداد). للقراءة فقط.</summary>
         Public Async Function ListDevicesAsync(ct As Threading.CancellationToken) As Task(Of IReadOnlyList(Of HppDevice))
             Dim result As New List(Of HppDevice)()
             Const pageSize As Integer = 20
             For page As Integer = 1 To 25
-                Dim rows As JsonElement = Nothing
-                Dim total As Long = 0
-                Dim ok As Boolean = False
-                For attempt As Integer = 0 To 1
-                    Dim auth As HppAuth = Await GetAuthAsync(Nothing, ct).ConfigureAwait(False)
-                    Dim status As Integer
-                    Dim bytes As Byte()
-                    Using cts As Threading.CancellationTokenSource = Threading.CancellationTokenSource.CreateLinkedTokenSource(ct)
-                        cts.CancelAfter(TimeSpan.FromSeconds(Math.Max(3, _options.TimeoutSeconds)))
-                        Using req As New HttpRequestMessage(HttpMethod.Post, auth.Area & "/api/hpcgw/v1/device/list")
-                            req.Headers.TryAddWithoutValidation("Authorization", "Bearer " & auth.Token)
-                            req.Content = New StringContent(JsonSerializer.Serialize(New With {.page = page, .pageSize = pageSize}), Encoding.UTF8, "application/json")
-                            Try
-                                Using resp As HttpResponseMessage = Await _http.SendAsync(req, HttpCompletionOption.ResponseContentRead, cts.Token).ConfigureAwait(False)
-                                    status = CInt(resp.StatusCode)
-                                    bytes = Await resp.Content.ReadAsByteArrayAsync(cts.Token).ConfigureAwait(False)
-                                End Using
-                            Catch ex As OperationCanceledException When Not ct.IsCancellationRequested
-                                Throw New HttpRequestException("انتهت مهلة طلب قائمة الأجهزة.")
-                            End Try
-                        End Using
-                    End Using
-                    Dim code As String = "HTTP" & status.ToString(Globalization.CultureInfo.InvariantCulture)
-                    Dim parsed As Boolean = False
-                    Try
-                        Using doc As JsonDocument = JsonDocument.Parse(bytes)
-                            Dim root As JsonElement = doc.RootElement
-                            If root.ValueKind = JsonValueKind.Object Then
-                                code = HppJson.ErrorCodeOf(root, code)
-                                Dim data As JsonElement
-                                If code = "0" AndAlso root.TryGetProperty("data", data) AndAlso data.ValueKind = JsonValueKind.Object Then
-                                    total = HppJson.LongOf(data, "total")
-                                    Dim r As JsonElement
-                                    If data.TryGetProperty("rows", r) AndAlso r.ValueKind = JsonValueKind.Array Then
-                                        rows = r.Clone()
-                                        parsed = True
-                                    End If
-                                End If
-                            End If
-                        End Using
-                    Catch ex As JsonException
-                        Throw New HppCloudException("badResponse", "رد غير مفهوم من قائمة أجهزة Hik-Partner Pro.", False)
-                    End Try
-                    If parsed Then
-                        ok = True
-                        Exit For
-                    End If
-                    If code = "0" Then Exit For   ' نجاح بلا صفوف (rows غائب/فارغ) ⇒ نهاية القائمة
-                    If attempt = 0 AndAlso HppResponseMapper.IsTokenRejected(code) Then
-                        Await GetAuthAsync(auth.Token, ct).ConfigureAwait(False)
-                        Continue For
-                    End If
-                    Throw New HppCloudException(HppJson.SafeCode(code), $"رفضت Hik-Partner Pro طلب قائمة الأجهزة ({HppJson.SafeCode(code)}).", HppResponseMapper.IsAuthCode(code))
-                Next
-                If Not ok Then Exit For
+                Dim body As String = JsonSerializer.Serialize(New With {.page = page, .pageSize = pageSize})
+                Dim r As HppApiResult = Await PostApiAsync("/api/hpcgw/v1/device/list", body, TimeSpan.FromSeconds(Math.Max(3, _options.TimeoutSeconds)), ct).ConfigureAwait(False)
+                If r.Code = "badResponse" Then Throw New HppCloudException("badResponse", "رد غير مفهوم من قائمة أجهزة Hik-Partner Pro.", False)
+                If r.Code <> "0" Then
+                    Throw New HppCloudException(HppJson.SafeCode(r.Code), $"رفضت Hik-Partner Pro طلب قائمة الأجهزة ({HppJson.SafeCode(r.Code)}).", HppResponseMapper.IsAuthCode(r.Code))
+                End If
+                Dim rows As JsonElement
+                If r.Data.ValueKind <> JsonValueKind.Object OrElse Not HppJson.TryGetLoose(r.Data, "rows", rows) OrElse rows.ValueKind <> JsonValueKind.Array Then Exit For   ' نجاح بلا صفوف ⇒ نهاية القائمة
+                Dim total As Long = HppJson.LongOf(r.Data, "total")
                 Dim n As Integer = 0
                 For Each row As JsonElement In rows.EnumerateArray()
                     If row.ValueKind <> JsonValueKind.Object Then Continue For
                     result.Add(New HppDevice With {
-                        .Serial = HppJson.StringOf(row, "deviceSerial").Trim(),
+                        .Serial = HppJson.StringOf(row, "deviceSerial"),
                         .Name = HppJson.StringOf(row, "deviceName"),
                         .DeviceType = HppJson.StringOf(row, "deviceType"),
                         .Category = CInt(HppJson.LongOf(row, "deviceCategory")),

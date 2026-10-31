@@ -132,6 +132,7 @@ Public NotInheritable Class Cli
         _out.WriteLine("  camera list | set <key> --host H [--port P] --user U [--http-insecure] [--pin <sha256>] [--name N]")
         _out.WriteLine("  camera set <key> --transport hpp --cloud-serial <SERIAL> [--name N]   (Hik-Partner Pro بدل الاتصال المباشر)")
         _out.WriteLine("  hpp devices | hpp check [<key>] [--stop]   (يتطلب متغيري البيئة للمفاتيح؛ check يقرأ ولا يحرّك، و--stop يرسل إيقافاً فقط)")
+        _out.WriteLine("  hpp events [--seconds N] [--raw]           (تشخيص إنذارات السحابة؛ شغّله والخدمة متوقفة)")
         _out.WriteLine("  cert create --host <dns|ip> [--days 365] | cert show")
         Return 64
     End Function
@@ -247,6 +248,9 @@ Public NotInheritable Class Cli
                 store.Update(cfg, If(pw = "", Nothing, pw))
                 If relay Then
                     _admin.Write(_actor, "Camera.Set", cfg.Key, "OK", $"transport=hpp serial={cfg.CloudSerial}")
+                    If Not CameraTransports.LooksLikeGuideSerial(cfg.CloudSerial) Then
+                        _out.WriteLine("تحذير: الرقم ليس بصيغة الدليل (1–9 حروف/أرقام). استعمل الرقم الذي يعرضه 'hpp devices' (غالباً آخر 9 محارف من الرقم الكامل).")
+                    End If
                 Else
                     _admin.Write(_actor, "Camera.Set", cfg.Key, "OK", $"{cfg.Host}:{cfg.Port} https={cfg.UseHttps} pinned={cfg.PinnedCertSha256 <> ""}")
                 End If
@@ -290,8 +294,79 @@ Public NotInheritable Class Cli
                 End Using
                 Return 0
             Case "check" : Return HppCheck(args)
+            Case "events" : Return HppEvents(args)
             Case Else : Return Usage()
         End Select
+    End Function
+
+    ''' <summary>
+    ''' تشخيص ميداني لإنذارات السحابة: يشترك بقائمة الكاميرات المضبوطة ويعرض ما يصل خلال N ثانية. لا يؤكد الاستلام (mq/offset)،
+    ''' فتعود الرسائل نفسها للخدمة لاحقاً. شغّله والخدمة متوقفة: الدليل يرفض سحبين متزامنين بالمفتاح نفسه (LAP068001).
+    ''' </summary>
+    Private Function HppEvents(args As String()) As Integer
+        Dim seconds As Integer = 60
+        Dim sOpt As String = Opt(args, "--seconds")
+        If sOpt IsNot Nothing Then seconds = Integer.Parse(sOpt, Globalization.CultureInfo.InvariantCulture)
+        If seconds < 5 OrElse seconds > 3600 Then Throw New ArgumentException("--seconds بين 5 و3600.")
+        Dim raw As Boolean = Flag(args, "--raw")
+        Dim serials As String() = Cameras().All().Where(Function(c) String.Equals(c.Transport, "hpp", StringComparison.OrdinalIgnoreCase) AndAlso CameraTransports.IsValidCloudSerial(c.CloudSerial)).
+            Select(Function(c) c.CloudSerial).Distinct(StringComparer.Ordinal).ToArray()
+        If serials.Length = 0 Then
+            _out.WriteLine("لا كاميرات بنقل hpp (camera set <key> --transport hpp --cloud-serial S).")
+            Return 1
+        End If
+        Dim shown As Integer = 0
+        Dim others As Integer = 0
+        Dim seenBatches As New HashSet(Of String)(StringComparer.Ordinal)
+        Using cloud As HppCloud = BuildHpp()
+            Dim ct As Threading.CancellationToken = Threading.CancellationToken.None
+            Dim sub_ As HppApiResult = cloud.PostApiAsync("/api/hpcgw/v1/mq/subscribe", Text.Json.JsonSerializer.Serialize(New With {.subType = 1, .subMode = "list", .deviceSerialList = serials}), TimeSpan.FromSeconds(15), ct).GetAwaiter().GetResult()
+            If sub_.Code <> "0" Then
+                _out.WriteLine($"رفضت Hik-Partner Pro الاشتراك ({HppJson.SafeCode(sub_.Code)}).")
+                Return 4
+            End If
+            _out.WriteLine($"مشترك بـ {serials.Length} كاميرا؛ أنتظر الأحداث {seconds} ث (حرّك شيئاً أمام الكاميرا)…")
+            Dim deadline As DateTime = DateTime.UtcNow.AddSeconds(seconds)
+            While DateTime.UtcNow < deadline
+                Dim r As HppApiResult = cloud.PostApiAsync("/api/hpcgw/v1/mq/messages", "{}", TimeSpan.FromSeconds(35), ct).GetAwaiter().GetResult()
+                If r.Code <> "0" Then
+                    _out.WriteLine($"  خطأ في السحب ({HppJson.SafeCode(r.Code)}){If(r.Code = "LAP068001", ": مستهلك آخر يسحب بالمفتاح نفسه — أوقف الخدمة أثناء التشخيص.", "")}")
+                    Threading.Thread.Sleep(3000)
+                    Continue While
+                End If
+                Dim batch As String = If(r.Data.ValueKind = Text.Json.JsonValueKind.Object, HppJson.StringOf(r.Data, "batchId"), "")
+                Dim list As Text.Json.JsonElement
+                If batch <> "" AndAlso Not seenBatches.Add(batch) Then
+                    Threading.Thread.Sleep(1000)      ' دفعة أُعيدت (لم نؤكدها عمداً)
+                    Continue While
+                End If
+                If r.Data.ValueKind = Text.Json.JsonValueKind.Object AndAlso HppJson.TryGetLoose(r.Data, "list", list) AndAlso list.ValueKind = Text.Json.JsonValueKind.Array Then
+                    For Each item As Text.Json.JsonElement In list.EnumerateArray()
+                        Dim ev As HppDeviceEvent = HppEventParser.Parse(item)
+                        If ev Is Nothing OrElse Not serials.Contains(ev.Serial) Then
+                            others += 1
+                            Continue For
+                        End If
+                        shown += 1
+                        _out.WriteLine($"  {DateTime.Now:HH:mm:ss}  {ev.Serial}  format={ev.Format}  type={ev.EventType}  ch={ev.ChannelId}{If(ev.Target <> "", "  target=" & ev.Target, "")}")
+                        If raw Then
+                            Dim t As String = HppEventParser.RawAlarmData(item)
+                            Dim clean As New Text.StringBuilder()
+                            For Each ch As Char In t
+                                If clean.Length >= 400 Then Exit For
+                                clean.Append(If(Char.IsControl(ch), " "c, ch))
+                            Next
+                            _out.WriteLine("      " & clean.ToString())
+                        End If
+                    Next
+                Else
+                    Threading.Thread.Sleep(1000)
+                End If
+            End While
+        End Using
+        _admin.Write(_actor, "Hpp.Events", "hpp", "OK", $"shown={shown} other={others} seconds={seconds}")
+        _out.WriteLine($"انتهى: {shown} حدث للكاميرات المضبوطة، {others} غير ذلك (أجهزة أخرى أو صيغة غير مفهومة). لم يُؤكَّد الاستلام فستعيدها السحابة للخدمة.")
+        Return 0
     End Function
 
     ''' <summary>

@@ -8,6 +8,7 @@ Namespace Cameras
     Public NotInheritable Class CameraRegistry
         Private ReadOnly _svc As GatewayServices
         Private ReadOnly _hosts As New Dictionary(Of String, CameraHost)(StringComparer.Ordinal)
+        Private _pump As Cloud.HppEventPump
 
         Public Sub New(svc As GatewayServices)
             _svc = svc
@@ -39,11 +40,24 @@ Namespace Cameras
             For Each h As CameraHost In All
                 Await h.StartAsync(ct).ConfigureAwait(False)
             Next
+            Dim relays As List(Of CameraHost) = All.Where(Function(h) h.IsRelay).ToList()
+            If _svc.Hpp IsNot Nothing AndAlso _svc.Options.Hpp.Events AndAlso relays.Count > 0 Then
+                _pump = New Cloud.HppEventPump(_svc.Hpp, relays)
+                _pump.Start()
+            End If
         End Function
+
+        ''' <summary>مضخة إنذارات السحابة (Nothing إن لم تكن هناك كاميرات hpp أو عُطّلت الأحداث).</summary>
+        Public ReadOnly Property EventPump As Cloud.HppEventPump
+            Get
+                Return _pump
+            End Get
+        End Property
 
         ''' <summary>بالتوازي: إيقاف كاميرا معلّقة (محاولات إيقاف عبر السحابة) لا يؤخر إيقاف الأخرى حتى تقتل الخدمةُ العملية.</summary>
         Public Async Function StopAllAsync() As Task
-            Await Task.WhenAll(All.Select(Function(h) h.StopAsync())).ConfigureAwait(False)
+            Dim pumpStop As Task = If(_pump Is Nothing, Task.CompletedTask, _pump.StopAsync())
+            Await Task.WhenAll(All.Select(Function(h) h.StopAsync()).Append(pumpStop)).ConfigureAwait(False)
         End Function
     End Class
 

@@ -76,6 +76,11 @@ Public NotInheritable Class HppOptions
     ''' إيقاف غير مؤكَّد يُعاد ولا يُسجَّل ناجحاً). فعّله فقط إن أثبت <c>hpp check --stop</c> أن الكاميرا تنفّذ والسحابة لا تعيد ResponseStatus.
     ''' </summary>
     Public Property AcceptUnconfirmedWrites As Boolean = False
+    ''' <summary>
+    ''' استقبال إنذارات الكاميرا نفسها عبر السحابة (mq/subscribe + mq/messages): حركة، تسلل، عبور خط، تلاعب، فقد فيديو، اتصال/انقطاع.
+    ''' يتطلب ضبط الكشف على الكاميرا مع ربط «Notify Surveillance Center». لا يعمل بالتوازي مع مستهلك آخر لنفس المفتاح (LAP068001) ولا مع Webhook.
+    ''' </summary>
+    Public Property Events As Boolean = True
 End Class
 
 Public NotInheritable Class GatewayOptions

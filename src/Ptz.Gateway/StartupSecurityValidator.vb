@@ -43,6 +43,9 @@ Public NotInheritable Class StartupSecurityValidator
         Dim serials As New HashSet(Of String)(StringComparer.Ordinal)
         For Each c As CameraConnection In relayCams
             If Not serials.Add(c.CloudSerial) Then r.Violations.Add("رقم تسلسلي سحابي مكرر بين كاميرتين.")
+            If Not CameraTransports.LooksLikeGuideSerial(c.CloudSerial) Then
+                r.Warnings.Add($"الرقم التسلسلي السحابي '{c.CloudSerial}' ليس بصيغة الدليل (1–9 حروف/أرقام): تأكد أنه الرقم الذي يعرضه 'hpp devices' (غالباً آخر 9 محارف من الرقم الكامل).")
+            End If
         Next
         If Not h.Enabled Then Return
 

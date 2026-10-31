@@ -131,6 +131,8 @@ Public NotInheritable Class FakeHppCloud
         End SyncLock
         If rec.Path = "/api/hpcgw/v1/token/get" Then
             If TokenDelayMs > 0 Then Await Task.Delay(TokenDelayMs, cancellationToken)
+        ElseIf rec.Path.StartsWith("/api/hpcgw/v1/mq/", StringComparison.Ordinal) Then
+            Return Await HandleMqAsync(rec, cancellationToken)
         ElseIf DelayMs > 0 Then
             Await Task.Delay(DelayMs, cancellationToken)
         End If
@@ -172,6 +174,106 @@ Public NotInheritable Class FakeHppCloud
         SyncLock _lock
             Return rec.Authorization = "Bearer " & _validToken AndAlso _validToken <> ""
         End SyncLock
+    End Function
+
+    ' ===================== إنذارات (§3.6) =====================
+    Public NotInheritable Class Batch
+        Public Property Id As String = ""
+        Public Property Items As String() = Array.Empty(Of String)()
+    End Class
+
+    Private ReadOnly _batches As New List(Of Batch)()
+    Private ReadOnly _batchSignal As New Threading.SemaphoreSlim(0)
+    Private _batchSeq As Integer
+    Public ReadOnly Property Subscriptions As New List(Of String)()
+    Public ReadOnly Property ConfirmedBatches As New List(Of String)()
+    Public Property MessagesCalls As Integer
+    ''' <summary>رمز خطأ يُعاد لكل نداء messages (مثل LAP068001) حتى يُمسح.</summary>
+    Public Property MessagesCode As String
+    Public Property SubscribeCode As String
+    Public Property OffsetCode As String
+    ''' <summary>مدة حجب السحب الطويل حين لا توجد رسائل (الدليل: حتى 20 ث؛ أقصر في الاختبار).</summary>
+    Public Property PollHoldMs As Integer = 300
+
+    ''' <summary>يضيف دفعة رسائل؛ كل عنصر JSON خام لعنصر في data.list.</summary>
+    Public Function EnqueueBatch(ParamArray items As String()) As String
+        Dim id As String
+        SyncLock _lock
+            _batchSeq += 1
+            id = "batch-" & _batchSeq.ToString(Globalization.CultureInfo.InvariantCulture)
+            _batches.Add(New Batch With {.Id = id, .Items = items})
+        End SyncLock
+        _batchSignal.Release()
+        Return id
+    End Function
+
+    Public Function PendingBatches() As Integer
+        SyncLock _lock
+            Return _batches.Count
+        End SyncLock
+    End Function
+
+    ''' <summary>عنصر رسالة بصيغة XML (alarmData نص XML كما في جدول الدليل).</summary>
+    Public Shared Function XmlItem(serial As String, eventType As String, Optional inner As String = "") As String
+        Dim xml As String = $"<?xml version=""1.0"" encoding=""utf-8""?><EventNotificationAlert version=""2.0"" xmlns=""{Ns}""><deviceSerial>{serial}</deviceSerial><channelID>1</channelID><triggerTime>2026-01-01T12:00:00</triggerTime><eventType>{eventType}</eventType><eventDescription>x</eventDescription>{inner}</EventNotificationAlert>"
+        Return "{""formatType"":""XML"",""accountNumber"":""1"",""deviceSerial"":""" & serial & """,""alarmData"":" & JsonSerializer.Serialize(xml) & "}"
+    End Function
+
+    ''' <summary>عنصر رسالة بصيغة JSON (alarmData كائن كما في مثال الدليل).</summary>
+    Public Shared Function JsonItem(serial As String, eventType As String) As String
+        Return "{""formatType"":""JSON"",""accountNumber"":""1"",""deviceSerial"":""" & serial & """,""alarmData"":{""deviceSerial"":""" & serial & """,""dateTime"":""2026-01-01T12:00:00Z"",""eventType"":""" & eventType & """,""eventDescription"":""""}}"
+    End Function
+
+    Private Async Function HandleMqAsync(rec As Recorded, ct As Threading.CancellationToken) As Task(Of HttpResponseMessage)
+        If Not CheckBearer(rec) Then Return ErrorReply("LAP500004")
+        If rec.ContentType <> "application/json" Then
+            SyncLock _lock
+                Violations.Add("mq content-type: " & rec.Path)
+            End SyncLock
+        End If
+        Select Case rec.Path
+            Case "/api/hpcgw/v1/mq/subscribe"
+                If SubscribeCode IsNot Nothing Then Return Json("{""errorCode"":""" & SubscribeCode & """}")
+                SyncLock _lock
+                    Subscriptions.Add(rec.Body)
+                End SyncLock
+                Return Json("{""errorCode"":""0""}")
+            Case "/api/hpcgw/v1/mq/messages"
+                SyncLock _lock
+                    MessagesCalls += 1
+                End SyncLock
+                If MessagesCode IsNot Nothing Then Return Json("{""errorCode"":""" & MessagesCode & """}")
+                Dim b As Batch = Nothing
+                SyncLock _lock
+                    b = _batches.FirstOrDefault()
+                End SyncLock
+                If b Is Nothing Then
+                    ' سحب طويل: ننتظر دفعة جديدة أو انقضاء مدة الحجب.
+                    If Await _batchSignal.WaitAsync(PollHoldMs, ct) Then
+                        SyncLock _lock
+                            b = _batches.FirstOrDefault()
+                        End SyncLock
+                    End If
+                End If
+                If b Is Nothing Then Return Json("{""data"":{""batchId"":"""",""list"":[]},""errorCode"":""0""}")
+                Return Json("{""data"":{""batchId"":""" & b.Id & """,""list"":[" & String.Join(",", b.Items) & "]},""errorCode"":""0""}")
+            Case "/api/hpcgw/v1/mq/offset"
+                If OffsetCode IsNot Nothing Then Return Json("{""errorCode"":""" & OffsetCode & """}")
+                Dim id As String = ""
+                Try
+                    Using doc As JsonDocument = JsonDocument.Parse(rec.Body)
+                        id = doc.RootElement.GetProperty("batchId").GetString()
+                    End Using
+                Catch ex As Exception When TypeOf ex Is JsonException OrElse TypeOf ex Is KeyNotFoundException
+                    Return Json("{""errorCode"":""LAP000001""}")
+                End Try
+                SyncLock _lock
+                    ConfirmedBatches.Add(id)
+                    _batches.RemoveAll(Function(x) x.Id = id)        ' غير المؤكَّد يبقى ويُعاد في السحب التالي
+                End SyncLock
+                Return Json("{""errorCode"":""0""}")
+        End Select
+        Return New HttpResponseMessage(HttpStatusCode.NotFound)
     End Function
 
     Private Function HandleList(rec As Recorded) As HttpResponseMessage

@@ -268,6 +268,53 @@ Public Class HppConfigTests
     End Sub
 
     <Fact>
+    Public Sub HppEvents_ShowsOnlyConfiguredCameras_AndNeverConfirmsSoTheServiceStillGetsThem()
+        Dim f As FakeHppCloud = Fake()
+        Run(f, True, "camera", "set", "se7c432mw", "--transport", "hpp", "--cloud-serial", "SE7SERIAL")
+        Dim id As String = f.EnqueueBatch(FakeHppCloud.XmlItem("SE7SERIAL", "VMD"), FakeHppCloud.XmlItem("FOREIGN01", "VMD"))
+        Dim r = Run(f, True, "hpp", "events", "--seconds", "5", "--raw")
+        Assert.Equal(0, r.Code)
+        Assert.Contains("SE7SERIAL  format=XML  type=VMD  ch=1", r.Output)
+        Assert.Contains("EventNotificationAlert", r.Output)            ' --raw
+        Assert.DoesNotContain("FOREIGN01  format", r.Output)
+        Assert.Empty(f.ConfirmedBatches)                                 ' تشخيص لا يستهلك الرسائل
+        Assert.Equal(1, f.PendingBatches())
+        Assert.Contains("""subMode"":""list""", f.Subscriptions.Single())
+        Assert.Contains("SE7SERIAL", f.Subscriptions.Single())
+        Assert.Contains("Hpp.Events", IO.File.ReadAllText(IO.Path.Combine(_dir, "audit-admin.log")))
+    End Sub
+
+    <Fact>
+    Public Sub HppEvents_ExplainsAConcurrentPuller()
+        Dim f As FakeHppCloud = Fake()
+        Run(f, True, "camera", "set", "se7c432mw", "--transport", "hpp", "--cloud-serial", "SE7SERIAL")
+        f.MessagesCode = "LAP068001"
+        Dim r = Run(f, True, "hpp", "events", "--seconds", "5")
+        Assert.Equal(0, r.Code)
+        Assert.Contains("LAP068001", r.Output)
+        Assert.Contains("أوقف الخدمة", r.Output)
+    End Sub
+
+    <Fact>
+    Public Sub CameraSet_WarnsWhenTheSerialLooksLikeTheFullDeviceSerial()
+        Dim r = Run(Fake(), True, "camera", "set", "se7c432mw", "--transport", "hpp", "--cloud-serial", "DS-2SE7C432MW-AEB20240101AAWRQ01728482")
+        Assert.Equal(0, r.Code)
+        Assert.Contains("ليس بصيغة الدليل", r.Output)
+        Dim ok = Run(Fake(), True, "camera", "set", "se7c432mw", "--transport", "hpp", "--cloud-serial", "Q01728482")
+        Assert.DoesNotContain("ليس بصيغة الدليل", ok.Output)
+    End Sub
+
+    <Fact>
+    Public Sub Validator_WarnsOnNonGuideSerialFormat()
+        Dim o As New GatewayOptions()
+        o.Hpp.Enabled = True
+        Dim r As ValidationReport = Check(o, KeysEnv(), Relay("DS-2DE7232IW-AE2021"))
+        Assert.True(r.IsOk, String.Join("; ", r.Violations))
+        Assert.Contains(r.Warnings, Function(w) w.Contains("ليس بصيغة الدليل"))
+        Assert.DoesNotContain(Check(o, KeysEnv(), Relay("Q01728482")).Warnings, Function(w) w.Contains("ليس بصيغة الدليل"))
+    End Sub
+
+    <Fact>
     Public Sub HppCheck_WithNoRelayCameras_SaysSo()
         Dim r = Run(Fake(), True, "hpp", "check")
         Assert.Equal(1, r.Code)

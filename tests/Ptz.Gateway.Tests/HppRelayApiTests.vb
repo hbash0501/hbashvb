@@ -352,6 +352,71 @@ Public Class HppRelayApiTests
         End Using
     End Sub
 
+    Private Shared Function Alarms(h As Harness, t As String) As List(Of AlarmDto)
+        Return Harness.Read(Of AlarmListDto)(h.Send("GET", "/api/v1/alarms?limit=100", token:=t)).Items
+    End Function
+
+    <Fact>
+    Public Sub CameraOwnAlarms_ArriveThroughTheCloud_AsDeviceAlarmsOnTheRightCamera()
+        Using h As Harness = NewHarness()
+            WaitSeOnline(h)
+            GwWait.WaitFor(Function() h.Svc.Cameras.EventPump IsNot Nothing AndAlso h.Svc.Cameras.EventPump.IsSubscribed)
+            Assert.True(h.Svc.Cameras.EventPump.IsSubscribed)
+            Dim inner As String = "<DetectionRegionList><DetectionRegionEntry><detectionTarget>human</detectionTarget><TargetRect><X>0.1</X><Y>0.1</Y><width>0.2</width><height>0.2</height></TargetRect></DetectionRegionEntry></DetectionRegionList>"
+            Dim id As String = h.HppFake.EnqueueBatch(FakeHppCloud.XmlItem(Harness.HppSerial, "fielddetection", inner), FakeHppCloud.XmlItem("FOREIGN01", "VMD"))
+            GwWait.WaitFor(Function() h.HppFake.ConfirmedBatches.Contains(id), 10)
+            Dim t As String = h.Token("sup")
+            Dim list As List(Of AlarmDto) = Alarms(h, t)
+            Dim a As AlarmDto = list.Single(Function(x) x.Kind = "Device:fielddetection")
+            Assert.Equal("se7c432mw", a.CameraId)
+            Assert.Equal("critical", a.Severity.ToLowerInvariant())
+            Assert.Contains("تسلل", a.Message)
+            Assert.Contains("شخص", a.Message)
+            Assert.Equal(0.2, a.X, 3)
+            Assert.DoesNotContain(list, Function(x) x.Kind = "Device:VMD")    ' جهاز آخر في الحساب
+            Assert.Empty(h.HppFake.Violations)
+        End Using
+    End Sub
+
+    <Fact>
+    Public Sub DeviceOfflineAndOnlineEvents_DriveCameraHealth_AndOnlineWakesRecoveryAtOnce()
+        Dim old As Double = CameraHost.RelayRecoveryIntervalSeconds
+        CameraHost.RelayRecoveryIntervalSeconds = 2           ' بعد انقطاع معلَن تصبح الدورة 12 ث
+        Try
+            Using h As Harness = NewHarness()
+                WaitSeOnline(h)
+                GwWait.WaitFor(Function() h.Svc.Cameras.EventPump IsNot Nothing AndAlso h.Svc.Cameras.EventPump.IsSubscribed)
+                h.HppFake.Devices(Harness.HppSerial).Online = False
+                h.HppFake.EnqueueBatch(FakeHppCloud.JsonItem(Harness.HppSerial, "deviceoffline"))
+                GwWait.WaitFor(Function() Not h.Svc.Cameras.Find("se7c432mw").Online, 10)
+                Assert.False(h.Svc.Cameras.Find("se7c432mw").Online)
+                Assert.Contains(Alarms(h, h.Token("sup")), Function(x) x.Kind = "System" AndAlso x.Message.Contains("انقطعت"))
+                Threading.Thread.Sleep(3000)                    ' الاستعادة الآن في دورتها البطيئة (12 ث)
+                Assert.False(h.Svc.Cameras.Find("se7c432mw").Online)
+                h.HppFake.Devices(Harness.HppSerial).Online = True
+                Dim sw As Diagnostics.Stopwatch = Diagnostics.Stopwatch.StartNew()
+                h.HppFake.EnqueueBatch(FakeHppCloud.JsonItem(Harness.HppSerial, "deviceonline"))
+                GwWait.WaitFor(Function() h.Svc.Cameras.Find("se7c432mw").Online, 15)
+                Assert.True(h.Svc.Cameras.Find("se7c432mw").Online)
+                Assert.True(sw.Elapsed < TimeSpan.FromSeconds(5), "حدث العودة يوقظ الاستعادة فوراً: " & sw.Elapsed.ToString())
+            End Using
+        Finally
+            CameraHost.RelayRecoveryIntervalSeconds = old
+        End Try
+    End Sub
+
+    <Fact>
+    Public Sub EventsDisabled_NoSubscriptionIsMade()
+        Dim fake As New FakeHppCloud(New TestClock())
+        Using h As New Harness(Sub(o) o.Hpp.Events = False, False, 0, fake)
+            WaitSeOnline(h)
+            Threading.Thread.Sleep(500)
+            Assert.Null(h.Svc.Cameras.EventPump)
+            Assert.Empty(fake.Subscriptions)
+            Assert.Equal(0, fake.MessagesCalls)
+        End Using
+    End Sub
+
     <Fact>
     Public Sub RelayCamera_WithoutAttachedCloud_FailsFast_InsteadOfFallingBackToLan()
         Using h As Harness = NewHarness()

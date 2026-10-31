@@ -123,6 +123,18 @@ Namespace Models
             Return If(t = CameraTransport.HikPartnerPro, "hpp", "lan")
         End Function
 
+        ''' <summary>
+        ''' هل يطابق الصيغة التي يذكرها الدليل للرقم التسلسلي السحابي (1–9 حروف/أرقام، مثل Q01728482)؟ ليس شرطاً صارماً
+        ''' (قد تختلف أجهزة)، بل يُستعمل للتحذير من خطأ شائع: إدخال الرقم الكامل من واجهة الكاميرا بدل الرقم السحابي القصير.
+        ''' </summary>
+        Public Shared Function LooksLikeGuideSerial(serial As String) As Boolean
+            If String.IsNullOrEmpty(serial) OrElse serial.Length > 9 Then Return False
+            For Each ch As Char In serial
+                If Not Char.IsAsciiLetterOrDigit(ch) Then Return False
+            Next
+            Return True
+        End Function
+
         ''' <summary>الرقم التسلسلي السحابي: حروف وأرقام وشرطتان فقط (يُرسَل في ترويسة طلب فلا يجوز أي محرف تحكمي).</summary>
         Public Shared Function IsValidCloudSerial(serial As String) As Boolean
             If String.IsNullOrEmpty(serial) OrElse serial.Length > 64 Then Return False
